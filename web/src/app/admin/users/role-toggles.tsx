@@ -21,27 +21,29 @@ export function RoleToggles({
   const [isPending, startTransition] = useTransition();
 
   return (
-    <div className="flex flex-wrap gap-3">
+    <div className="flex flex-wrap gap-1.5">
       {ALL_ROLES.map((role) => {
         const checked = roles.includes(role);
         return (
-          <label
+          <button
             key={role}
-            className="flex items-center gap-1.5 text-xs text-zinc-700 dark:text-zinc-300"
+            type="button"
+            disabled={isPending}
+            aria-pressed={checked}
+            onClick={() => {
+              const next = !checked;
+              startTransition(async () => {
+                await setUserRole(userId, role, next);
+              });
+            }}
+            className={`h-[28px] rounded-full border px-2.5 text-xs font-medium transition-colors disabled:opacity-60 ${
+              checked
+                ? "border-primary bg-primary/10 text-primary-hover"
+                : "border-border bg-white text-muted hover:bg-black/[.02]"
+            }`}
           >
-            <input
-              type="checkbox"
-              checked={checked}
-              disabled={isPending}
-              onChange={(e) => {
-                const next = e.target.checked;
-                startTransition(async () => {
-                  await setUserRole(userId, role, next);
-                });
-              }}
-            />
             {role}
-          </label>
+          </button>
         );
       })}
     </div>

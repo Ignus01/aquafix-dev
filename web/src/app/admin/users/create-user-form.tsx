@@ -6,7 +6,7 @@ import { createUser, type CreateUserState } from "./actions";
 const ROLES = ["system_admin", "admin", "user", "viewer"] as const;
 
 const inputClass =
-  "rounded-md border border-black/[.12] bg-transparent px-3 py-2 text-sm outline-none focus:border-zinc-950 dark:border-white/[.18] dark:focus:border-zinc-50";
+  "h-[42px] rounded-control border border-border bg-white px-3 text-sm text-ink outline-none transition-colors focus:border-primary";
 
 const initialState: CreateUserState = { error: null, success: false };
 
@@ -18,15 +18,15 @@ export default function CreateUserForm() {
 
   return (
     <form action={formAction} className="grid gap-4 sm:grid-cols-2">
-      <div className="flex flex-col gap-1">
-        <label className="text-sm font-medium" htmlFor="username">
+      <div className="flex flex-col gap-1.5">
+        <label className="text-xs font-medium text-muted" htmlFor="username">
           Username
         </label>
         <input id="username" name="username" required className={inputClass} />
       </div>
 
-      <div className="flex flex-col gap-1">
-        <label className="text-sm font-medium" htmlFor="email">
+      <div className="flex flex-col gap-1.5">
+        <label className="text-xs font-medium text-muted" htmlFor="email">
           Email
         </label>
         <input
@@ -38,15 +38,15 @@ export default function CreateUserForm() {
         />
       </div>
 
-      <div className="flex flex-col gap-1">
-        <label className="text-sm font-medium" htmlFor="phone">
+      <div className="flex flex-col gap-1.5">
+        <label className="text-xs font-medium text-muted" htmlFor="phone">
           Phone (optional)
         </label>
         <input id="phone" name="phone" className={inputClass} />
       </div>
 
-      <div className="flex flex-col gap-1">
-        <label className="text-sm font-medium" htmlFor="password">
+      <div className="flex flex-col gap-1.5">
+        <label className="text-xs font-medium text-muted" htmlFor="password">
           Temporary password
         </label>
         <input
@@ -59,12 +59,15 @@ export default function CreateUserForm() {
         />
       </div>
 
-      <div className="col-span-full flex flex-col gap-1">
-        <span className="text-sm font-medium">Roles</span>
-        <div className="flex flex-wrap gap-4">
+      <div className="col-span-full flex flex-col gap-1.5">
+        <span className="text-xs font-medium text-muted">Roles</span>
+        <div className="flex flex-wrap gap-2">
           {ROLES.map((role) => (
-            <label key={role} className="flex items-center gap-1.5 text-sm">
-              <input type="checkbox" name="roles" value={role} />
+            <label
+              key={role}
+              className="flex h-[34px] cursor-pointer items-center gap-1.5 rounded-full border border-border bg-white px-3 text-[13px] font-medium text-ink transition-colors has-checked:border-primary has-checked:bg-primary/10 has-checked:text-primary-hover"
+            >
+              <input type="checkbox" name="roles" value={role} className="sr-only" />
               {role}
             </label>
           ))}
@@ -72,12 +75,12 @@ export default function CreateUserForm() {
       </div>
 
       {state.error && (
-        <p className="col-span-full text-sm text-red-600 dark:text-red-400">
+        <p className="col-span-full border-l-2 border-danger py-1 pl-3 text-[13px] text-danger">
           {state.error}
         </p>
       )}
       {state.success && (
-        <p className="col-span-full text-sm text-green-600 dark:text-green-400">
+        <p className="col-span-full border-l-2 border-success py-1 pl-3 text-[13px] text-success">
           User created.
         </p>
       )}
@@ -86,7 +89,7 @@ export default function CreateUserForm() {
         <button
           type="submit"
           disabled={pending}
-          className="rounded-full bg-foreground px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-[#383838] disabled:opacity-60 dark:hover:bg-[#ccc]"
+          className="h-[40px] rounded-control bg-primary px-4 text-sm font-semibold text-white transition-colors hover:bg-primary-hover disabled:opacity-60"
         >
           {pending ? "Creating…" : "Create user"}
         </button>

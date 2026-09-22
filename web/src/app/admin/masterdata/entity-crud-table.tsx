@@ -1,6 +1,10 @@
 "use client";
 
-import { useState, useTransition, type ReactNode } from "react";
+import { useMemo, useState, useTransition, type ReactNode } from "react";
+import { Drawer } from "./drawer";
+import { Switch } from "../switch";
+import { StatusBadge } from "../status-badge";
+import { SearchIcon, PlusIcon } from "../icons";
 
 export type FieldType = "text" | "number" | "boolean" | "select" | "date";
 
@@ -19,6 +23,12 @@ export interface FieldConfig {
   // Value pre-filled in the Add form, matching the column's DB default
   // (e.g. "true" for `active`). Ignored once editing an existing row.
   defaultValue?: string;
+  // Render as a coloured status pill instead of Yes/No (boolean fields only).
+  statusBadge?: boolean;
+  // Render in monospace, muted, small (asset codes / legacy UIDs).
+  mono?: boolean;
+  // Groups consecutive fields under an uppercase section heading in the drawer form.
+  section?: string;
 }
 
 export interface EntityCrudTableProps {
@@ -35,6 +45,7 @@ export interface EntityCrudTableProps {
   ) => Promise<{ error: string | null }>;
   onDelete: (id: string) => Promise<{ error: string | null }>;
   emptyLabel?: string;
+  itemLabel: string;
 }
 
 function initialValues(
@@ -57,7 +68,7 @@ function initialValues(
 }
 
 const inputClass =
-  "w-full rounded-md border border-black/[.12] bg-transparent px-2.5 py-1.5 text-sm outline-none focus:border-zinc-950 dark:border-white/[.18] dark:focus:border-zinc-50";
+  "w-full rounded-control border border-border bg-white px-3 text-sm text-ink outline-none transition-colors placeholder:text-muted focus:border-primary h-[42px]";
 
 function Field({
   field,
@@ -70,14 +81,7 @@ function Field({
 }) {
   if (field.type === "boolean") {
     return (
-      <label className="flex items-center gap-1.5 text-sm">
-        <input
-          type="checkbox"
-          checked={value === "true"}
-          onChange={(e) => onChange(String(e.target.checked))}
-        />
-        {field.label}
-      </label>
+      <Switch checked={value === "true"} onChange={(v) => onChange(String(v))} />
     );
   }
   if (field.type === "select") {
@@ -108,6 +112,61 @@ function Field({
   );
 }
 
+function FormFields({
+  fields,
+  values,
+  onChange,
+}: {
+  fields: FieldConfig[];
+  values: Record<string, string>;
+  onChange: (key: string, v: string) => void;
+}) {
+  const sectionStarts = fields.map(
+    (f, i) => f.section !== undefined && f.section !== fields[i - 1]?.section,
+  );
+
+  return (
+    <div className="flex flex-col gap-4">
+      {fields.map((f, i) => {
+        const showSection = sectionStarts[i];
+        return (
+          <div key={f.key} className="flex flex-col gap-1.5">
+            {showSection && (
+              <div className="mt-2 mb-1 text-[11px] font-semibold tracking-wider text-muted uppercase first:mt-0">
+                {f.section}
+              </div>
+            )}
+            {f.type !== "boolean" && (
+              <label className="text-xs font-medium text-muted">
+                {f.label}
+              </label>
+            )}
+            <Field
+              field={f}
+              value={values[f.key] ?? ""}
+              onChange={(v) => onChange(f.key, v)}
+            />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function renderCell(f: FieldConfig, row: Record<string, unknown>) {
+  const raw = row[f.key];
+  if (f.render) return f.render(String(raw ?? ""), row);
+  if (f.type === "boolean") {
+    if (f.statusBadge) return <StatusBadge active={Boolean(raw)} />;
+    return <Switch checked={Boolean(raw)} onChange={() => {}} />;
+  }
+  const text = raw === undefined || raw === null || raw === "" ? "—" : String(raw);
+  if (f.mono) {
+    return <span className="font-mono text-[13px] text-muted">{text}</span>;
+  }
+  return text;
+}
+
 export function EntityCrudTable({
   fields,
   rows,
@@ -119,209 +178,175 @@ export function EntityCrudTable({
   onUpdate,
   onDelete,
   emptyLabel,
+  itemLabel,
 }: EntityCrudTableProps) {
-  const [adding, setAdding] = useState(false);
   const addFields = fields.filter((f) => !f.hideInForm && !f.editOnly);
   const editFields = fields.filter((f) => !f.hideInForm);
+  const hasActiveField = fields.some((f) => f.key === "active" && f.statusBadge);
 
-  const [addValues, setAddValues] = useState<Record<string, string>>(() =>
-    initialValues(addFields),
-  );
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editValues, setEditValues] = useState<Record<string, string>>({});
+  const [query, setQuery] = useState("");
+  const [activeOnly, setActiveOnly] = useState(false);
+
+  const [drawer, setDrawer] = useState<
+    | { mode: "add"; values: Record<string, string> }
+    | { mode: "edit"; id: string; values: Record<string, string> }
+    | null
+  >(null);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
-  function startEdit(row: Record<string, unknown>) {
-    setEditingId(getId(row));
-    setEditValues(initialValues(editFields, row));
+  const filteredRows = useMemo(() => {
+    let list = rows;
+    if (activeOnly) list = list.filter((r) => Boolean(r.active));
+    if (query.trim()) {
+      const q = query.trim().toLowerCase();
+      list = list.filter((r) =>
+        fields.some((f) => {
+          if (f.type === "boolean") return false;
+          return String(r[f.key] ?? "").toLowerCase().includes(q);
+        }),
+      );
+    }
+    return list;
+  }, [rows, query, activeOnly, fields]);
+
+  function openAdd() {
     setError(null);
+    setDrawer({ mode: "add", values: initialValues(addFields) });
   }
 
-  function submitAdd() {
+  function openEdit(row: Record<string, unknown>) {
     setError(null);
-    startTransition(async () => {
-      const res = await onCreate(addValues);
-      if (res.error) setError(res.error);
-      else {
-        setAdding(false);
-        setAddValues(initialValues(addFields));
-      }
-    });
+    setDrawer({ mode: "edit", id: getId(row), values: initialValues(editFields, row) });
   }
 
-  function submitEdit() {
-    if (!editingId) return;
+  function setFieldValue(key: string, v: string) {
+    setDrawer((d) => (d ? { ...d, values: { ...d.values, [key]: v } } : d));
+  }
+
+  function submit() {
+    if (!drawer) return;
     setError(null);
     startTransition(async () => {
-      const res = await onUpdate(editingId, editValues);
+      const res =
+        drawer.mode === "add"
+          ? await onCreate(drawer.values)
+          : await onUpdate(drawer.id, drawer.values);
       if (res.error) setError(res.error);
-      else setEditingId(null);
+      else setDrawer(null);
     });
   }
 
   function handleDelete(row: Record<string, unknown>) {
-    if (!confirm("Delete this record? This cannot be undone.")) return;
-    setError(null);
+    if (!confirm(`Delete this ${itemLabel.toLowerCase()}? This cannot be undone.`)) return;
     startTransition(async () => {
-      const res = await onDelete(getId(row));
-      if (res.error) setError(res.error);
+      await onDelete(getId(row));
     });
   }
 
   return (
     <div className="flex flex-col gap-4">
-      {error && (
-        <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/60 dark:text-red-300">
-          {error}
-        </p>
-      )}
+      <div className="flex flex-wrap items-center gap-2.5">
+        <label className="flex h-[38px] w-72 items-center gap-2 rounded-full border border-border bg-white px-3 text-muted">
+          <SearchIcon className="h-4 w-4 shrink-0" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={`Search ${itemLabel.toLowerCase()}s…`}
+            className="w-full bg-transparent text-sm text-ink outline-none placeholder:text-muted"
+          />
+        </label>
 
-      {canCreate && (
-        <div>
-          {!adding ? (
-            <button
-              onClick={() => setAdding(true)}
-              className="rounded-full bg-foreground px-4 py-1.5 text-sm font-medium text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc]"
-            >
-              + Add
-            </button>
-          ) : (
-            <div className="rounded-lg border border-black/[.08] p-4 dark:border-white/[.145]">
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {addFields.map((f) => (
-                  <div key={f.key} className="flex flex-col gap-1">
-                    {f.type !== "boolean" && (
-                      <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
-                        {f.label}
-                      </label>
-                    )}
-                    <Field
-                      field={f}
-                      value={addValues[f.key] ?? ""}
-                      onChange={(v) =>
-                        setAddValues((s) => ({ ...s, [f.key]: v }))
-                      }
-                    />
-                  </div>
-                ))}
-              </div>
-              <div className="mt-3 flex gap-2">
-                <button
-                  disabled={isPending}
-                  onClick={submitAdd}
-                  className="rounded-full bg-foreground px-4 py-1.5 text-sm font-medium text-background disabled:opacity-60"
-                >
-                  {isPending ? "Saving…" : "Save"}
-                </button>
-                <button
-                  disabled={isPending}
-                  onClick={() => {
-                    setAdding(false);
-                    setError(null);
-                  }}
-                  className="rounded-full border border-black/[.12] px-4 py-1.5 text-sm dark:border-white/[.18]"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
+        {hasActiveField && (
+          <button
+            type="button"
+            onClick={() => setActiveOnly((v) => !v)}
+            className={`flex h-[38px] items-center gap-1.5 rounded-full border px-3.5 text-[13px] font-medium transition-colors ${
+              activeOnly
+                ? "border-primary bg-primary/10 text-primary-hover"
+                : "border-border bg-white text-ink hover:bg-black/[.02]"
+            }`}
+          >
+            Active only
+          </button>
+        )}
 
-      <div className="overflow-x-auto rounded-lg border border-black/[.08] dark:border-white/[.145]">
+        <div className="flex-1" />
+
+        {canCreate && (
+          <button
+            onClick={openAdd}
+            className="flex h-[38px] items-center gap-2 rounded-control bg-primary px-4 text-sm font-semibold text-white transition-colors hover:bg-primary-hover"
+          >
+            <PlusIcon className="h-4 w-4" />
+            New {itemLabel.toLowerCase()}
+          </button>
+        )}
+      </div>
+
+      <div className="overflow-x-auto rounded-card border border-border bg-card">
         <table className="w-full text-sm">
-          <thead className="bg-zinc-50 text-left dark:bg-zinc-900">
-            <tr>
+          <thead>
+            <tr className="bg-table-head">
               {fields.map((f) => (
-                <th key={f.key} className="px-3 py-2 font-medium whitespace-nowrap">
+                <th
+                  key={f.key}
+                  className="px-4 py-2.5 text-left text-[11px] font-semibold tracking-wider text-muted uppercase whitespace-nowrap"
+                >
                   {f.label}
                 </th>
               ))}
               {(canUpdate || canDelete) && (
-                <th className="px-3 py-2 font-medium">Actions</th>
+                <th className="px-4 py-2.5 text-left text-[11px] font-semibold tracking-wider text-muted uppercase">
+                  Actions
+                </th>
               )}
             </tr>
           </thead>
           <tbody>
-            {rows.length === 0 && (
+            {filteredRows.length === 0 && (
               <tr>
                 <td
                   colSpan={fields.length + 1}
-                  className="px-3 py-6 text-center text-zinc-500"
+                  className="px-4 py-8 text-center text-muted"
                 >
-                  {emptyLabel ?? "No records yet."}
+                  {rows.length === 0 ? (emptyLabel ?? "No records yet.") : "No matches."}
                 </td>
               </tr>
             )}
-            {rows.map((row) => {
+            {filteredRows.map((row) => {
               const id = getId(row);
-              const isEditing = editingId === id;
               return (
                 <tr
                   key={id}
-                  className="border-t border-black/[.08] dark:border-white/[.145]"
+                  className="h-[50px] border-t border-border transition-colors hover:bg-row-hover"
                 >
                   {fields.map((f) => (
-                    <td key={f.key} className="px-3 py-2 align-top">
-                      {isEditing && !f.hideInForm ? (
-                        <Field
-                          field={f}
-                          value={editValues[f.key] ?? ""}
-                          onChange={(v) =>
-                            setEditValues((s) => ({ ...s, [f.key]: v }))
-                          }
-                        />
-                      ) : f.render ? (
-                        f.render(String(row[f.key] ?? ""), row)
-                      ) : f.type === "boolean" ? (
-                        row[f.key] ? "Yes" : "No"
-                      ) : (
-                        String(row[f.key] ?? "") || "—"
-                      )}
+                    <td key={f.key} className="px-4 text-ink">
+                      {renderCell(f, row)}
                     </td>
                   ))}
                   {(canUpdate || canDelete) && (
-                    <td className="px-3 py-2 align-top whitespace-nowrap">
-                      {isEditing ? (
-                        <div className="flex gap-3">
+                    <td className="px-4 whitespace-nowrap">
+                      <div className="flex gap-4">
+                        {canUpdate && (
+                          <button
+                            onClick={() => openEdit(row)}
+                            className="text-xs font-semibold text-primary hover:text-primary-hover"
+                          >
+                            Edit
+                          </button>
+                        )}
+                        {canDelete && (
                           <button
                             disabled={isPending}
-                            onClick={submitEdit}
-                            className="text-xs font-medium underline underline-offset-2"
+                            onClick={() => handleDelete(row)}
+                            className="text-xs font-semibold text-danger hover:opacity-80"
                           >
-                            Save
+                            Delete
                           </button>
-                          <button
-                            disabled={isPending}
-                            onClick={() => setEditingId(null)}
-                            className="text-xs text-zinc-500 underline underline-offset-2"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="flex gap-3">
-                          {canUpdate && (
-                            <button
-                              onClick={() => startEdit(row)}
-                              className="text-xs font-medium underline underline-offset-2"
-                            >
-                              Edit
-                            </button>
-                          )}
-                          {canDelete && (
-                            <button
-                              disabled={isPending}
-                              onClick={() => handleDelete(row)}
-                              className="text-xs text-red-600 underline underline-offset-2 dark:text-red-400"
-                            >
-                              Delete
-                            </button>
-                          )}
-                        </div>
-                      )}
+                        )}
+                      </div>
                     </td>
                   )}
                 </tr>
@@ -330,6 +355,43 @@ export function EntityCrudTable({
           </tbody>
         </table>
       </div>
+
+      <Drawer
+        open={drawer !== null}
+        title={drawer?.mode === "edit" ? `Edit ${itemLabel}` : `New ${itemLabel}`}
+        onClose={() => setDrawer(null)}
+        footer={
+          <>
+            <button
+              disabled={isPending}
+              onClick={() => setDrawer(null)}
+              className="h-[40px] rounded-control border border-border bg-white px-4 text-sm font-medium text-ink transition-colors hover:bg-black/[.02] disabled:opacity-60"
+            >
+              Cancel
+            </button>
+            <button
+              disabled={isPending}
+              onClick={submit}
+              className="h-[40px] rounded-control bg-primary px-4 text-sm font-semibold text-white transition-colors hover:bg-primary-hover disabled:opacity-60"
+            >
+              {isPending ? "Saving…" : "Save"}
+            </button>
+          </>
+        }
+      >
+        {error && (
+          <p className="mb-4 border-l-2 border-danger py-1 pl-3 text-[13px] text-danger">
+            {error}
+          </p>
+        )}
+        {drawer && (
+          <FormFields
+            fields={drawer.mode === "add" ? addFields : editFields}
+            values={drawer.values}
+            onChange={setFieldValue}
+          />
+        )}
+      </Drawer>
     </div>
   );
 }

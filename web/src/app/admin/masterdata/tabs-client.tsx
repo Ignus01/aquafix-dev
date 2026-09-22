@@ -15,16 +15,18 @@ import type {
 } from "@/lib/masterdata/types";
 import * as actions from "./actions";
 
-const TABS = [
-  { key: "asset", label: "Assets" },
-  { key: "asset_type", label: "Asset Types" },
-  { key: "location", label: "Locations" },
-  { key: "organisation", label: "Organisation" },
-  { key: "region", label: "Region" },
-  { key: "grading", label: "Grading" },
-] as const;
+function makeTabs(counts: Record<string, number>) {
+  return [
+    { key: "asset", label: "Assets", count: counts.asset },
+    { key: "asset_type", label: "Asset Types", count: counts.asset_type },
+    { key: "location", label: "Locations", count: counts.location },
+    { key: "organisation", label: "Organisation", count: counts.organisation },
+    { key: "region", label: "Region", count: counts.region },
+    { key: "grading", label: "Grading", count: counts.grading },
+  ] as const;
+}
 
-type TabKey = (typeof TABS)[number]["key"];
+type TabKey = ReturnType<typeof makeTabs>[number]["key"];
 
 function Permissioned({
   roles,
@@ -37,7 +39,7 @@ function Permissioned({
 }) {
   if (!can(roles, entity, "read")) {
     return (
-      <p className="rounded-lg border border-black/[.08] px-4 py-6 text-center text-sm text-zinc-500 dark:border-white/[.145]">
+      <p className="rounded-card border border-border bg-card px-4 py-8 text-center text-sm text-muted">
         You don&apos;t have permission to view this data.
       </p>
     );
@@ -48,6 +50,22 @@ function Permissioned({
     canDelete: can(roles, entity, "delete"),
   });
 }
+
+const legacyUidField: FieldConfig = {
+  key: "legacy_uid",
+  label: "UID",
+  type: "number",
+  hideInForm: true,
+  mono: true,
+};
+
+const activeField: FieldConfig = {
+  key: "active",
+  label: "Active",
+  type: "boolean",
+  defaultValue: "true",
+  statusBadge: true,
+};
 
 export function MasterdataTabs({
   roles,
@@ -70,6 +88,15 @@ export function MasterdataTabs({
 }) {
   const [tab, setTab] = useState<TabKey>("asset");
 
+  const tabs = makeTabs({
+    asset: assets.length,
+    asset_type: assetTypes.length,
+    location: locations.length,
+    organisation: organisations.length,
+    region: regions.length,
+    grading: gradings.length,
+  });
+
   const regionOptions = regions
     .filter((r) => r.active)
     .map((r) => ({ value: r.id, label: r.name }));
@@ -88,19 +115,28 @@ export function MasterdataTabs({
   }));
 
   return (
-    <div>
-      <div className="mb-6 flex flex-wrap gap-1 border-b border-black/[.08] dark:border-white/[.145]">
-        {TABS.map((t) => (
+    <div className="px-8 pb-10">
+      <div className="mb-6 flex flex-wrap gap-1 border-b border-border">
+        {tabs.map((t) => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
-            className={`px-4 py-2 text-sm font-medium transition-colors ${
+            className={`flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-semibold transition-colors ${
               tab === t.key
-                ? "border-b-2 border-zinc-950 text-zinc-950 dark:border-zinc-50 dark:text-zinc-50"
-                : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-300"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted hover:text-ink"
             }`}
           >
             {t.label}
+            <span
+              className={`rounded-full px-2 py-0.5 text-xs ${
+                tab === t.key
+                  ? "bg-primary/10 text-primary"
+                  : "bg-black/[.04] text-muted"
+              }`}
+            >
+              {t.count}
+            </span>
           </button>
         ))}
       </div>
@@ -112,15 +148,16 @@ export function MasterdataTabs({
               rows={assets}
               getId={(r) => r.id as string}
               {...perms}
+              itemLabel="Asset"
               emptyLabel="No assets yet."
               onCreate={actions.createAsset}
               onUpdate={actions.updateAsset}
               onDelete={actions.deleteAsset}
               fields={
                 [
-                  { key: "legacy_uid", label: "#", type: "number", hideInForm: true },
-                  { key: "name", label: "Name", type: "text", required: true },
-                  { key: "code", label: "Code", type: "text", required: true },
+                  legacyUidField,
+                  { key: "name", label: "Name", type: "text", required: true, section: "Details" },
+                  { key: "code", label: "Code", type: "text", required: true, mono: true },
                   {
                     key: "asset_type_id",
                     label: "Asset Type",
@@ -140,13 +177,18 @@ export function MasterdataTabs({
                       (row.location as { name: string } | null)?.name ?? "—",
                   },
                   { key: "purchase_date", label: "Purchase date", type: "date" },
-                  { key: "has_service_plan", label: "Has service plan", type: "boolean" },
+                  {
+                    key: "has_service_plan",
+                    label: "Has service plan",
+                    type: "boolean",
+                    section: "Service plan",
+                  },
                   {
                     key: "service_interval",
                     label: "Service interval (yrs)",
                     type: "number",
                   },
-                  { key: "active", label: "Active", type: "boolean", defaultValue: "true" },
+                  { ...activeField, section: "Status" },
                 ] satisfies FieldConfig[]
               }
             />
@@ -161,13 +203,14 @@ export function MasterdataTabs({
               rows={assetTypes}
               getId={(r) => r.id as string}
               {...perms}
+              itemLabel="Asset Type"
               emptyLabel="No asset types yet."
               onCreate={actions.createAssetType}
               onUpdate={actions.updateAssetType}
               onDelete={actions.deleteAssetType}
               fields={
                 [
-                  { key: "legacy_uid", label: "#", type: "number", hideInForm: true },
+                  legacyUidField,
                   { key: "name", label: "Name", type: "text", required: true },
                   {
                     key: "classification",
@@ -180,7 +223,7 @@ export function MasterdataTabs({
                       { value: "OTHER", label: "OTHER" },
                     ],
                   },
-                  { key: "active", label: "Active", type: "boolean", defaultValue: "true" },
+                  activeField,
                 ] satisfies FieldConfig[]
               }
             />
@@ -195,14 +238,15 @@ export function MasterdataTabs({
               rows={locations}
               getId={(r) => r.id as string}
               {...perms}
+              itemLabel="Location"
               emptyLabel="No locations yet."
               onCreate={actions.createLocation}
               onUpdate={actions.updateLocation}
               onDelete={actions.deleteLocation}
               fields={
                 [
-                  { key: "legacy_uid", label: "#", type: "number", hideInForm: true },
-                  { key: "name", label: "Name", type: "text", required: true },
+                  legacyUidField,
+                  { key: "name", label: "Name", type: "text", required: true, section: "Details" },
                   {
                     key: "region_id",
                     label: "Region",
@@ -230,10 +274,11 @@ export function MasterdataTabs({
                       { value: "AUTO", label: "AUTO" },
                       { value: "MANUAL", label: "MANUAL" },
                     ],
+                    section: "Capabilities",
                   },
                   { key: "is_stock_manager", label: "Stock manager", type: "boolean", defaultValue: "true" },
                   { key: "is_asset_manager", label: "Asset manager", type: "boolean", defaultValue: "true" },
-                  { key: "active", label: "Active", type: "boolean", defaultValue: "true" },
+                  { ...activeField, section: "Status" },
                 ] satisfies FieldConfig[]
               }
             />
@@ -248,21 +293,22 @@ export function MasterdataTabs({
               rows={organisations}
               getId={(r) => r.id as string}
               {...perms}
+              itemLabel="Organisation"
               emptyLabel="No organisations yet."
               onCreate={actions.createOrganisation}
               onUpdate={actions.updateOrganisation}
               onDelete={actions.deleteOrganisation}
               fields={
                 [
-                  { key: "legacy_uid", label: "#", type: "number", hideInForm: true },
-                  { key: "name", label: "Name", type: "text", required: true },
-                  { key: "is_supplier", label: "Supplier", type: "boolean" },
+                  legacyUidField,
+                  { key: "name", label: "Name", type: "text", required: true, section: "Details" },
+                  { key: "is_supplier", label: "Supplier", type: "boolean", section: "Roles" },
                   {
                     key: "is_service_supplier",
                     label: "Service supplier",
                     type: "boolean",
                   },
-                  { key: "active", label: "Active", type: "boolean", defaultValue: "true" },
+                  { ...activeField, section: "Status" },
                 ] satisfies FieldConfig[]
               }
             />
@@ -277,15 +323,16 @@ export function MasterdataTabs({
               rows={regions}
               getId={(r) => r.id as string}
               {...perms}
+              itemLabel="Region"
               emptyLabel="No regions yet."
               onCreate={actions.createRegion}
               onUpdate={actions.updateRegion}
               onDelete={actions.deleteRegion}
               fields={
                 [
-                  { key: "legacy_uid", label: "#", type: "number", hideInForm: true },
+                  legacyUidField,
                   { key: "name", label: "Name", type: "text", required: true },
-                  { key: "active", label: "Active", type: "boolean", defaultValue: "true" },
+                  activeField,
                 ] satisfies FieldConfig[]
               }
             />
@@ -297,14 +344,15 @@ export function MasterdataTabs({
         <div className="flex flex-col gap-8">
           <Permissioned roles={roles} entity="colour_container">
             {(perms) => (
-              <div>
-                <h3 className="mb-2 text-sm font-semibold text-zinc-700 dark:text-zinc-300">
+              <div className="rounded-card border border-border bg-card p-5">
+                <h3 className="mb-4 text-[11px] font-semibold tracking-wider text-muted uppercase">
                   Colours (used by Grading)
                 </h3>
                 <EntityCrudTable
                   rows={colourContainers}
                   getId={(r) => r.id as string}
                   {...perms}
+                  itemLabel="Colour"
                   emptyLabel="No colours yet — add one before creating a Grading."
                   onCreate={actions.createColourContainer}
                   onUpdate={async () => ({ error: "Not editable — delete and re-create." })}
@@ -313,7 +361,7 @@ export function MasterdataTabs({
                     [
                       { key: "name", label: "Name", type: "text", required: true },
                       { key: "hex_colour", label: "Hex colour", type: "text" },
-                      { key: "class_name", label: "CSS class", type: "text" },
+                      { key: "class_name", label: "CSS class", type: "text", mono: true },
                     ] satisfies FieldConfig[]
                   }
                 />
@@ -323,21 +371,22 @@ export function MasterdataTabs({
 
           <Permissioned roles={roles} entity="grading">
             {(perms) => (
-              <div>
-                <h3 className="mb-2 text-sm font-semibold text-zinc-700 dark:text-zinc-300">
+              <div className="rounded-card border border-border bg-card p-5">
+                <h3 className="mb-4 text-[11px] font-semibold tracking-wider text-muted uppercase">
                   Gradings
                 </h3>
                 <EntityCrudTable
                   rows={gradings}
                   getId={(r) => r.id as string}
                   {...perms}
+                  itemLabel="Grading"
                   emptyLabel="No gradings yet."
                   onCreate={actions.createGrading}
                   onUpdate={actions.updateGrading}
                   onDelete={actions.deleteGrading}
                   fields={
                     [
-                      { key: "legacy_uid", label: "#", type: "number", hideInForm: true },
+                      legacyUidField,
                       { key: "name", label: "Name", type: "text", required: true },
                       {
                         key: "priority",
@@ -354,7 +403,7 @@ export function MasterdataTabs({
                         render: (_v, row) =>
                           (row.colour_container as { name: string } | null)?.name ?? "—",
                       },
-                      { key: "class_name", label: "CSS class (derived)", type: "text", hideInForm: true },
+                      { key: "class_name", label: "CSS class (derived)", type: "text", hideInForm: true, mono: true },
                     ] satisfies FieldConfig[]
                   }
                 />
