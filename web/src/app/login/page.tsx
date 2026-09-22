@@ -16,7 +16,7 @@ export default async function LoginPage({
         <p className="mb-6 text-sm text-zinc-600 dark:text-zinc-400">
           AquaFix master data administration
         </p>
-        <LoginForm next={next ?? "/admin/users"} />
+        <LoginForm next={next ?? "/admin/masterdata"} />
       </div>
     </div>
   );

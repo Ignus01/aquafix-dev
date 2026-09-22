@@ -44,7 +44,7 @@ export async function updateSession(request: NextRequest) {
 
   if (user && isLoginRoute) {
     const url = request.nextUrl.clone();
-    url.pathname = "/admin/users";
+    url.pathname = "/admin/masterdata";
     url.searchParams.delete("next");
     return NextResponse.redirect(url);
   }

@@ -21,9 +21,9 @@ export async function getCurrentUserRoles(): Promise<MasterdataRole[]> {
   return (data ?? []).map((row) => row.role as MasterdataRole);
 }
 
-// Redirects to /login (no session) or /admin/users (signed in, wrong role)
-// unless the caller holds one of `allowed`. Call at the top of a Server
-// Component or Server Action that must be gated.
+// Redirects to /login (no session) or /admin/unauthorized (signed in, wrong
+// role) unless the caller holds one of `allowed`. Call at the top of a
+// Server Component or Server Action that must be gated.
 export async function requireRole(
   allowed: MasterdataRole[],
 ): Promise<MasterdataRole[]> {
