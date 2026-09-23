@@ -20,6 +20,9 @@ const REFERENCED_MESSAGES: Record<string, string> = {
   "grading:inspection_rule": "This Grading has already been allocated to a Rule.",
   "incident_type:feedback":
     "This Incident Type is used by an inspection rule's feedback.",
+  "location:incident": "This Location is already linked to an Incident.",
+  // Mendix silently cleared the type on existing incidents; blocked instead.
+  "incident_type:incident": "This Incident Type is used by incidents, so it can't be deleted.",
 };
 
 export function friendlyError(error: DbError): string {

@@ -384,6 +384,18 @@ deno_version = 2
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"
 
+# Incident email notifications. JWT verification is done inside each function:
+# email-worker checks the Vault `email_worker_secret` the database sends, and
+# the two settings functions check the caller is a system_admin.
+[functions.email-worker]
+verify_jwt = false
+
+[functions.brevo-validate-key]
+verify_jwt = false
+
+[functions.brevo-send-test]
+verify_jwt = false
+
 [analytics]
 enabled = true
 port = 54327
