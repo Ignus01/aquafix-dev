@@ -1,8 +1,10 @@
 "use client";
 
-import { XIcon } from "../icons";
+import { XIcon } from "./icons";
 
-export function Drawer({
+// Centered dialog for popups opened from inside a Drawer (the Mendix
+// sub-popups: drop-down option, feedback, subscription).
+export function Modal({
   open,
   title,
   onClose,
@@ -18,13 +20,18 @@ export function Drawer({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
       <div
         className="absolute inset-0 bg-black/30"
         onClick={onClose}
         aria-hidden="true"
       />
-      <div className="relative flex h-full w-[560px] max-w-full flex-col bg-card shadow-2xl">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        className="relative flex max-h-full w-[480px] max-w-full flex-col rounded-card bg-card shadow-2xl"
+      >
         <div className="flex items-center justify-between border-b border-border px-6 py-4">
           <h2 className="text-base font-semibold text-ink">{title}</h2>
           <button
@@ -36,9 +43,9 @@ export function Drawer({
             <XIcon className="h-4 w-4" />
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto px-6 py-5">{children}</div>
+        <div className="overflow-y-auto px-6 py-5">{children}</div>
         {footer && (
-          <div className="sticky bottom-0 flex justify-end gap-2 border-t border-border bg-card px-6 py-4">
+          <div className="flex items-center justify-end gap-2 border-t border-border px-6 py-4">
             {footer}
           </div>
         )}

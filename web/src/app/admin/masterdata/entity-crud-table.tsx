@@ -1,10 +1,11 @@
 "use client";
 
 import { useMemo, useState, useTransition, type ReactNode } from "react";
-import { Drawer } from "./drawer";
+import { Drawer } from "../drawer";
 import { Switch } from "../switch";
 import { StatusBadge } from "../status-badge";
 import { SearchIcon, PlusIcon } from "../icons";
+import { inputClass } from "../ui";
 
 export type FieldType = "text" | "number" | "boolean" | "select" | "date";
 
@@ -38,7 +39,11 @@ export interface EntityCrudTableProps {
   canCreate: boolean;
   canUpdate: boolean;
   canDelete: boolean;
-  onCreate: (values: Record<string, string>) => Promise<{ error: string | null }>;
+  // Returning the new row's id lets renderDrawerExtra's saveFirst() keep the
+  // drawer open in edit mode after creating.
+  onCreate: (
+    values: Record<string, string>,
+  ) => Promise<{ error: string | null; id?: string }>;
   onUpdate: (
     id: string,
     values: Record<string, string>,
@@ -46,6 +51,20 @@ export interface EntityCrudTableProps {
   onDelete: (id: string) => Promise<{ error: string | null }>;
   emptyLabel?: string;
   itemLabel: string;
+  // Replaces the built-in add/edit drawer with the caller's own editor. The
+  // row action becomes "Edit" when canUpdate, otherwise "View".
+  customEditor?: {
+    onAdd: () => void;
+    onOpen: (row: Record<string, unknown>) => void;
+  };
+  // Extra content rendered below the built-in drawer form (e.g. a child grid).
+  // In add mode, saveFirst() creates the row and switches the drawer to edit
+  // mode, resolving to the new id (null on validation failure).
+  renderDrawerExtra?: (
+    ctx:
+      | { mode: "add"; saveFirst: () => Promise<string | null> }
+      | { mode: "edit"; id: string },
+  ) => ReactNode;
 }
 
 function initialValues(
@@ -67,9 +86,6 @@ function initialValues(
   return values;
 }
 
-const inputClass =
-  "w-full rounded-control border border-border bg-white px-3 text-sm text-ink outline-none transition-colors placeholder:text-muted focus:border-primary h-[42px]";
-
 function Field({
   field,
   value,
@@ -81,7 +97,11 @@ function Field({
 }) {
   if (field.type === "boolean") {
     return (
-      <Switch checked={value === "true"} onChange={(v) => onChange(String(v))} />
+      <Switch
+        label={field.label}
+        checked={value === "true"}
+        onChange={(v) => onChange(String(v))}
+      />
     );
   }
   if (field.type === "select") {
@@ -179,6 +199,8 @@ export function EntityCrudTable({
   onDelete,
   emptyLabel,
   itemLabel,
+  customEditor,
+  renderDrawerExtra,
 }: EntityCrudTableProps) {
   const addFields = fields.filter((f) => !f.hideInForm && !f.editOnly);
   const editFields = fields.filter((f) => !f.hideInForm);
@@ -193,7 +215,9 @@ export function EntityCrudTable({
     | null
   >(null);
   const [error, setError] = useState<string | null>(null);
+  const [tableError, setTableError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const showActions = canUpdate || canDelete || customEditor !== undefined;
 
   const filteredRows = useMemo(() => {
     let list = rows;
@@ -237,10 +261,24 @@ export function EntityCrudTable({
     });
   }
 
+  async function saveFirst(): Promise<string | null> {
+    if (!drawer || drawer.mode !== "add") return null;
+    setError(null);
+    const res = await onCreate(drawer.values);
+    if (res.error || !res.id) {
+      setError(res.error ?? "Could not save.");
+      return null;
+    }
+    setDrawer({ mode: "edit", id: res.id, values: drawer.values });
+    return res.id;
+  }
+
   function handleDelete(row: Record<string, unknown>) {
     if (!confirm(`Delete this ${itemLabel.toLowerCase()}? This cannot be undone.`)) return;
+    setTableError(null);
     startTransition(async () => {
-      await onDelete(getId(row));
+      const res = await onDelete(getId(row));
+      if (res.error) setTableError(res.error);
     });
   }
 
@@ -275,7 +313,7 @@ export function EntityCrudTable({
 
         {canCreate && (
           <button
-            onClick={openAdd}
+            onClick={customEditor ? customEditor.onAdd : openAdd}
             className="flex h-[38px] items-center gap-2 rounded-control bg-primary px-4 text-sm font-semibold text-white transition-colors hover:bg-primary-hover"
           >
             <PlusIcon className="h-4 w-4" />
@@ -283,6 +321,12 @@ export function EntityCrudTable({
           </button>
         )}
       </div>
+
+      {tableError && (
+        <p className="border-l-2 border-danger py-1 pl-3 text-[13px] text-danger">
+          {tableError}
+        </p>
+      )}
 
       <div className="overflow-x-auto rounded-card border border-border bg-card">
         <table className="w-full text-sm">
@@ -296,7 +340,7 @@ export function EntityCrudTable({
                   {f.label}
                 </th>
               ))}
-              {(canUpdate || canDelete) && (
+              {showActions && (
                 <th className="px-4 py-2.5 text-left text-[11px] font-semibold tracking-wider text-muted uppercase">
                   Actions
                 </th>
@@ -326,16 +370,25 @@ export function EntityCrudTable({
                       {renderCell(f, row)}
                     </td>
                   ))}
-                  {(canUpdate || canDelete) && (
+                  {showActions && (
                     <td className="px-4 whitespace-nowrap">
                       <div className="flex gap-4">
-                        {canUpdate && (
+                        {customEditor ? (
                           <button
-                            onClick={() => openEdit(row)}
+                            onClick={() => customEditor.onOpen(row)}
                             className="text-xs font-semibold text-primary hover:text-primary-hover"
                           >
-                            Edit
+                            {canUpdate ? "Edit" : "View"}
                           </button>
+                        ) : (
+                          canUpdate && (
+                            <button
+                              onClick={() => openEdit(row)}
+                              className="text-xs font-semibold text-primary hover:text-primary-hover"
+                            >
+                              Edit
+                            </button>
+                          )
                         )}
                         {canDelete && (
                           <button
@@ -391,6 +444,12 @@ export function EntityCrudTable({
             onChange={setFieldValue}
           />
         )}
+        {drawer &&
+          renderDrawerExtra?.(
+            drawer.mode === "add"
+              ? { mode: "add", saveFirst }
+              : { mode: "edit", id: drawer.id },
+          )}
       </Drawer>
     </div>
   );

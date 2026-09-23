@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { GridIcon, UsersIcon, LogOutIcon } from "./icons";
+import { GridIcon, UsersIcon, LogOutIcon, ClipboardCheckIcon } from "./icons";
 
 type NavItem = { href: string; label: string; icon: typeof GridIcon };
 type NavSection = { label: string; items: NavItem[] };
@@ -21,7 +21,14 @@ export function Sidebar({
   const sections: NavSection[] = [
     {
       label: "Operations",
-      items: [{ href: "/admin/masterdata", label: "Master Data", icon: GridIcon }],
+      items: [
+        { href: "/admin/masterdata", label: "Master Data", icon: GridIcon },
+        {
+          href: "/admin/inspection-setup",
+          label: "Inspection Setup",
+          icon: ClipboardCheckIcon,
+        },
+      ],
     },
     ...(showUsers
       ? [

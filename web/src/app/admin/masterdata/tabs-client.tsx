@@ -13,7 +13,10 @@ import type {
   Grading,
   Asset,
 } from "@/lib/masterdata/types";
+import type { Inspection } from "@/lib/inspection-setup/types";
+import { canInspectionSetup } from "@/lib/inspection-setup/permissions";
 import * as actions from "./actions";
+import { AssetTypeInspections } from "../inspection-setup/asset-type-inspections";
 
 function makeTabs(counts: Record<string, number>) {
   return [
@@ -76,6 +79,7 @@ export function MasterdataTabs({
   colourContainers,
   gradings,
   assets,
+  inspections,
 }: {
   roles: MasterdataRole[];
   regions: Region[];
@@ -85,6 +89,7 @@ export function MasterdataTabs({
   colourContainers: ColourContainer[];
   gradings: Grading[];
   assets: Asset[];
+  inspections: Inspection[];
 }) {
   const [tab, setTab] = useState<TabKey>("asset");
 
@@ -208,6 +213,13 @@ export function MasterdataTabs({
               onCreate={actions.createAssetType}
               onUpdate={actions.updateAssetType}
               onDelete={actions.deleteAssetType}
+              renderDrawerExtra={(ctx) => (
+                <AssetTypeInspections
+                  ctx={ctx}
+                  inspections={inspections}
+                  canEdit={canInspectionSetup(roles, "inspection_allocation", "create")}
+                />
+              )}
               fields={
                 [
                   legacyUidField,

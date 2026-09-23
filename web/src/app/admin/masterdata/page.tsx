@@ -9,6 +9,7 @@ import {
   listGradings,
   listAssets,
 } from "./actions";
+import { listInspections } from "../inspection-setup/actions";
 import { MasterdataTabs } from "./tabs-client";
 
 export default async function MasterdataPage() {
@@ -22,6 +23,7 @@ export default async function MasterdataPage() {
     colourContainers,
     gradings,
     assets,
+    inspections,
   ] = await Promise.all([
     listRegions(),
     listOrganisations(),
@@ -30,6 +32,7 @@ export default async function MasterdataPage() {
     listColourContainers(),
     listGradings(),
     listAssets(),
+    listInspections(),
   ]);
 
   return (
@@ -44,6 +47,7 @@ export default async function MasterdataPage() {
         colourContainers={colourContainers}
         gradings={gradings}
         assets={assets}
+        inspections={inspections}
       />
     </div>
   );

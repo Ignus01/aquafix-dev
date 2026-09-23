@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth";
+import { friendlyError } from "@/lib/db-errors";
 import type {
   Region,
   Organisation,
@@ -20,26 +21,6 @@ type ActionResult = { error: string | null };
 // This just confirms the caller is signed in with *some* masterdata role.
 async function requireAnyMasterdataRole() {
   await requireRole(["system_admin", "admin", "user", "viewer"]);
-}
-
-function friendlyError(error: {
-  code?: string;
-  message: string;
-  details?: string | null;
-}): string {
-  if (error.code === "23505") return "That name is already in use.";
-  if (error.code === "23514")
-    return "One of the values doesn't meet the required constraints.";
-  if (error.code === "23503") {
-    const m = /is still referenced from table "(\w+)"/.exec(
-      error.details ?? error.message,
-    );
-    return m
-      ? `Can't delete — still referenced by "${m[1]}" records.`
-      : "Can't delete — this record is still referenced elsewhere.";
-  }
-  if (error.code === "42501") return "You don't have permission to do that.";
-  return error.message;
 }
 
 // ============================================================================
@@ -167,19 +148,24 @@ export async function listAssetTypes(): Promise<AssetType[]> {
   return data;
 }
 
+// Returns the new id so the drawer can stay open to allocate inspections.
 export async function createAssetType(
   values: Record<string, string>,
-): Promise<ActionResult> {
+): Promise<ActionResult & { id?: string }> {
   await requireAnyMasterdataRole();
   const supabase = await createClient();
-  const { error } = await supabase.from("asset_type").insert({
-    name: values.name?.trim(),
-    classification: values.classification || "OTHER",
-    active: values.active === "true",
-  });
+  const { data, error } = await supabase
+    .from("asset_type")
+    .insert({
+      name: values.name?.trim(),
+      classification: values.classification || "OTHER",
+      active: values.active === "true",
+    })
+    .select("id")
+    .single();
   if (error) return { error: friendlyError(error) };
   revalidatePath("/admin/masterdata");
-  return { error: null };
+  return { error: null, id: data.id };
 }
 
 export async function updateAssetType(
