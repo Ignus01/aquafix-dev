@@ -44,3 +44,27 @@ Then, in the app, go to **Admin → System Settings** as a system admin:
 
 > The Brevo key that was committed to the Mendix model (`xkeysib-…`, see
 > `spec/incidents/_overview.md`) must be rotated in Brevo. Don't reuse it here.
+
+## Scheduled instructions
+
+`pg_cron` runs `run_instruction_schedule_if_due()` every hour at :05. It issues each
+active schedule's instruction once per day in the app time zone (System Settings,
+default `Africa/Johannesburg`): at the first tick after local midnight, and again at
+later ticks only if that day's run failed. Missed days are not caught up. Admins can
+also press **Run schedule** (Inspections → Scheduled), which is always safe to repeat:
+there is one instruction per schedule per day. Runs are logged in
+`instruction_schedule_run`.
+
+Daily schedules skip weekends and the dates in `public_holiday`, unless the schedule
+includes them. Add each year's public holidays under Inspections → Scheduled →
+**Public holidays**. A date that isn't listed is a normal working day.
+
+## Tests
+
+`supabase/tests/` holds pgTAP tests, including the inspection validation test vectors
+(T1–T16 in `spec/inspections/inspection-value-validation.md`). Run them against the
+local stack:
+
+```bash
+npx supabase test db
+```

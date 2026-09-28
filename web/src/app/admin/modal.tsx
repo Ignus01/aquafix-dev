@@ -10,12 +10,14 @@ export function Modal({
   onClose,
   children,
   footer,
+  width = 480,
 }: {
   open: boolean;
   title: string;
   onClose: () => void;
   children: React.ReactNode;
   footer?: React.ReactNode;
+  width?: number;
 }) {
   if (!open) return null;
 
@@ -30,7 +32,8 @@ export function Modal({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="relative flex max-h-full w-[480px] max-w-full flex-col rounded-card bg-card shadow-2xl"
+        className="relative flex max-h-full max-w-full flex-col rounded-card bg-card shadow-2xl"
+        style={{ width }}
       >
         <div className="flex items-center justify-between border-b border-border px-6 py-4">
           <h2 className="text-base font-semibold text-ink">{title}</h2>

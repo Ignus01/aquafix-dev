@@ -7,6 +7,7 @@ import {
   AlertTriangleIcon,
   ClipboardCheckIcon,
   GridIcon,
+  ListChecksIcon,
   LogOutIcon,
   MenuIcon,
   SettingsIcon,
@@ -32,7 +33,7 @@ export function Sidebar({
 
   return (
     <>
-      <header className="flex h-14 shrink-0 items-center gap-3 bg-sidebar px-4 text-white md:hidden">
+      <header className="flex h-14 shrink-0 items-center gap-3 bg-sidebar px-4 text-white md:hidden print:hidden">
         <button
           type="button"
           onClick={() => setOpen(true)}
@@ -44,7 +45,7 @@ export function Sidebar({
         <span className="text-sm font-semibold tracking-wide">AquaFix</span>
       </header>
 
-      <aside className="hidden w-60 shrink-0 flex-col bg-sidebar text-sidebar-text md:flex">
+      <aside className="hidden w-60 shrink-0 flex-col bg-sidebar text-sidebar-text md:flex print:hidden">
         <SidebarContent email={email} isSystemAdmin={isSystemAdmin} signOutAction={signOutAction} />
       </aside>
 
@@ -91,6 +92,7 @@ function SidebarContent({
       label: "Operations",
       items: [
         { href: "/admin/incidents", label: "Incidents", icon: AlertTriangleIcon },
+        { href: "/admin/inspections", label: "Inspections", icon: ListChecksIcon },
         { href: "/admin/masterdata", label: "Master Data", icon: GridIcon },
         {
           href: "/admin/inspection-setup",

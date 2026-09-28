@@ -11,6 +11,9 @@ const UNIQUE_MESSAGES: Record<string, string> = {
   incident_subscription_type_user_key: "Already added — that account is already subscribed.",
   inspection_allocation_inspection_asset_type_key:
     "Already added — that inspection is already allocated to this asset type.",
+  public_holiday_date_key: "There is already a public holiday on that date.",
+  instruction_asset_allocation_instruction_asset_key:
+    "Already added — that asset is already on this instruction.",
 };
 
 // Delete-blocking FKs, keyed "<referenced table>:<referencing table>".
@@ -23,6 +26,16 @@ const REFERENCED_MESSAGES: Record<string, string> = {
   "location:incident": "This Location is already linked to an Incident.",
   // Mendix silently cleared the type on existing incidents; blocked instead.
   "incident_type:incident": "This Incident Type is used by incidents, so it can't be deleted.",
+  // Inspections (spec/inspections/_overview.md, cross-module effects).
+  "asset:inspection_activity": "Cannot delete this Asset as there are inspections done on it.",
+  "asset:instruction_asset_allocation": "This Asset is on an instruction, so it can't be deleted.",
+  "inspection:inspection_value":
+    "Cannot delete this Inspection as there has been inspections taken, rather mark it as Inactive.",
+  "inspection_drop_down_option:inspection_value":
+    "This drop down option has been selected in an inspection - rather mark it as inactive.",
+  "grading:inspection_value": "This Grading has already been applied to an Inspection Value.",
+  "grading:inspection_activity": "This Grading has already been applied.",
+  "instruction:inspection_activity": "Instruction already has Inspection Activities linked to it.",
 };
 
 export function friendlyError(error: DbError): string {

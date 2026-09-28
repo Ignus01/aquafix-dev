@@ -32,9 +32,11 @@ async function resize(bitmap: ImageBitmap, maxSide: number, quality: number): Pr
 
 // Uploads a photo into the caller's own Storage folder (the bucket policy
 // only allows `<user id>/…`). The returned paths are linked to an incident or
-// note by save_incident / add_incident_note.
+// note by save_incident / add_incident_note (or, in the inspection-images
+// bucket, to a value by save_inspection_activity).
 export async function uploadIncidentImage(
   file: File,
+  bucket: string = INCIDENT_IMAGE_BUCKET,
 ): Promise<{ image: NewImage; previewUrl: string }> {
   if (!file.type.startsWith("image/")) throw new Error("Only images can be added.");
 
@@ -57,7 +59,7 @@ export async function uploadIncidentImage(
   if (!user) throw new Error("Your session has expired. Sign in again.");
 
   const base = `${user.id}/${crypto.randomUUID()}`;
-  const storage = supabase.storage.from(INCIDENT_IMAGE_BUCKET);
+  const storage = supabase.storage.from(bucket);
   const [fullRes, thumbRes] = await Promise.all([
     storage.upload(`${base}.jpg`, full, { contentType: "image/jpeg", upsert: false }),
     storage.upload(`${base}_thumb.jpg`, thumb, { contentType: "image/jpeg", upsert: false }),
@@ -80,11 +82,14 @@ export async function uploadIncidentImage(
 
 // Best-effort clean-up of uploads that were never linked (removed from the
 // form, or the form was cancelled). The caller can only delete their own files.
-export async function discardUploads(images: NewImage[]): Promise<void> {
+export async function discardUploads(
+  images: NewImage[],
+  bucket: string = INCIDENT_IMAGE_BUCKET,
+): Promise<void> {
   const paths = images.flatMap((i) => [i.storage_path, i.thumbnail_path]);
   if (paths.length === 0) return;
   try {
-    await createClient().storage.from(INCIDENT_IMAGE_BUCKET).remove(paths);
+    await createClient().storage.from(bucket).remove(paths);
   } catch {
     // Orphaned files are harmless; nothing links to them.
   }

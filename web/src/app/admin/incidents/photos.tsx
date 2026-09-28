@@ -2,7 +2,11 @@
 
 import { useRef, useState, useTransition } from "react";
 import { CameraIcon, DownloadIcon, XIcon } from "../icons";
-import { discardUploads, uploadIncidentImage } from "@/lib/incidents/image-upload";
+import {
+  INCIDENT_IMAGE_BUCKET,
+  discardUploads,
+  uploadIncidentImage,
+} from "@/lib/incidents/image-upload";
 import type { FormImage, IncidentImage } from "@/lib/incidents/types";
 import { getImageDownloadUrl } from "./actions";
 
@@ -22,11 +26,15 @@ export function PhotoPicker({
   onChange,
   disabled,
   required,
+  bucket = INCIDENT_IMAGE_BUCKET,
+  requiredHint = "Photos are required for this incident type.",
 }: {
   images: FormImage[];
   onChange: (update: (prev: FormImage[]) => FormImage[]) => void;
   disabled?: boolean;
   required?: boolean;
+  bucket?: string;
+  requiredHint?: string;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   // Tiles removed while their upload was still running.
@@ -49,9 +57,9 @@ export function PhotoPicker({
     await Promise.all(
       picked.map(async ({ file, key }) => {
         try {
-          const { image, previewUrl } = await uploadIncidentImage(file);
+          const { image, previewUrl } = await uploadIncidentImage(file, bucket);
           if (removedKeys.current.has(key)) {
-            void discardUploads([image]);
+            void discardUploads([image], bucket);
             return;
           }
           onChange((prev) =>
@@ -72,7 +80,7 @@ export function PhotoPicker({
   function remove(image: FormImage) {
     // A new, unsaved upload can go straight away; an existing photo is only
     // unlinked when the form is saved.
-    if (image.upload && !image.id) void discardUploads([image.upload]);
+    if (image.upload && !image.id) void discardUploads([image.upload], bucket);
     removedKeys.current.add(image.key);
     onChange((prev) => prev.filter((p) => p.key !== image.key));
   }
@@ -108,7 +116,7 @@ export function PhotoPicker({
       </div>
 
       {required && count === 0 && (
-        <p className="text-xs text-muted">Photos are required for this incident type.</p>
+        <p className="text-xs text-muted">{requiredHint}</p>
       )}
 
       {images.length > 0 && (
@@ -158,11 +166,14 @@ export function Gallery({
   canDownload,
   emptyLabel,
   small,
+  getDownloadUrl = getImageDownloadUrl,
 }: {
   images: IncidentImage[];
   canDownload: boolean;
   emptyLabel?: string;
   small?: boolean;
+  // Defaults to incident photos; inspections pass their own.
+  getDownloadUrl?: (imageId: string) => Promise<{ error: string | null; url?: string }>;
 }) {
   const [open, setOpen] = useState<IncidentImage | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -171,7 +182,7 @@ export function Gallery({
   function download(image: IncidentImage) {
     setError(null);
     startTransition(async () => {
-      const res = await getImageDownloadUrl(image.id);
+      const res = await getDownloadUrl(image.id);
       if (res.error || !res.url) setError(res.error ?? "Could not download.");
       else window.location.assign(res.url);
     });
