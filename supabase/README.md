@@ -59,6 +59,17 @@ Daily schedules skip weekends and the dates in `public_holiday`, unless the sche
 includes them. Add each year's public holidays under Inspections → Scheduled →
 **Public holidays**. A date that isn't listed is a normal working day.
 
+## Services
+
+A service is one maintenance or repair job on an asset. `save_service()` validates, stamps
+`performed_by` (by trigger), writes the service and its files, and, when a scheduled
+maintenance on an asset with a service plan becomes completed, opens the next one
+(`create_next_service()`: today + `service_interval` years × 365 days). Switching on an
+asset's service plan, or changing its interval, also opens its first service. An asset can
+have one open service at a time (unique index). Files go in the private `service-files`
+bucket; deleting a service removes them with the service role, so the web app needs
+`SUPABASE_SERVICE_ROLE_KEY` (already used by user management).
+
 ## Tests
 
 `supabase/tests/` holds pgTAP tests, including the inspection validation test vectors

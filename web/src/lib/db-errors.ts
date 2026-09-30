@@ -36,6 +36,9 @@ const REFERENCED_MESSAGES: Record<string, string> = {
   "grading:inspection_value": "This Grading has already been applied to an Inspection Value.",
   "grading:inspection_activity": "This Grading has already been applied.",
   "instruction:inspection_activity": "Instruction already has Inspection Activities linked to it.",
+  // Services (Service_Asset / Service_OrganisationServiceSupplier).
+  "asset:service": "Cannot delete this Asset as it has services.",
+  "organisation:service": "This Organisation is the supplier on a service, so it can't be deleted.",
 };
 
 export function friendlyError(error: DbError): string {

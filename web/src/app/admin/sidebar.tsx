@@ -12,6 +12,7 @@ import {
   MenuIcon,
   SettingsIcon,
   UsersIcon,
+  WrenchIcon,
   XIcon,
 } from "./icons";
 
@@ -93,6 +94,7 @@ function SidebarContent({
       items: [
         { href: "/admin/incidents", label: "Incidents", icon: AlertTriangleIcon },
         { href: "/admin/inspections", label: "Inspections", icon: ListChecksIcon },
+        { href: "/admin/services", label: "Services", icon: WrenchIcon },
         { href: "/admin/masterdata", label: "Master Data", icon: GridIcon },
         {
           href: "/admin/inspection-setup",
