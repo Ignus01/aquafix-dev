@@ -48,8 +48,8 @@ export function IncidentList({
       ) : (
         <ul>
           {rows.map((i) => (
-            <li key={i.id} className="border-b border-[#3b4150]">
-              <Link href={`/m/incidents/${i.reference}`} className="block px-4 py-3 active:bg-black/5">
+            <li key={i.id} className="border-b border-[#e6e8f0]">
+              <Link href={`/m/incidents/${i.reference}`} className="block px-4 py-3 active:bg-[#eef0fb]">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-3 text-[21px]">
@@ -84,7 +84,7 @@ export function IncidentList({
       {canCreate && (
         <Link
           href="/m/incidents/new"
-          className="fixed right-[max(1rem,calc(50%-224px))] bottom-[84px] z-20 flex h-[68px] w-[68px] items-center justify-center rounded-full bg-[#3bb54a] text-[19px] font-medium text-white shadow-lg"
+          className="fixed right-[max(1rem,calc(50%-224px))] bottom-[calc(84px+env(safe-area-inset-bottom))] z-20 flex h-[56px] items-center justify-center gap-1.5 rounded-full bg-[#2fa43f] px-6 text-[19px] font-semibold text-white shadow-lg shadow-[#2fa43f]/30 transition active:scale-95"
         >
           <PlusIcon className="h-5 w-5" />
           New

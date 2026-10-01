@@ -159,7 +159,7 @@ export function DocForm({ kind, options, timeZone }: { kind: DocKind; options: O
           remaining.shift();
         }
       }
-      router.push(`/m/stock/${kind}`);
+      router.push(`/m/stock/${kind}?saved=${encodeURIComponent(`${cfg.label} saved`)}`);
       router.refresh();
     });
   }

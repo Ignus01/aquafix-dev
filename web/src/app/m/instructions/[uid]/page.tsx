@@ -54,13 +54,13 @@ export default async function InstructionPage(props: PageProps<"/m/instructions/
             </div>
           );
           return (
-            <li key={a.id} className="border-b border-[#3b4150]">
+            <li key={a.id} className="border-b border-[#e6e8f0]">
               {a.is_completed ? (
                 <div className="opacity-70">{row}</div>
               ) : (
                 <Link
                   href={`/m/inspections/capture?asset=${a.asset.id}&instruction=${instruction.id}`}
-                  className="block active:bg-black/5"
+                  className="block active:bg-[#eef0fb]"
                 >
                   {row}
                 </Link>

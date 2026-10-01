@@ -32,8 +32,8 @@ export function ServiceList({ services, timeZone }: { services: ServiceListRow[]
           {rows.map((s) => {
             const overdue = new Date(s.due_date).getTime() < now;
             return (
-              <li key={s.id} className="border-b border-[#3b4150]">
-                <Link href={`/m/services/${s.reference}`} className="flex items-center gap-3 px-4 py-3.5 active:bg-black/5">
+              <li key={s.id} className="border-b border-[#e6e8f0]">
+                <Link href={`/m/services/${s.reference}`} className="flex items-center gap-3 px-4 py-3.5 active:bg-[#eef0fb]">
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[21px] font-semibold">{s.asset.name}</div>
                     <div className="text-[17px] text-[#5b6480]">

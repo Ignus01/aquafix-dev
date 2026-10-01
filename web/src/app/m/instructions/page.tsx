@@ -25,8 +25,8 @@ export default async function InstructionsPage() {
             {instructions.map((i) => {
               const overdue = new Intl.DateTimeFormat("en-CA", { timeZone }).format(new Date(i.required_completed_date)) < today;
               return (
-                <li key={i.id} className="border-b border-[#3b4150]">
-                  <Link href={`/m/instructions/${i.legacy_uid}`} className="flex items-center gap-3 px-4 py-3.5 active:bg-black/5">
+                <li key={i.id} className="border-b border-[#e6e8f0]">
+                  <Link href={`/m/instructions/${i.legacy_uid}`} className="flex items-center gap-3 px-4 py-3.5 active:bg-[#eef0fb]">
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-[21px] font-semibold">{i.name}</div>
                       {i.comment && <div className="truncate text-[17px] text-[#5b6480]">{i.comment}</div>}

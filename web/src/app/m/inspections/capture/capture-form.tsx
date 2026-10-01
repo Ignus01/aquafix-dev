@@ -92,7 +92,7 @@ export function CaptureForm({
         values: payload,
       });
       if (res.ok) {
-        router.push(backHref);
+        router.push(`${backHref}?saved=Inspection saved`);
         router.refresh();
         return;
       }
@@ -170,7 +170,7 @@ export function CaptureForm({
 
       <div className="mt-4 bg-white">
         {values.length === 0 && (
-          <p className="border-y border-[#3b4150] px-4 py-6 text-[17px] text-[#5b6480]">
+          <p className="border-y border-[#e6e8f0] px-4 py-6 text-[17px] text-[#5b6480]">
             No inspections are allocated to {context.asset.asset_type.name}. You can still save this inspection.
           </p>
         )}
@@ -271,7 +271,7 @@ function ValueRow({
   const needsPhotos = photoCount < inspection.nr_of_images_required;
 
   return (
-    <section className={`border-y border-[#3b4150] px-4 py-3 ${superseded ? "bg-[#f4f4f6] opacity-80" : ""}`} style={{ marginTop: -1 }}>
+    <section className={`border-y border-[#e6e8f0] px-4 py-3 ${superseded ? "bg-[#f4f4f6] opacity-80" : ""}`} style={{ marginTop: -1 }}>
       <div className="grid grid-cols-[1fr_auto] items-end gap-3">
         <div>
           <div className="flex items-start justify-between gap-2">
