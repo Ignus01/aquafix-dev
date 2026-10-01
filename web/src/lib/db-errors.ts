@@ -61,6 +61,18 @@ const REFERENCED_MESSAGES: Record<string, string> = {
   "pack_type:item": "This Pack Type is used by an item, so it can't be deleted.",
   "location:storage_area": "This Location has storage areas, so it can't be deleted.",
   "organisation:supplier_item": "This Organisation supplies an item, so it can't be deleted.",
+  // Stock manager.
+  "organisation:purchase_order": "This Organisation is the supplier on a purchase order, so it can't be deleted.",
+  "item:purchase_order_item": "This Item is on a purchase order, so it can't be deleted.",
+  "item:item_transaction": "This Item has stock movements, so it can't be deleted.",
+  "storage_area:item_transaction": "This Storage Area has stock movements, so it can't be deleted.",
+  "storage_area:intake": "This Storage Area is used by an intake, so it can't be deleted.",
+  "storage_area:work_order": "This Storage Area is used by a work order, so it can't be deleted.",
+  "storage_area:stock_take": "This Storage Area is used by a stock take, so it can't be deleted.",
+  "storage_area:transfer_main": "This Storage Area is used by a transfer, so it can't be deleted.",
+  "purchase_order:intake": "Stock has been received against this purchase order, so it can't be deleted.",
+  "purchase_order_item:intake_item": "Stock has been received against this line, so it can't be deleted.",
+  "load:intake": "This load has intakes, so it can't be deleted.",
 };
 
 export function friendlyError(error: DbError): string {

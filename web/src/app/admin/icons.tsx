@@ -277,3 +277,22 @@ export function PackageIcon({ className }: { className?: string }) {
     </svg>
   );
 }
+
+export function TransferIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M17 3l4 4-4 4" />
+      <path d="M3 7h18" />
+      <path d="M7 21l-4-4 4-4" />
+      <path d="M21 17H3" />
+    </svg>
+  );
+}

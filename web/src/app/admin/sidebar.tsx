@@ -12,6 +12,7 @@ import {
   MenuIcon,
   PackageIcon,
   SettingsIcon,
+  TransferIcon,
   UsersIcon,
   WrenchIcon,
   XIcon,
@@ -97,6 +98,7 @@ function SidebarContent({
         { href: "/admin/inspections", label: "Inspections", icon: ListChecksIcon },
         { href: "/admin/services", label: "Services", icon: WrenchIcon },
         { href: "/admin/masterdata", label: "Master Data", icon: GridIcon },
+        { href: "/admin/stock-manager", label: "Stock Manager", icon: TransferIcon },
         { href: "/admin/stock", label: "Stock Masterfiles", icon: PackageIcon },
         {
           href: "/admin/inspection-setup",
