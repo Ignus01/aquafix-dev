@@ -138,6 +138,8 @@ export const DOC_CONFIG: Record<DocKind, DocConfig> = {
     prefix: "LD-",
     header: [
       { key: "load_date", label: "Date", type: "date", required: true },
+      { key: "driver", label: "Driver", type: "text" },
+      { key: "vehicle_reg_nr", label: "Vehicle reg nr", type: "text" },
       { key: "comment", label: "Comment", type: "textarea" },
     ],
     headerExtras: [],
