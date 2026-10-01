@@ -32,7 +32,7 @@ export async function updateSession(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const path = request.nextUrl.pathname;
-  const isAdminRoute = path.startsWith("/admin");
+  const isAdminRoute = path.startsWith("/admin") || path === "/m" || path.startsWith("/m/");
   const isLoginRoute = path.startsWith("/login");
 
   if (!user && isAdminRoute) {
@@ -44,8 +44,9 @@ export async function updateSession(request: NextRequest) {
 
   if (user && isLoginRoute) {
     const url = request.nextUrl.clone();
-    url.pathname = "/admin/masterdata";
-    url.searchParams.delete("next");
+    const next = request.nextUrl.searchParams.get("next");
+    url.pathname = next && next.startsWith("/") && !next.startsWith("//") ? next : "/admin/masterdata";
+    url.search = "";
     return NextResponse.redirect(url);
   }
 
