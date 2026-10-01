@@ -10,6 +10,7 @@ import {
   ListChecksIcon,
   LogOutIcon,
   MenuIcon,
+  PackageIcon,
   SettingsIcon,
   UsersIcon,
   WrenchIcon,
@@ -96,6 +97,7 @@ function SidebarContent({
         { href: "/admin/inspections", label: "Inspections", icon: ListChecksIcon },
         { href: "/admin/services", label: "Services", icon: WrenchIcon },
         { href: "/admin/masterdata", label: "Master Data", icon: GridIcon },
+        { href: "/admin/stock", label: "Stock Masterfiles", icon: PackageIcon },
         {
           href: "/admin/inspection-setup",
           label: "Inspection Setup",

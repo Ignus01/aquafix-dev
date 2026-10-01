@@ -39,6 +39,9 @@ export interface EntityCrudTableProps {
   canCreate: boolean;
   canUpdate: boolean;
   canDelete: boolean;
+  // Lets a read-only user open the record (and any drawer extra, which has its
+  // own permissions) without being able to change its own fields.
+  canView?: boolean;
   // Returning the new row's id lets renderDrawerExtra's saveFirst() keep the
   // drawer open in edit mode after creating.
   onCreate: (
@@ -63,7 +66,7 @@ export interface EntityCrudTableProps {
   renderDrawerExtra?: (
     ctx:
       | { mode: "add"; saveFirst: () => Promise<string | null> }
-      | { mode: "edit"; id: string },
+      | { mode: "edit"; id: string; readOnly: boolean },
   ) => ReactNode;
 }
 
@@ -194,6 +197,7 @@ export function EntityCrudTable({
   canCreate,
   canUpdate,
   canDelete,
+  canView = false,
   onCreate,
   onUpdate,
   onDelete,
@@ -217,7 +221,7 @@ export function EntityCrudTable({
   const [error, setError] = useState<string | null>(null);
   const [tableError, setTableError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
-  const showActions = canUpdate || canDelete || customEditor !== undefined;
+  const showActions = canUpdate || canDelete || canView || customEditor !== undefined;
 
   const filteredRows = useMemo(() => {
     let list = rows;
@@ -381,12 +385,12 @@ export function EntityCrudTable({
                             {canUpdate ? "Edit" : "View"}
                           </button>
                         ) : (
-                          canUpdate && (
+                          (canUpdate || canView) && (
                             <button
                               onClick={() => openEdit(row)}
                               className="text-xs font-semibold text-primary hover:text-primary-hover"
                             >
-                              Edit
+                              {canUpdate ? "Edit" : "View"}
                             </button>
                           )
                         )}
@@ -411,7 +415,11 @@ export function EntityCrudTable({
 
       <Drawer
         open={drawer !== null}
-        title={drawer?.mode === "edit" ? `Edit ${itemLabel}` : `New ${itemLabel}`}
+        title={
+          drawer?.mode === "edit"
+            ? `${canUpdate ? "Edit" : "View"} ${itemLabel}`
+            : `New ${itemLabel}`
+        }
         onClose={() => setDrawer(null)}
         footer={
           <>
@@ -422,13 +430,15 @@ export function EntityCrudTable({
             >
               Cancel
             </button>
-            <button
-              disabled={isPending}
-              onClick={submit}
-              className="h-[40px] rounded-control bg-primary px-4 text-sm font-semibold text-white transition-colors hover:bg-primary-hover disabled:opacity-60"
-            >
-              {isPending ? "Saving…" : "Save"}
-            </button>
+            {(drawer?.mode !== "edit" || canUpdate) && (
+              <button
+                disabled={isPending}
+                onClick={submit}
+                className="h-[40px] rounded-control bg-primary px-4 text-sm font-semibold text-white transition-colors hover:bg-primary-hover disabled:opacity-60"
+              >
+                {isPending ? "Saving…" : "Save"}
+              </button>
+            )}
           </>
         }
       >
@@ -438,17 +448,19 @@ export function EntityCrudTable({
           </p>
         )}
         {drawer && (
-          <FormFields
-            fields={drawer.mode === "add" ? addFields : editFields}
-            values={drawer.values}
-            onChange={setFieldValue}
-          />
+          <fieldset disabled={drawer.mode === "edit" && !canUpdate} className="min-w-0">
+            <FormFields
+              fields={drawer.mode === "add" ? addFields : editFields}
+              values={drawer.values}
+              onChange={setFieldValue}
+            />
+          </fieldset>
         )}
         {drawer &&
           renderDrawerExtra?.(
             drawer.mode === "add"
               ? { mode: "add", saveFirst }
-              : { mode: "edit", id: drawer.id },
+              : { mode: "edit", id: drawer.id, readOnly: !canUpdate },
           )}
       </Drawer>
     </div>
