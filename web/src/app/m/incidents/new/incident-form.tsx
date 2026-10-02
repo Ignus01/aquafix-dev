@@ -51,7 +51,7 @@ export function IncidentForm({ types, locations }: { types: IncidentTypeOption[]
       if (res.fieldErrors) setFieldErrors(res.fieldErrors);
       if (res.error) setError(res.error);
       if (res.reference !== undefined) {
-        router.push("/m/incidents");
+        router.push("/m/incidents?saved=Incident saved");
         router.refresh();
       }
     });

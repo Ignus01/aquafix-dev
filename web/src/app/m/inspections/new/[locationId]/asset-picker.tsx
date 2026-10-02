@@ -37,10 +37,10 @@ export function AssetPicker({
       <SearchBox value={query} onChange={setQuery} placeholder="Search Asset or Asset Type" />
       <ul>
         {rows.map((a) => (
-          <li key={a.id} className="border-b border-[#3b4150]">
+          <li key={a.id} className="border-b border-[#e6e8f0]">
             <Link
               href={`/m/inspections/capture?asset=${a.id}${instruction ? `&instruction=${instruction}` : ""}`}
-              className="block px-4 py-3 active:bg-black/5"
+              className="block px-4 py-3 active:bg-[#eef0fb]"
             >
               <dl className="grid grid-cols-[110px_1fr] gap-y-0.5 text-[20px] leading-snug">
                 <dt className="font-semibold">Asset Type:</dt>

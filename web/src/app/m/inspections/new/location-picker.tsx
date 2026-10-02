@@ -24,10 +24,10 @@ export function LocationPicker({
       <SearchBox value={query} onChange={setQuery} placeholder="Search Location" />
       <ul>
         {rows.map((l) => (
-          <li key={l.id} className="border-b border-[#3b4150]">
+          <li key={l.id} className="border-b border-[#e6e8f0]">
             <Link
               href={`/m/inspections/new/${l.id}${instruction ? `?instruction=${instruction}` : ""}`}
-              className="flex items-center gap-4 px-4 py-4 text-[21px] active:bg-black/5"
+              className="flex items-center gap-4 px-4 py-4 text-[21px] active:bg-[#eef0fb]"
             >
               <PinIcon className="h-5 w-5 shrink-0" />
               {l.name}
