@@ -11,9 +11,10 @@ export function odataConfigured(): boolean {
 }
 
 // Mendix object IDs are 64-bit and exceed Number.MAX_SAFE_INTEGER, so they
-// must never go through JSON.parse as numbers. Quote every ID / *ID value.
+// must never go through JSON.parse as numbers. Quote every integer too large
+// to be exact (16+ digits), whatever its property name.
 function quoteIds(text: string): string {
-  return text.replace(/("(?:ID|[A-Za-z_]*ID)"\s*:\s*)(\d+)/g, '$1"$2"');
+  return text.replace(/("[^"]+"\s*:\s*)(\d{16,})(?![\d.eE])/g, '$1"$2"');
 }
 
 export async function fetchCollection(service: string, collection: string): Promise<ODataRow[]> {

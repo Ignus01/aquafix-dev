@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState, useTransition } from "react";
 import { formatDateTime } from "@/lib/incidents/format";
-import type { MigrationResult } from "@/lib/odata/migrate";
+import type { MigrationGroup, MigrationResult } from "@/lib/odata/migrate";
 import type {
   BrevoKeyStatus,
   EmailLogRow,
@@ -459,20 +459,28 @@ export function SettingsView({
   );
 }
 
-// Pulls reference data from the legacy system's OData services. Create-or-update,
-// so it can be run repeatedly; nothing is ever deleted.
+const MIGRATION_LABEL: Record<MigrationGroup, string> = {
+  reference: "Reference data",
+  transactions: "Transactions",
+};
+
+// Pulls data from the legacy system's OData services. Create-or-update, so it
+// can be run repeatedly; nothing is ever deleted. Reference data first, since
+// transactions point at it.
 function DataMigration({ configured }: { configured: boolean }) {
   const [result, setResult] = useState<MigrationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [group, setGroup] = useState<MigrationGroup | null>(null);
   const [isPending, startTransition] = useTransition();
 
-  function run() {
-    if (!confirm("Migrate data from the legacy system? Existing migrated records are updated to match the source.")) return;
+  function run(target: MigrationGroup) {
+    if (!confirm(`Migrate ${MIGRATION_LABEL[target].toLowerCase()} from the legacy system? Existing migrated records are updated to match the source.`)) return;
     setError(null);
     setResult(null);
+    setGroup(target);
     startTransition(async () => {
       try {
-        const res = await runDataMigration();
+        const res = await runDataMigration(target);
         setResult(res.result ?? null);
         setError(res.error);
       } catch {
@@ -491,11 +499,21 @@ function DataMigration({ configured }: { configured: boolean }) {
       <div className="border-b border-border px-5 py-4 md:px-6">
         <h2 className={sectionHeadingClass}>Data migration</h2>
         <p className="mt-1 text-[13px] text-muted">
-          Copies regions, organisations, asset types, locations, gradings, assets, incident types and inspection setup
-          from the legacy system. Records are matched on their legacy ID (or name / code for records created here), so
-          you can run it as often as you like: existing records are updated, new ones are created, nothing is deleted.
-          Changes made here to migrated fields are overwritten by the legacy values.
+          Copies data from the legacy system. Records are matched on their legacy ID (or name / code for records
+          created here), so you can run it as often as you like: existing records are updated, new ones are created,
+          nothing is deleted. Changes made here to migrated fields are overwritten by the legacy values.
         </p>
+        <ul className="mt-2 list-disc pl-5 text-[13px] text-muted">
+          <li>
+            <span className="font-medium text-ink">Reference data</span> — regions, organisations, asset types,
+            locations, gradings, assets, incident types and inspection setup. Run this first.
+          </li>
+          <li>
+            <span className="font-medium text-ink">Transactions</span> — instructions, inspection activities and values,
+            cumulative values, incidents and notes, services. Photos and files aren&apos;t available from the legacy
+            system and aren&apos;t copied.
+          </li>
+        </ul>
       </div>
 
       <div className="flex flex-col gap-4 px-5 py-5 md:px-6">
@@ -504,15 +522,19 @@ function DataMigration({ configured }: { configured: boolean }) {
             The OData connection isn&apos;t configured. Set ODATA_BASE_URL, ODATA_USERNAME and ODATA_PASSWORD on the server.
           </p>
         )}
+        {isPending && group && (
+          <NoticeLine notice={{ tone: "muted", text: `Migrating ${MIGRATION_LABEL[group].toLowerCase()}… this can take a few minutes.` }} />
+        )}
         {error && <NoticeLine notice={{ tone: "danger", text: error }} />}
-        {totals && (
+        {totals && group && (
           <NoticeLine
             notice={{
               tone: totals.failed ? "danger" : "success",
-              text: `${totals.created} created, ${totals.updated} updated${totals.failed ? `, ${totals.failed} failed` : ""}.`,
+              text: `${MIGRATION_LABEL[group]}: ${totals.created} created, ${totals.updated} updated${totals.failed ? `, ${totals.failed} failed` : ""}.`,
             }}
           />
         )}
+        {result?.notes.map((n, i) => <NoticeLine key={i} notice={{ tone: "muted", text: n }} />)}
         {result && (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -551,9 +573,22 @@ function DataMigration({ configured }: { configured: boolean }) {
         )}
       </div>
 
-      <div className="flex justify-end border-t border-border px-5 py-4 md:px-6">
-        <button type="button" disabled={isPending || !configured} onClick={run} className={primaryButtonClass}>
-          {isPending ? "Migrating… this can take a minute" : result ? "Run migration again" : "Migrate data"}
+      <div className="flex flex-wrap justify-end gap-2 border-t border-border px-5 py-4 md:px-6">
+        <button
+          type="button"
+          disabled={isPending || !configured}
+          onClick={() => run("reference")}
+          className={secondaryButtonClass}
+        >
+          {isPending && group === "reference" ? "Migrating…" : "Migrate reference data"}
+        </button>
+        <button
+          type="button"
+          disabled={isPending || !configured}
+          onClick={() => run("transactions")}
+          className={primaryButtonClass}
+        >
+          {isPending && group === "transactions" ? "Migrating…" : "Migrate transactions"}
         </button>
       </div>
     </section>
