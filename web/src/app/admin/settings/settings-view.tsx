@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState, useTransition } from "react";
 import { formatDateTime } from "@/lib/incidents/format";
+import type { MigrationResult } from "@/lib/odata/migrate";
 import type {
   BrevoKeyStatus,
   EmailLogRow,
@@ -24,6 +25,7 @@ import {
 import {
   removeApiKey,
   resendEmail,
+  runDataMigration,
   saveSettings,
   sendTestEmail,
   setApiKey,
@@ -99,10 +101,12 @@ export function SettingsView({
   settings,
   emailLog,
   audit,
+  odataConfigured,
 }: {
   settings: SystemSettings;
   emailLog: EmailLogRow[];
   audit: SettingsAuditRow[];
+  odataConfigured: boolean;
 }) {
   const tz = settings.time_zone;
   const [form, setForm] = useState<SettingsForm>({
@@ -422,6 +426,8 @@ export function SettingsView({
         </div>
       </section>
 
+      <DataMigration configured={odataConfigured} />
+
       <EmailLog rows={emailLog} timeZone={tz} />
 
       {audit.length > 0 && (
@@ -450,6 +456,107 @@ export function SettingsView({
 
       {keyModal && <ReplaceKeyModal onClose={() => setKeyModal(false)} onSaved={setKeyNotice} />}
     </div>
+  );
+}
+
+// Pulls reference data from the legacy system's OData services. Create-or-update,
+// so it can be run repeatedly; nothing is ever deleted.
+function DataMigration({ configured }: { configured: boolean }) {
+  const [result, setResult] = useState<MigrationResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+
+  function run() {
+    if (!confirm("Migrate data from the legacy system? Existing migrated records are updated to match the source.")) return;
+    setError(null);
+    setResult(null);
+    startTransition(async () => {
+      try {
+        const res = await runDataMigration();
+        setResult(res.result ?? null);
+        setError(res.error);
+      } catch {
+        setError("The migration did not finish (the request may have timed out). Run it again — it picks up where it left off.");
+      }
+    });
+  }
+
+  const totals = result?.entities.reduce(
+    (t, e) => ({ created: t.created + e.created, updated: t.updated + e.updated, failed: t.failed + e.failed }),
+    { created: 0, updated: 0, failed: 0 },
+  );
+
+  return (
+    <section className="rounded-card border border-border bg-card">
+      <div className="border-b border-border px-5 py-4 md:px-6">
+        <h2 className={sectionHeadingClass}>Data migration</h2>
+        <p className="mt-1 text-[13px] text-muted">
+          Copies regions, organisations, asset types, locations, gradings, assets, incident types and inspection setup
+          from the legacy system. Records are matched on their legacy ID (or name / code for records created here), so
+          you can run it as often as you like: existing records are updated, new ones are created, nothing is deleted.
+          Changes made here to migrated fields are overwritten by the legacy values.
+        </p>
+      </div>
+
+      <div className="flex flex-col gap-4 px-5 py-5 md:px-6">
+        {!configured && (
+          <p className="border-l-2 border-border py-1 pl-3 text-[13px] text-muted">
+            The OData connection isn&apos;t configured. Set ODATA_BASE_URL, ODATA_USERNAME and ODATA_PASSWORD on the server.
+          </p>
+        )}
+        {error && <NoticeLine notice={{ tone: "danger", text: error }} />}
+        {totals && (
+          <NoticeLine
+            notice={{
+              tone: totals.failed ? "danger" : "success",
+              text: `${totals.created} created, ${totals.updated} updated${totals.failed ? `, ${totals.failed} failed` : ""}.`,
+            }}
+          />
+        )}
+        {result && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-table-head">
+                  <th className={`${tableHeadCellClass} !px-3`}>Data</th>
+                  <th className={tableHeadCellClass}>Found</th>
+                  <th className={tableHeadCellClass}>Created</th>
+                  <th className={tableHeadCellClass}>Updated</th>
+                  <th className={tableHeadCellClass}>Failed</th>
+                </tr>
+              </thead>
+              <tbody>
+                {result.entities.map((e) => (
+                  <tr key={e.label} className="border-t border-border align-top">
+                    <td className="px-3 py-2 text-ink">
+                      {e.label}
+                      {e.errors.length > 0 && (
+                        <ul className="mt-1 list-disc pl-5 text-xs text-danger">
+                          {e.errors.map((m, i) => (
+                            <li key={i}>{m}</li>
+                          ))}
+                          {e.failed > e.errors.length && <li>…and {e.failed - e.errors.length} more</li>}
+                        </ul>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 font-mono text-[13px] text-muted">{e.fetched}</td>
+                    <td className="px-3 py-2 font-mono text-[13px] text-muted">{e.created}</td>
+                    <td className="px-3 py-2 font-mono text-[13px] text-muted">{e.updated}</td>
+                    <td className={`px-3 py-2 font-mono text-[13px] ${e.failed ? "text-danger" : "text-muted"}`}>{e.failed}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <div className="flex justify-end border-t border-border px-5 py-4 md:px-6">
+        <button type="button" disabled={isPending || !configured} onClick={run} className={primaryButtonClass}>
+          {isPending ? "Migrating… this can take a minute" : result ? "Run migration again" : "Migrate data"}
+        </button>
+      </div>
+    </section>
   );
 }
 
