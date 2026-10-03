@@ -5,6 +5,8 @@ import { FunctionsHttpError } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth";
 import { friendlyError } from "@/lib/db-errors";
+import { odataConfigured } from "@/lib/odata/client";
+import { runODataMigration, type MigrationResult } from "@/lib/odata/migrate";
 import type {
   EmailLogRow,
   KeyCheckResult,
@@ -204,6 +206,19 @@ export async function sendTestEmail(): Promise<{ error: string | null; messageId
   revalidate();
   if (error || !data) return { error: error ?? "Brevo rejected the email." };
   return { error: null, messageId: data.messageId ?? undefined, recipient: data.recipient };
+}
+
+// Legacy-system migration (Settings → Data migration). Create-or-update, so it
+// can be run as often as needed. Uses the service role: the legacy rows are
+// written on behalf of the system, not the signed-in user.
+export async function runDataMigration(): Promise<{ error: string | null; result?: MigrationResult }> {
+  await requireSystemAdmin();
+  if (!odataConfigured()) {
+    return { error: "The OData connection isn't configured (ODATA_BASE_URL, ODATA_USERNAME, ODATA_PASSWORD)." };
+  }
+  const result = await runODataMigration();
+  revalidatePath("/admin", "layout");
+  return { error: result.fatal, result };
 }
 
 // EML-R12.
