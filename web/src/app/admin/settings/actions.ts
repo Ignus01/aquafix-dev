@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth";
 import { friendlyError } from "@/lib/db-errors";
 import { odataConfigured } from "@/lib/odata/client";
-import { runODataMigration, type MigrationResult } from "@/lib/odata/migrate";
+import { runODataMigration, type MigrationGroup, type MigrationResult } from "@/lib/odata/migrate";
 import type {
   EmailLogRow,
   KeyCheckResult,
@@ -211,12 +211,14 @@ export async function sendTestEmail(): Promise<{ error: string | null; messageId
 // Legacy-system migration (Settings → Data migration). Create-or-update, so it
 // can be run as often as needed. Uses the service role: the legacy rows are
 // written on behalf of the system, not the signed-in user.
-export async function runDataMigration(): Promise<{ error: string | null; result?: MigrationResult }> {
+export async function runDataMigration(
+  group: MigrationGroup,
+): Promise<{ error: string | null; result?: MigrationResult }> {
   await requireSystemAdmin();
   if (!odataConfigured()) {
     return { error: "The OData connection isn't configured (ODATA_BASE_URL, ODATA_USERNAME, ODATA_PASSWORD)." };
   }
-  const result = await runODataMigration();
+  const result = await runODataMigration(group === "transactions" ? "transactions" : "reference");
   revalidatePath("/admin", "layout");
   return { error: result.fatal, result };
 }
