@@ -7,6 +7,7 @@ import {
   AlertTriangleIcon,
   ClipboardCheckIcon,
   GridIcon,
+  HomeIcon,
   ListChecksIcon,
   LogOutIcon,
   MenuIcon,
@@ -92,6 +93,10 @@ function SidebarContent({
 
   const sections: NavSection[] = [
     {
+      label: "Overview",
+      items: [{ href: "/admin", label: "Home", icon: HomeIcon }],
+    },
+    {
       label: "Operations",
       items: [
         { href: "/admin/incidents", label: "Incidents", icon: AlertTriangleIcon },
@@ -136,7 +141,9 @@ function SidebarContent({
             </div>
             <div className="flex flex-col gap-0.5">
               {section.items.map((item) => {
-                const active = pathname.startsWith(item.href);
+                // Home is "/admin", the prefix of every page: match it exactly.
+                const active =
+                  item.href === "/admin" ? pathname === "/admin" : pathname.startsWith(item.href);
                 const Icon = item.icon;
                 return (
                   <Link
