@@ -9,7 +9,7 @@ export async function signIn(
 ): Promise<{ error: string | null }> {
   const email = String(formData.get("email") ?? "").trim();
   const password = String(formData.get("password") ?? "");
-  const next = String(formData.get("next") ?? "/admin/masterdata");
+  const next = String(formData.get("next") ?? "/admin");
 
   if (!email || !password) {
     return { error: "Email and password are required." };
@@ -25,7 +25,7 @@ export async function signIn(
     return { error: "Invalid email or password." };
   }
 
-  redirect(next.startsWith("/") ? next : "/admin/masterdata");
+  redirect(next.startsWith("/") ? next : "/admin");
 }
 
 export async function signOut() {
