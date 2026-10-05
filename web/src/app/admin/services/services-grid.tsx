@@ -42,7 +42,13 @@ export function ServicesGrid({
   const columns: Column<ServiceListRow>[] = [
     { key: "uid", label: "UID", render: (s) => <span className="font-semibold">{s.reference}</span>, text: (s) => s.reference },
     { key: "asset", label: "Asset code", render: (s) => s.asset.code, text: (s) => `${s.asset.code} ${s.asset.name}` },
-    { key: "due", label: "Due date", render: (s) => formatDate(s.due_date, timeZone), text: (s) => formatDate(s.due_date, timeZone) },
+    {
+      key: "due",
+      label: "Due date",
+      render: (s) => formatDate(s.due_date, timeZone),
+      text: (s) => formatDate(s.due_date, timeZone),
+      sortValue: (s) => s.due_date,
+    },
     {
       key: "type",
       label: "Service type",
@@ -62,6 +68,7 @@ export function ServicesGrid({
       label: "Completed date",
       render: (s) => formatDateTime(s.completed_date, timeZone),
       text: (s) => (s.completed_date ? formatDateTime(s.completed_date, timeZone) : ""),
+      sortValue: (s) => s.completed_date,
     },
     { key: "supplier", label: "Supplier", render: (s) => s.supplier?.name ?? "—", text: (s) => s.supplier?.name ?? "" },
     { key: "performed_by", label: "Performed by", render: (s) => s.performed_by ?? "—", text: (s) => s.performed_by ?? "" },

@@ -50,7 +50,7 @@ export default async function InspectionsPage(props: PageProps<"/admin/inspectio
   return (
     <div className="flex flex-1 flex-col">
       <PageHeader
-        breadcrumb="Operations / Inspections"
+        breadcrumb="Asset Management / Inspections"
         title="Inspections"
         actions={
           isWriter && (

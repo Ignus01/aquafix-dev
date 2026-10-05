@@ -18,7 +18,7 @@ export default async function NewInspectionPage(props: PageProps<"/admin/inspect
     const locations = await listInspectionLocations();
     return (
       <div className="flex flex-1 flex-col">
-        <PageHeader breadcrumb="Inspections / New inspection" title="Select a location" />
+        <PageHeader breadcrumb="Asset Management / Inspections / New inspection" title="Select a location" />
         <div className="px-4 pb-10 md:px-8">
           <BackLink href="/admin/inspections" label="Inspections" />
           {locations.length === 0 ? (
@@ -51,7 +51,7 @@ export default async function NewInspectionPage(props: PageProps<"/admin/inspect
 
   return (
     <div className="flex flex-1 flex-col">
-      <PageHeader breadcrumb="Inspections / New inspection" title={location?.name ?? "Select an asset"} />
+      <PageHeader breadcrumb="Asset Management / Inspections / New inspection" title={location?.name ?? "Select an asset"} />
       <div className="px-4 pb-10 md:px-8">
         <BackLink href="/admin/inspections/new" label="Locations" />
         {!location ? (

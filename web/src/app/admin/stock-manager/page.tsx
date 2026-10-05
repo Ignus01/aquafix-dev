@@ -41,7 +41,7 @@ export default async function StockManagerPage(props: PageProps<"/admin/stock-ma
   return (
     <div className="flex flex-1 flex-col">
       <PageHeader
-        breadcrumb="Operations / Stock Manager"
+        breadcrumb="Stock / Stock Manager"
         title="Stock Manager"
         actions={
           canCreate && (

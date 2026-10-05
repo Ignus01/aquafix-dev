@@ -18,7 +18,7 @@ export default async function EditActivityPage(props: PageProps<"/admin/inspecti
 
   return (
     <div className="flex flex-1 flex-col">
-      <PageHeader breadcrumb={`Inspections / Inspection ${n}`} title="Edit inspection" />
+      <PageHeader breadcrumb={`Asset Management / Inspections / ${n}`} title="Edit inspection" />
       {"error" in context ? (
         <div className="px-4 md:px-8">
           <div className="max-w-2xl rounded-card border border-border bg-card px-5 py-8 text-center">

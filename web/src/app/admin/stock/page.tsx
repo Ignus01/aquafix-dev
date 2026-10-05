@@ -26,7 +26,7 @@ export default async function StockPage() {
 
   return (
     <div className="flex flex-1 flex-col">
-      <PageHeader breadcrumb="Master Data / Stock Masterfiles" title="Stock Masterfiles" />
+      <PageHeader breadcrumb="Master Data / Stock Master Files" title="Stock Master Files" />
       <StockTabs
         roles={roles}
         products={products}

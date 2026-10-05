@@ -20,7 +20,7 @@ export default async function SettingsPage() {
 
   return (
     <div className="flex flex-1 flex-col">
-      <PageHeader breadcrumb="Setup / System Settings" title="System Settings" />
+      <PageHeader breadcrumb="Admin / System Settings" title="System Settings" />
       <SettingsView settings={settings} emailLog={emailLog} audit={audit} odataConfigured={odataReady} />
     </div>
   );

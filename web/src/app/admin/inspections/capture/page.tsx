@@ -20,7 +20,7 @@ export default async function CapturePage(props: PageProps<"/admin/inspections/c
 
   return (
     <div className="flex flex-1 flex-col">
-      <PageHeader breadcrumb="Inspections / New inspection" title="Inspection" />
+      <PageHeader breadcrumb="Asset Management / Inspections / New inspection" title="Inspection" />
       {"error" in context ? (
         <div className="px-4 md:px-8">
           <div className="max-w-2xl rounded-card border border-border bg-card px-5 py-8 text-center">

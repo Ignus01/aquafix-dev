@@ -16,7 +16,16 @@ import {
   type IncidentStatus,
   type LocationStatusRow,
 } from "@/lib/incidents/types";
-import { ChevronRightIcon, DownloadIcon, SearchIcon } from "../icons";
+import {
+  Pagination,
+  SearchInput,
+  SortableTh,
+  sortRows,
+  usePagination,
+  useSort,
+  type SortValue,
+} from "../data-grid";
+import { ChevronRightIcon, DownloadIcon } from "../icons";
 import { inputClass, tableHeadCellClass } from "../ui";
 import { deleteIncident } from "./actions";
 import { StatusControl } from "./status-control";
@@ -30,6 +39,17 @@ const chipClass = (on: boolean) =>
       ? "border-primary bg-primary/10 text-primary-hover"
       : "border-border bg-white text-ink hover:bg-black/[.02]"
   }`;
+
+const SORTERS: Record<string, (i: IncidentListRow) => SortValue> = {
+  ref: (i) => i.reference,
+  type: (i) => i.incident_type.name,
+  location: (i) => i.location.name,
+  photos: (i) => i.image_count,
+  status: (i) => INCIDENT_STATUSES.indexOf(i.status),
+  incident_date: (i) => i.incident_date,
+  completed: (i) => i.completed_at,
+  by: (i) => i.created_by_name,
+};
 
 function csvCell(value: string | number | null) {
   const s = value === null ? "" : String(value);
@@ -66,6 +86,7 @@ export function IncidentsView({
   const [tableError, setTableError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [now] = useState(() => new Date());
+  const [sort, toggleSort] = useSort();
 
   const typeOptions = useMemo(() => {
     const map = new Map(incidents.map((i) => [i.incident_type.id, i.incident_type.name]));
@@ -78,7 +99,7 @@ export function IncidentsView({
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return incidents.filter((i) => {
+    const matched = incidents.filter((i) => {
       if (scope === "open_today" && i.status === "completed" && !isSameDay(i.created_at, now, timeZone)) {
         return false;
       }
@@ -95,7 +116,23 @@ export function IncidentsView({
         i.created_by_name ?? "",
       ].some((v) => v.toLowerCase().includes(q));
     });
-  }, [incidents, query, scope, mineOnly, status, typeId, locationId, userId, now, timeZone]);
+    return sort ? sortRows(matched, SORTERS[sort.key], sort.desc) : matched;
+  }, [incidents, query, scope, mineOnly, status, typeId, locationId, userId, now, timeZone, sort]);
+
+  const { pageItems, ...paging } = usePagination(
+    filtered,
+    [query, scope, mineOnly, status, typeId, locationId, sort?.key, sort?.desc].join("|"),
+  );
+  const hasFilters = Boolean(query || status || typeId || locationId || mineOnly || scope !== "all");
+
+  function clearFilters() {
+    setQuery("");
+    setScope("all");
+    setMineOnly(false);
+    setStatus("");
+    setTypeId("");
+    setLocationId("");
+  }
 
   const notOperational = locations.filter((l) => !l.is_operational).length;
 
@@ -177,17 +214,9 @@ export function IncidentsView({
       </div>
 
       {tab === "incidents" && (
-        <div className="flex flex-col gap-4">
+        <div data-grid className="flex scroll-mt-4 flex-col gap-4">
           <div className="flex flex-wrap items-center gap-2.5">
-            <label className="flex h-[38px] w-full items-center gap-2 rounded-full border border-border bg-white px-3 text-muted sm:w-72">
-              <SearchIcon className="h-4 w-4 shrink-0" />
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search incidents…"
-                className="w-full bg-transparent text-sm text-ink outline-none placeholder:text-muted"
-              />
-            </label>
+            <SearchInput value={query} onChange={setQuery} placeholder="Search incidents…" />
 
             <div className="flex rounded-full border border-border bg-white p-0.5">
               {(
@@ -210,7 +239,12 @@ export function IncidentsView({
             </div>
 
             {userId && (
-              <button type="button" onClick={() => setMineOnly((v) => !v)} className={chipClass(mineOnly)}>
+              <button
+                type="button"
+                aria-pressed={mineOnly}
+                onClick={() => setMineOnly((v) => !v)}
+                className={chipClass(mineOnly)}
+              >
                 Logged by me
               </button>
             )}
@@ -281,12 +315,24 @@ export function IncidentsView({
                 : scope === "open_today" && !query && !status && !typeId && !locationId
                   ? "No open incidents, and none logged today."
                   : "No incidents match these filters."}
+              {incidents.length > 0 && hasFilters && (
+                <>
+                  {" "}
+                  <button
+                    type="button"
+                    onClick={clearFilters}
+                    className="font-semibold text-primary hover:text-primary-hover"
+                  >
+                    Show all incidents
+                  </button>
+                </>
+              )}
             </div>
           ) : (
             <>
               {/* Phone: cards (Incident_Overview_PWA's gallery). */}
               <div className="flex flex-col gap-2.5 md:hidden">
-                {filtered.map((i) => (
+                {pageItems.map((i) => (
                   <div key={i.id} className="rounded-card border border-border bg-card p-4">
                     <Link href={`/admin/incidents/${i.reference}`} className="block">
                       <div className="flex items-start justify-between gap-3">
@@ -313,80 +359,108 @@ export function IncidentsView({
                     </div>
                   </div>
                 ))}
+                <Pagination {...paging} className="px-1" />
               </div>
 
               {/* Desktop: the Incident_Overview grid. */}
-              <div className="hidden overflow-x-auto rounded-card border border-border bg-card md:block">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="bg-table-head">
-                      <th className={`${tableHeadCellClass} !px-4`}>Ref</th>
-                      <th className={tableHeadCellClass}>Incident type</th>
-                      <th className={tableHeadCellClass}>Location</th>
-                      <th className={tableHeadCellClass}>Comment</th>
-                      <th className={tableHeadCellClass}>Photos</th>
-                      <th className={tableHeadCellClass}>Status</th>
-                      <th className={tableHeadCellClass}>Incident date</th>
-                      <th className={tableHeadCellClass}>Completed</th>
-                      <th className={tableHeadCellClass}>Logged by</th>
-                      {isAdmin && <th className={tableHeadCellClass} />}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filtered.map((i) => (
-                      <tr key={i.id} className="border-t border-border align-middle transition-colors hover:bg-row-hover">
-                        <td className="px-4 py-2.5">
-                          <Link
-                            href={`/admin/incidents/${i.reference}`}
-                            className="font-mono text-[13px] font-semibold text-primary hover:text-primary-hover"
-                          >
-                            {i.reference}
-                          </Link>
-                        </td>
-                        <td className="px-3 py-2.5 whitespace-nowrap text-ink">{i.incident_type.name}</td>
-                        <td className="px-3 py-2.5 whitespace-nowrap text-ink">{i.location.name}</td>
-                        <td className="px-3 py-2.5">
-                          <span className="line-clamp-1 max-w-[280px] text-muted" title={i.comment}>
-                            {i.comment}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2.5 text-ink">
-                          {i.image_count}
-                          {i.note_count > 0 && (
-                            <span className="ml-2 text-xs text-muted">
-                              {i.note_count} note{i.note_count === 1 ? "" : "s"}
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-3 py-2.5">
-                          <StatusControl
-                            incident={i}
-                            canAdvance={canAdvanceStatus(roles, i)}
-                            canSetAny={isAdmin}
-                          />
-                        </td>
-                        <td className="px-3 py-2.5 whitespace-nowrap text-ink">
-                          {formatDateTime(i.incident_date, timeZone)}
-                        </td>
-                        <td className="px-3 py-2.5 whitespace-nowrap text-muted">
-                          {i.completed_at ? formatDate(i.completed_at, timeZone) : "—"}
-                        </td>
-                        <td className="px-3 py-2.5 whitespace-nowrap text-ink">{i.created_by_name ?? "—"}</td>
+              <div className="hidden overflow-hidden rounded-card border border-border bg-card md:block">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-table-head">
+                        {(
+                          [
+                            ["ref", "Ref"],
+                            ["type", "Incident type"],
+                            ["location", "Location"],
+                            ["comment", "Comment"],
+                            ["photos", "Photos"],
+                            ["status", "Status"],
+                            ["incident_date", "Incident date"],
+                            ["completed", "Completed"],
+                            ["by", "Logged by"],
+                          ] as const
+                        ).map(([key, label], idx) => {
+                          const cls = `${tableHeadCellClass} ${idx === 0 ? "!px-4" : ""}`;
+                          return key in SORTERS ? (
+                            <SortableTh
+                              key={key}
+                              label={label}
+                              sortKey={key}
+                              sort={sort}
+                              onSort={toggleSort}
+                              className={cls}
+                            />
+                          ) : (
+                            <th key={key} className={cls}>
+                              {label}
+                            </th>
+                          );
+                        })}
                         {isAdmin && (
-                          <td className="px-3 py-2.5 text-right">
-                            <button
-                              disabled={isPending}
-                              onClick={() => handleDelete(i)}
-                              className="text-xs font-semibold text-danger hover:opacity-80 disabled:opacity-60"
-                            >
-                              Delete
-                            </button>
-                          </td>
+                          <th className={tableHeadCellClass}>
+                            <span className="sr-only">Actions</span>
+                          </th>
                         )}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {pageItems.map((i) => (
+                        <tr key={i.id} className="border-t border-border align-middle transition-colors hover:bg-row-hover">
+                          <td className="px-4 py-2.5">
+                            <Link
+                              href={`/admin/incidents/${i.reference}`}
+                              className="font-mono text-[13px] font-semibold text-primary hover:text-primary-hover"
+                            >
+                              {i.reference}
+                            </Link>
+                          </td>
+                          <td className="px-3 py-2.5 whitespace-nowrap text-ink">{i.incident_type.name}</td>
+                          <td className="px-3 py-2.5 whitespace-nowrap text-ink">{i.location.name}</td>
+                          <td className="px-3 py-2.5">
+                            <span className="line-clamp-1 max-w-[280px] text-muted" title={i.comment}>
+                              {i.comment}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2.5 text-ink">
+                            {i.image_count}
+                            {i.note_count > 0 && (
+                              <span className="ml-2 text-xs text-muted">
+                                {i.note_count} note{i.note_count === 1 ? "" : "s"}
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2.5">
+                            <StatusControl
+                              incident={i}
+                              canAdvance={canAdvanceStatus(roles, i)}
+                              canSetAny={isAdmin}
+                            />
+                          </td>
+                          <td className="px-3 py-2.5 whitespace-nowrap text-ink">
+                            {formatDateTime(i.incident_date, timeZone)}
+                          </td>
+                          <td className="px-3 py-2.5 whitespace-nowrap text-muted">
+                            {i.completed_at ? formatDate(i.completed_at, timeZone) : "—"}
+                          </td>
+                          <td className="px-3 py-2.5 whitespace-nowrap text-ink">{i.created_by_name ?? "—"}</td>
+                          {isAdmin && (
+                            <td className="px-3 py-2.5 text-right">
+                              <button
+                                disabled={isPending}
+                                onClick={() => handleDelete(i)}
+                                className="text-xs font-semibold text-danger hover:opacity-80 disabled:opacity-60"
+                              >
+                                Delete
+                              </button>
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <Pagination {...paging} className="border-t border-border px-4 py-2" />
               </div>
             </>
           )}

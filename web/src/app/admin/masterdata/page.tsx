@@ -37,7 +37,7 @@ export default async function MasterdataPage() {
 
   return (
     <div className="flex flex-1 flex-col">
-      <PageHeader breadcrumb="Master Data / Masterfiles" title="Masterfiles" />
+      <PageHeader breadcrumb="Master Data / Master Files" title="Master Files" />
       <MasterdataTabs
         roles={roles}
         regions={regions}
