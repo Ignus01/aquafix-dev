@@ -31,7 +31,7 @@ export default async function ServicesPage(props: PageProps<"/admin/services">) 
   return (
     <div className="flex flex-1 flex-col">
       <PageHeader
-        breadcrumb="Operations / Services"
+        breadcrumb="Asset Management / Services"
         title="Services"
         actions={
           isWriter && (

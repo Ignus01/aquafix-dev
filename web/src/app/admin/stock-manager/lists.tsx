@@ -64,7 +64,13 @@ export function StockSummary({ rows }: { rows: StockRow[] }) {
 
 export function Transactions({ rows, options, timeZone }: { rows: LedgerRow[]; options: Options; timeZone: string }) {
   const columns: Column<LedgerRow>[] = [
-    { key: "date", label: "Date", render: (r) => formatDateTime(r.transaction_date, timeZone), text: (r) => formatDateTime(r.transaction_date, timeZone) },
+    {
+      key: "date",
+      label: "Date",
+      render: (r) => formatDateTime(r.transaction_date, timeZone),
+      text: (r) => formatDateTime(r.transaction_date, timeZone),
+      sortValue: (r) => r.transaction_date,
+    },
     {
       key: "type",
       label: "Type",
@@ -124,7 +130,7 @@ export function DocList({
   };
   const date = (key: string, label: string, time: boolean): Column<DocRow> => {
     const text = (r: DocRow) => (time ? formatDateTime(r[key] as string, timeZone) : formatDate(r[key] as string, timeZone));
-    return { key, label, render: text, text };
+    return { key, label, render: text, text, sortValue: (r) => r[key] as string | null };
   };
   const area = (key: string, label: string): Column<DocRow> => {
     const text = (r: DocRow) => (r[key] ? labelOf(options, "storageAreas", r[key]) : "—");

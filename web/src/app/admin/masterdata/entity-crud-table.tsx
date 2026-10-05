@@ -4,8 +4,18 @@ import { useMemo, useState, useTransition, type ReactNode } from "react";
 import { Drawer } from "../drawer";
 import { Switch } from "../switch";
 import { StatusBadge } from "../status-badge";
-import { SearchIcon, PlusIcon } from "../icons";
+import { PlusIcon } from "../icons";
 import { inputClass } from "../ui";
+import { YesNo } from "../inspections/badges";
+import {
+  Pagination,
+  SearchInput,
+  SortableTh,
+  sortRows,
+  usePagination,
+  useSort,
+  type SortValue,
+} from "../data-grid";
 
 export type FieldType = "text" | "number" | "boolean" | "select" | "date";
 
@@ -176,12 +186,30 @@ function FormFields({
   );
 }
 
+// What the user sees for a select is the option's label, not the stored id,
+// so search and sort by that.
+function displayValue(f: FieldConfig, row: Record<string, unknown>): string {
+  const raw = row[f.key];
+  if (f.type === "select") {
+    const label = f.options?.find((o) => o.value === raw)?.label;
+    if (label !== undefined) return label;
+  }
+  return raw === undefined || raw === null ? "" : String(raw);
+}
+
+function sortValue(f: FieldConfig, row: Record<string, unknown>): SortValue {
+  const raw = row[f.key];
+  if (f.type === "boolean") return Boolean(raw);
+  if (f.type === "number") return raw === undefined || raw === null || raw === "" ? null : Number(raw);
+  return displayValue(f, row);
+}
+
 function renderCell(f: FieldConfig, row: Record<string, unknown>) {
   const raw = row[f.key];
   if (f.render) return f.render(String(raw ?? ""), row);
   if (f.type === "boolean") {
     if (f.statusBadge) return <StatusBadge active={Boolean(raw)} />;
-    return <Switch checked={Boolean(raw)} onChange={() => {}} />;
+    return <YesNo value={Boolean(raw)} />;
   }
   const text = raw === undefined || raw === null || raw === "" ? "—" : String(raw);
   if (f.mono) {
@@ -212,6 +240,7 @@ export function EntityCrudTable({
 
   const [query, setQuery] = useState("");
   const [activeOnly, setActiveOnly] = useState(false);
+  const [sort, toggleSort] = useSort();
 
   const [drawer, setDrawer] = useState<
     | { mode: "add"; values: Record<string, string> }
@@ -229,14 +258,17 @@ export function EntityCrudTable({
     if (query.trim()) {
       const q = query.trim().toLowerCase();
       list = list.filter((r) =>
-        fields.some((f) => {
-          if (f.type === "boolean") return false;
-          return String(r[f.key] ?? "").toLowerCase().includes(q);
-        }),
+        fields.some((f) => f.type !== "boolean" && displayValue(f, r).toLowerCase().includes(q)),
       );
     }
-    return list;
-  }, [rows, query, activeOnly, fields]);
+    const sortField = sort && fields.find((f) => f.key === sort.key);
+    return sort && sortField ? sortRows(list, (r) => sortValue(sortField, r), sort.desc) : list;
+  }, [rows, query, activeOnly, fields, sort]);
+
+  const { pageItems, ...paging } = usePagination(
+    filteredRows,
+    `${query}|${activeOnly}|${sort?.key}|${sort?.desc}`,
+  );
 
   function openAdd() {
     setError(null);
@@ -287,21 +319,18 @@ export function EntityCrudTable({
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div data-grid className="flex scroll-mt-4 flex-col gap-4">
       <div className="flex flex-wrap items-center gap-2.5">
-        <label className="flex h-[38px] w-72 items-center gap-2 rounded-full border border-border bg-white px-3 text-muted">
-          <SearchIcon className="h-4 w-4 shrink-0" />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={`Search ${itemLabel.toLowerCase()}s…`}
-            className="w-full bg-transparent text-sm text-ink outline-none placeholder:text-muted"
-          />
-        </label>
+        <SearchInput
+          value={query}
+          onChange={setQuery}
+          placeholder={`Search ${itemLabel.toLowerCase()}s…`}
+        />
 
         {hasActiveField && (
           <button
             type="button"
+            aria-pressed={activeOnly}
             onClick={() => setActiveOnly((v) => !v)}
             className={`flex h-[38px] items-center gap-1.5 rounded-full border px-3.5 text-[13px] font-medium transition-colors ${
               activeOnly
@@ -332,85 +361,106 @@ export function EntityCrudTable({
         </p>
       )}
 
-      <div className="overflow-x-auto rounded-card border border-border bg-card">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="bg-table-head">
-              {fields.map((f) => (
-                <th
-                  key={f.key}
-                  className="px-4 py-2.5 text-left text-[11px] font-semibold tracking-wider text-muted uppercase whitespace-nowrap"
-                >
-                  {f.label}
-                </th>
-              ))}
-              {showActions && (
-                <th className="px-4 py-2.5 text-left text-[11px] font-semibold tracking-wider text-muted uppercase">
-                  Actions
-                </th>
-              )}
-            </tr>
-          </thead>
-          <tbody>
-            {filteredRows.length === 0 && (
-              <tr>
-                <td
-                  colSpan={fields.length + 1}
-                  className="px-4 py-8 text-center text-muted"
-                >
-                  {rows.length === 0 ? (emptyLabel ?? "No records yet.") : "No matches."}
-                </td>
+      <div className="overflow-hidden rounded-card border border-border bg-card">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-table-head">
+                {fields.map((f) => (
+                  <SortableTh
+                    key={f.key}
+                    label={f.label}
+                    sortKey={f.key}
+                    sort={sort}
+                    onSort={toggleSort}
+                    className="px-4 py-2.5 text-left text-[11px] font-semibold text-muted whitespace-nowrap"
+                  />
+                ))}
+                {showActions && (
+                  <th className="px-4 py-2.5 text-left text-[11px] font-semibold tracking-wider text-muted uppercase">
+                    Actions
+                  </th>
+                )}
               </tr>
-            )}
-            {filteredRows.map((row) => {
-              const id = getId(row);
-              return (
-                <tr
-                  key={id}
-                  className="h-[50px] border-t border-border transition-colors hover:bg-row-hover"
-                >
-                  {fields.map((f) => (
-                    <td key={f.key} className="px-4 text-ink">
-                      {renderCell(f, row)}
-                    </td>
-                  ))}
-                  {showActions && (
-                    <td className="px-4 whitespace-nowrap">
-                      <div className="flex gap-4">
-                        {customEditor ? (
-                          <button
-                            onClick={() => customEditor.onOpen(row)}
-                            className="text-xs font-semibold text-primary hover:text-primary-hover"
-                          >
-                            {canUpdate ? "Edit" : "View"}
-                          </button>
-                        ) : (
-                          (canUpdate || canView) && (
+            </thead>
+            <tbody>
+              {filteredRows.length === 0 && (
+                <tr>
+                  <td
+                    colSpan={fields.length + 1}
+                    className="px-4 py-8 text-center text-muted"
+                  >
+                    {rows.length === 0 ? (
+                      (emptyLabel ?? "No records yet.")
+                    ) : (
+                      <>
+                        No {itemLabel.toLowerCase()}s match these filters.{" "}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setQuery("");
+                            setActiveOnly(false);
+                          }}
+                          className="font-semibold text-primary hover:text-primary-hover"
+                        >
+                          Clear filters
+                        </button>
+                      </>
+                    )}
+                  </td>
+                </tr>
+              )}
+              {pageItems.map((row) => {
+                const id = getId(row);
+                return (
+                  <tr
+                    key={id}
+                    className="h-[50px] border-t border-border transition-colors hover:bg-row-hover"
+                  >
+                    {fields.map((f) => (
+                      <td key={f.key} className="px-4 text-ink">
+                        {renderCell(f, row)}
+                      </td>
+                    ))}
+                    {showActions && (
+                      <td className="px-4 whitespace-nowrap">
+                        <div className="flex gap-4">
+                          {customEditor ? (
                             <button
-                              onClick={() => openEdit(row)}
+                              onClick={() => customEditor.onOpen(row)}
                               className="text-xs font-semibold text-primary hover:text-primary-hover"
                             >
                               {canUpdate ? "Edit" : "View"}
                             </button>
-                          )
-                        )}
-                        {canDelete && (
-                          <button
-                            disabled={isPending}
-                            onClick={() => handleDelete(row)}
-                            className="text-xs font-semibold text-danger hover:opacity-80"
-                          >
-                            Delete
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  )}
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                          ) : (
+                            (canUpdate || canView) && (
+                              <button
+                                onClick={() => openEdit(row)}
+                                className="text-xs font-semibold text-primary hover:text-primary-hover"
+                              >
+                                {canUpdate ? "Edit" : "View"}
+                              </button>
+                            )
+                          )}
+                          {canDelete && (
+                            <button
+                              disabled={isPending}
+                              onClick={() => handleDelete(row)}
+                              className="text-xs font-semibold text-danger hover:opacity-80"
+                            >
+                              Delete
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    )}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <Pagination {...paging} className="border-t border-border px-4 py-2" />
       </div>
 
       <Drawer

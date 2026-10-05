@@ -1,7 +1,9 @@
 "use client";
 
 import { useMemo, useState, type ReactNode } from "react";
-import { DownloadIcon, SearchIcon } from "../icons";
+import { Pagination, SearchInput, SortableTh, sortRows, usePagination, useSort, type SortValue } from "../data-grid";
+import { DownloadIcon } from "../icons";
+import { fmt } from "@/lib/dashboard/format";
 import { tableHeadCellClass } from "../ui";
 
 export type Column<T> = {
@@ -10,6 +12,9 @@ export type Column<T> = {
   render: (row: T) => ReactNode;
   // Plain value for search and CSV export; omit to leave the column out of both.
   text?: (row: T) => string | number | null;
+  // Value to sort by when `text` doesn't sort correctly (formatted dates,
+  // ratios…). Columns with neither aren't sortable.
+  sortValue?: (row: T) => SortValue;
   className?: string;
 };
 
@@ -18,8 +23,9 @@ function csvCell(value: string | number | null | undefined) {
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
-// The back-office grids: search across the text columns, and Export
-// (Main.ACT_ExportToExcel) as CSV of the filtered rows.
+// The back-office grids: search across the text columns, sort by any column,
+// 20 rows a page, and Export (Main.ACT_ExportToExcel) as CSV of every
+// filtered row, not just the page.
 export function DataTable<T>({
   rows,
   columns,
@@ -42,14 +48,19 @@ export function DataTable<T>({
   toolbar?: ReactNode;
 }) {
   const [query, setQuery] = useState("");
+  const [sort, toggleSort] = useSort();
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((row) =>
-      columns.some((c) => c.text && String(c.text(row) ?? "").toLowerCase().includes(q)),
-    );
-  }, [rows, columns, query]);
+    const matched = q
+      ? rows.filter((row) => columns.some((c) => c.text && String(c.text(row) ?? "").toLowerCase().includes(q)))
+      : rows;
+    const col = sort && columns.find((c) => c.key === sort.key);
+    const value = col && (col.sortValue ?? col.text);
+    return sort && value ? sortRows(matched, value, sort.desc) : matched;
+  }, [rows, columns, query, sort]);
+
+  const { pageItems, ...paging } = usePagination(filtered, `${query}|${sort?.key}|${sort?.desc}`);
 
   function exportCsv() {
     const cols = columns.filter((c) => c.text);
@@ -67,17 +78,9 @@ export function DataTable<T>({
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div data-grid className="flex scroll-mt-4 flex-col gap-4">
       <div className="flex flex-wrap items-center gap-2.5">
-        <label className="flex h-[38px] w-full items-center gap-2 rounded-full border border-border bg-white px-3 text-muted sm:w-72">
-          <SearchIcon className="h-4 w-4 shrink-0" />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={searchPlaceholder}
-            className="w-full bg-transparent text-sm text-ink outline-none placeholder:text-muted"
-          />
-        </label>
+        <SearchInput value={query} onChange={setQuery} placeholder={searchPlaceholder} />
         <div className="flex-1" />
         {toolbar}
         {exportName && (
@@ -85,6 +88,7 @@ export function DataTable<T>({
             type="button"
             onClick={exportCsv}
             disabled={filtered.length === 0}
+            title={filtered.length > 0 ? `Export ${fmt(filtered.length)} rows as CSV` : undefined}
             className="flex h-[38px] items-center gap-2 rounded-control border border-border bg-white px-3.5 text-sm font-medium text-ink transition-colors hover:bg-black/[.02] disabled:opacity-60"
           >
             <DownloadIcon className="h-4 w-4" />
@@ -95,37 +99,69 @@ export function DataTable<T>({
 
       {filtered.length === 0 ? (
         <div className="rounded-card border border-border bg-card px-4 py-10 text-center text-sm text-muted">
-          {rows.length === 0 ? emptyLabel : "Nothing matches your search."}
+          {rows.length === 0 ? (
+            emptyLabel
+          ) : (
+            <>
+              Nothing matches “{query.trim()}”.{" "}
+              <button
+                type="button"
+                onClick={() => setQuery("")}
+                className="font-semibold text-primary hover:text-primary-hover"
+              >
+                Clear search
+              </button>
+            </>
+          )}
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-card border border-border bg-card">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-table-head">
-                {columns.map((c, i) => (
-                  <th key={c.key} className={`${tableHeadCellClass} ${i === 0 ? "!px-4" : ""}`}>
-                    {c.label}
-                  </th>
-                ))}
-                {actions && <th className={tableHeadCellClass} />}
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((row) => (
-                <tr key={getKey(row)} className="border-t border-border align-middle transition-colors hover:bg-row-hover">
-                  {columns.map((c, i) => (
-                    <td
-                      key={c.key}
-                      className={`py-2.5 ${i === 0 ? "px-4" : "px-3"} ${c.className ?? "whitespace-nowrap text-ink"}`}
-                    >
-                      {c.render(row)}
-                    </td>
-                  ))}
-                  {actions && <td className="px-3 py-2.5 text-right whitespace-nowrap">{actions(row)}</td>}
+        <div className="overflow-hidden rounded-card border border-border bg-card">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-table-head">
+                  {columns.map((c, i) => {
+                    const cls = `${tableHeadCellClass} ${i === 0 ? "!px-4" : ""}`;
+                    return c.sortValue || c.text ? (
+                      <SortableTh
+                        key={c.key}
+                        label={c.label}
+                        sortKey={c.key}
+                        sort={sort}
+                        onSort={toggleSort}
+                        className={cls}
+                      />
+                    ) : (
+                      <th key={c.key} className={cls}>
+                        {c.label}
+                      </th>
+                    );
+                  })}
+                  {actions && (
+                    <th className={tableHeadCellClass}>
+                      <span className="sr-only">Actions</span>
+                    </th>
+                  )}
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {pageItems.map((row) => (
+                  <tr key={getKey(row)} className="border-t border-border align-middle transition-colors hover:bg-row-hover">
+                    {columns.map((c, i) => (
+                      <td
+                        key={c.key}
+                        className={`py-2.5 ${i === 0 ? "px-4" : "px-3"} ${c.className ?? "whitespace-nowrap text-ink"}`}
+                      >
+                        {c.render(row)}
+                      </td>
+                    ))}
+                    {actions && <td className="px-3 py-2.5 text-right whitespace-nowrap">{actions(row)}</td>}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <Pagination {...paging} className="border-t border-border px-4 py-2" />
         </div>
       )}
       {rows.length >= 1000 && <p className="text-xs text-muted">Showing the 1,000 most recent rows.</p>}

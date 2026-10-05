@@ -277,6 +277,27 @@ export function PaperclipIcon({ className }: { className?: string }) {
   );
 }
 
+export function ReceiptIcon({ className }: { className?: string }) {
+  return (
+    <Svg className={className}>
+      <path d="M4 2v20l3-2 3 2 2-1.5L14 22l3-2 3 2V2l-3 2-3-2-2 1.5L10 2 7 4Z" />
+      <path d="M8 9h8" />
+      <path d="M8 13h8" />
+    </Svg>
+  );
+}
+
+export function BarChartIcon({ className }: { className?: string }) {
+  return (
+    <Svg className={className}>
+      <path d="M3 3v18h18" />
+      <path d="M8 17v-5" />
+      <path d="M13 17V8" />
+      <path d="M18 17v-9" />
+    </Svg>
+  );
+}
+
 export function PackageIcon({ className }: { className?: string }) {
   return (
     <svg

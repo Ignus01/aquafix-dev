@@ -47,7 +47,7 @@ export default async function StockDocumentPage(props: PageProps<"/admin/stock-m
 
   return (
     <div className="flex flex-1 flex-col">
-      <PageHeader breadcrumb={`Operations / Stock Manager / ${cfg.plural}`} title={title} />
+      <PageHeader breadcrumb={`Stock / ${cfg.plural}`} title={title} />
       <div className="px-4 pb-10 md:px-8">
         <Link href={back.href} className="mb-4 inline-flex items-center gap-1 text-sm font-medium text-primary hover:text-primary-hover">
           <ChevronLeftIcon className="h-4 w-4" />

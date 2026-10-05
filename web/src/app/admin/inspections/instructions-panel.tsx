@@ -100,6 +100,7 @@ export function InstructionsPanel({
       key: "progress",
       label: "Progress",
       text: (r) => `${r.nr_completed} / ${r.nr_of_allocations}`,
+      sortValue: (r) => (r.nr_of_allocations ? r.nr_completed / r.nr_of_allocations : null),
       render: (r) => <Progress done={r.nr_completed} total={r.nr_of_allocations} />,
     },
     {
@@ -128,6 +129,7 @@ export function InstructionsPanel({
       key: "changed",
       label: "Changed",
       text: (r) => formatDateTime(r.updated_at, timeZone),
+      sortValue: (r) => r.updated_at,
       render: (r) => <span className="text-muted">{formatDateTime(r.updated_at, timeZone)}</span>,
     },
   ];

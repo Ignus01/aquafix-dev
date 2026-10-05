@@ -65,6 +65,7 @@ export function ActivitiesPanel({
       key: "date",
       label: "Inspection date",
       text: (r) => formatDateTime(r.inspection_date, timeZone),
+      sortValue: (r) => r.inspection_date,
       render: (r) => formatDateTime(r.inspection_date, timeZone),
     },
     { key: "by", label: "Inspected by", text: (r) => r.inspected_by_name, render: (r) => r.inspected_by_name ?? "—" },
@@ -141,6 +142,7 @@ export function ValuesPanel({ values, timeZone }: { values: ValueListRow[]; time
       key: "date",
       label: "Inspection date",
       text: (r) => formatDateTime(r.activity.inspection_date, timeZone),
+      sortValue: (r) => r.activity.inspection_date,
       render: (r) => formatDateTime(r.activity.inspection_date, timeZone),
     },
     { key: "grading", label: "Grading", text: (r) => r.grading?.name ?? "", render: (r) => <GradingBadge grading={r.grading} /> },
@@ -194,6 +196,7 @@ export function CumulativePanel({
       key: "updated",
       label: "Update date",
       text: (r) => formatDateTime(r.updated_at, timeZone),
+      sortValue: (r) => r.updated_at,
       render: (r) => formatDateTime(r.updated_at, timeZone),
     },
   ];

@@ -22,7 +22,7 @@ export default async function EditIncidentPage(props: PageProps<"/admin/incident
 
   return (
     <div className="flex flex-1 flex-col">
-      <PageHeader breadcrumb={`Operations / Incidents / ${ref}`} title={`Edit incident ${ref}`} />
+      <PageHeader breadcrumb={`Asset Management / Incidents / ${ref}`} title={`Edit incident ${ref}`} />
       <IncidentForm incident={incident} types={types} locations={locations} />
     </div>
   );

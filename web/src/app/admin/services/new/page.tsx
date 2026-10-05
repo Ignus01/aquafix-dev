@@ -11,7 +11,7 @@ export default async function NewServicePage() {
 
   return (
     <div className="flex flex-1 flex-col">
-      <PageHeader breadcrumb="Operations / Services" title="New service" />
+      <PageHeader breadcrumb="Asset Management / Services" title="New service" />
       <ServiceForm
         service={null}
         assets={assets}

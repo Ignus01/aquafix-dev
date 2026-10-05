@@ -21,7 +21,7 @@ export default async function IncidentsPage() {
   return (
     <div className="flex flex-1 flex-col">
       <PageHeader
-        breadcrumb="Operations / Incidents"
+        breadcrumb="Asset Management / Incidents"
         title="Incidents"
         actions={
           isIncidentWriter(roles) && (
