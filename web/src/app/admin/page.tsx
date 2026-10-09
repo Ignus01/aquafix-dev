@@ -26,16 +26,27 @@ import {
   type LocationFilterOption,
   type PeriodPreset,
 } from "@/lib/dashboard/types";
+import type { LoggerDashboard } from "@/lib/dashboard/types";
 import { PageHeader } from "./page-header";
-import { ChevronRightIcon } from "./icons";
-import { BarList, ColumnChart, Legend, SegmentBar, Sparkline } from "./dashboard/charts";
+import { BarList, ColumnChart, Legend, SegmentBar } from "./dashboard/charts";
+import { Card, Empty, Kpi, Readout, TONE_PILL, delta, shareDelta } from "./dashboard/cards";
 import { DashboardFilters, type FilterState } from "./dashboard/filters";
+import { LoggerReport } from "./dashboard/logger-report";
 import { SitesTable } from "./dashboard/sites-table";
 
 // Admin home: the operations dashboard. Modelled on the AquaFix Power BI
 // "Overview" page (slicers, location / grading / incident overviews) and the
 // board report (headline KPIs, condition trend, delivery, incidents). All
 // figures come from public.home_dashboard() under the caller's RLS.
+//
+// System admins also get a Loggers tab: the logger readings over the same
+// period and filters, from public.logger_dashboard().
+
+const TABS = [
+  { key: "operations", label: "Operations" },
+  { key: "loggers", label: "Loggers" },
+] as const;
+type Tab = (typeof TABS)[number]["key"];
 
 const BANDS: GradingBand[] = ["critical", "warning", "fair", "good"];
 
@@ -66,9 +77,13 @@ const uuidParam = (v: unknown) =>
   typeof v === "string" && /^[0-9a-f-]{36}$/i.test(v) ? v : "";
 
 export default async function HomePage(props: PageProps<"/admin">) {
-  await requireRole(["system_admin", "admin", "user", "viewer"]);
+  const roles = await requireRole(["system_admin", "admin", "user", "viewer"]);
   const params = await props.searchParams;
   const supabase = await createClient();
+
+  // Logger data is readable by system admins only (RLS).
+  const tabs = roles.includes("system_admin") ? TABS : TABS.filter((t) => t.key === "operations");
+  const tab: Tab = tabs.find((t) => t.key === params.tab)?.key ?? "operations";
 
   const { data: tzData } = await supabase.rpc("app_time_zone");
   const timeZone = (tzData as string | null) ?? "Africa/Johannesburg";
@@ -84,7 +99,7 @@ export default async function HomePage(props: PageProps<"/admin">) {
   };
 
   const [dash, regions, organisations, locations] = await Promise.all([
-    supabase.rpc("home_dashboard", {
+    supabase.rpc(tab === "loggers" ? "logger_dashboard" : "home_dashboard", {
       p_from: from,
       p_to: to,
       p_region_id: filters.region || null,
@@ -101,12 +116,40 @@ export default async function HomePage(props: PageProps<"/admin">) {
       .order("name"),
   ]);
 
+  // Switching tabs keeps the period and filters.
+  const tabHref = (key: Tab) => {
+    const q = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) {
+      if (k !== "tab" && typeof v === "string") q.set(k, v);
+    }
+    if (key !== "operations") q.set("tab", key);
+    const qs = q.toString();
+    return qs ? `/admin?${qs}` : "/admin";
+  };
+
   const header = (
     <>
-      <PageHeader breadcrumb="Home" title="Operations overview" />
+      <PageHeader breadcrumb="Home" title={tab === "loggers" ? "Logger data" : "Operations overview"} />
+      {tabs.length > 1 && (
+        <nav className="mx-4 flex gap-1 overflow-x-auto border-b border-border [scrollbar-width:none] md:mx-8 print:hidden [&::-webkit-scrollbar]:hidden">
+          {tabs.map((t) => (
+            <Link
+              key={t.key}
+              href={tabHref(t.key)}
+              aria-current={tab === t.key ? "page" : undefined}
+              className={`border-b-2 px-4 py-2.5 text-sm font-semibold whitespace-nowrap transition-colors ${
+                tab === t.key ? "border-primary text-primary" : "border-transparent text-muted hover:text-ink"
+              }`}
+            >
+              {t.label}
+            </Link>
+          ))}
+        </nav>
+      )}
       <DashboardFilters
         state={filters}
         today={today}
+        tab={tab === "operations" ? undefined : tab}
         regions={(regions.data ?? []) as FilterOption[]}
         organisations={(organisations.data ?? []) as FilterOption[]}
         locations={(locations.data ?? []) as LocationFilterOption[]}
@@ -116,6 +159,7 @@ export default async function HomePage(props: PageProps<"/admin">) {
 
   if (dash.error || !dash.data) {
     const missing = dash.error?.code === "PGRST202";
+    const fn = tab === "loggers" ? "logger_dashboard" : "home_dashboard";
     return (
       <div className="flex flex-1 flex-col">
         {header}
@@ -124,11 +168,20 @@ export default async function HomePage(props: PageProps<"/admin">) {
             <p className="text-sm font-semibold text-ink">The dashboard couldn&rsquo;t be loaded.</p>
             <p className="mt-1 text-sm text-muted">
               {missing
-                ? "The database is missing the home_dashboard function. Apply the latest migrations (npx supabase db push)."
+                ? `The database is missing the ${fn} function. Apply the latest migrations (npx supabase db push).`
                 : (dash.error?.message ?? "Please try again.")}
             </p>
           </div>
         </div>
+      </div>
+    );
+  }
+
+  if (tab === "loggers") {
+    return (
+      <div className="flex flex-1 flex-col">
+        {header}
+        <LoggerReport data={dash.data as LoggerDashboard} timeZone={timeZone} />
       </div>
     );
   }
@@ -494,137 +547,6 @@ export default async function HomePage(props: PageProps<"/admin">) {
           />
         </section>
       </div>
-    </div>
-  );
-}
-
-// ============================================================================
-// Presentational pieces
-// ============================================================================
-
-type Delta = { text: string; good: boolean | null };
-
-// Signed change vs the previous period; `upIsGood` sets the colour.
-function delta(cur: number, prev: number, upIsGood: boolean): Delta | undefined {
-  if (!prev) return undefined;
-  const change = (cur - prev) / prev;
-  const rounded = Math.round(change * 100);
-  if (rounded === 0) return { text: "No change vs previous period", good: null };
-  return {
-    text: `${rounded > 0 ? "▲" : "▼"} ${Math.abs(rounded)}% vs previous period`,
-    good: rounded > 0 === upIsGood,
-  };
-}
-
-// Change in a share, in percentage points; down is good.
-function shareDelta(cur: number | null, prev: number | null): Delta | undefined {
-  if (cur === null || prev === null) return undefined;
-  const pts = (cur - prev) * 100;
-  if (Math.abs(pts) < 0.05) return { text: "No change vs previous period", good: null };
-  return {
-    text: `${pts > 0 ? "▲" : "▼"} ${Math.abs(pts).toFixed(1)} pts vs previous period`,
-    good: pts < 0,
-  };
-}
-
-const TONE_PILL = {
-  success: "bg-success-bg text-success",
-  warning: "bg-warning-bg text-warning",
-  danger: "bg-danger-bg text-danger",
-  neutral: "bg-black/[.04] text-muted",
-} as const;
-
-function Kpi({
-  label,
-  value,
-  note,
-  delta,
-  flag,
-  trend,
-  trendColour,
-  tone,
-  href,
-  className = "",
-}: {
-  className?: string;
-  label: string;
-  value: string;
-  note: string;
-  delta?: Delta;
-  flag?: { text: string; tone: keyof typeof TONE_PILL };
-  trend?: (number | null)[];
-  trendColour?: string;
-  tone?: "warning" | "danger";
-  href?: string;
-}) {
-  const stripe = tone === "danger" ? "bg-danger" : tone === "warning" ? "bg-warning" : "bg-primary";
-  return (
-    <div className={`relative flex flex-col overflow-hidden rounded-card border border-border bg-card px-5 pt-4 pb-3 ${className}`}>
-      <span className={`absolute inset-y-0 left-0 w-[3px] ${stripe}`} aria-hidden="true" />
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-[11px] font-semibold tracking-wider text-muted uppercase">{label}</span>
-        {href && (
-          <Link href={href} aria-label={`Open ${label}`} className="text-muted hover:text-primary">
-            <ChevronRightIcon className="h-4 w-4" />
-          </Link>
-        )}
-      </div>
-      <div className="mt-2 text-[30px] leading-none font-semibold tracking-tight text-ink">{value}</div>
-      {delta && (
-        <div
-          className={`mt-2 text-xs font-semibold ${
-            delta.good === null ? "text-muted" : delta.good ? "text-success" : "text-danger"
-          }`}
-        >
-          {delta.text}
-        </div>
-      )}
-      {flag && (
-        <div className="mt-2">
-          <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${TONE_PILL[flag.tone]}`}>
-            {flag.text}
-          </span>
-        </div>
-      )}
-      <p className="mt-2 text-[13px] leading-snug text-muted">{note}</p>
-      {trend && trend.length > 2 && (
-        <div className="mt-auto pt-2">
-          <Sparkline values={trend} colour={trendColour} ariaLabel={`${label} trend`} />
-        </div>
-      )}
-    </div>
-  );
-}
-
-function Card({
-  title,
-  caption,
-  className = "",
-  children,
-}: {
-  title: string;
-  caption?: string;
-  className?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className={`min-w-0 rounded-card border border-border bg-card px-5 pt-4 pb-4 ${className}`}>
-      <h2 className="text-[15px] font-semibold text-ink">{title}</h2>
-      {caption && <p className="mt-0.5 mb-4 text-[13px] leading-snug text-muted">{caption}</p>}
-      {children}
-    </div>
-  );
-}
-
-function Empty({ children }: { children: React.ReactNode }) {
-  return <p className="py-8 text-center text-sm text-muted">{children}</p>;
-}
-
-function Readout({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <dt className="text-[11px] font-semibold tracking-wider text-muted uppercase">{label}</dt>
-      <dd className="mt-0.5 font-mono text-lg text-ink tabular-nums">{value}</dd>
     </div>
   );
 }

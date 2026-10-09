@@ -116,3 +116,56 @@ export const PERIOD_PRESETS = [
 ] as const;
 
 export type PeriodPreset = (typeof PERIOD_PRESETS)[number]["key"];
+
+// Shape of public.logger_dashboard() (supabase/migrations/20261011120000_logger_dashboard.sql).
+
+export type LoggerStatus = "ok" | "silent" | "never" | "inactive";
+
+export type DashboardLogger = {
+  id: string;
+  name: string;
+  code: string;
+  logger_code: string | null;
+  logger_type: "HYDRUS" | "DATAV8" | null;
+  location: string;
+  status: LoggerStatus;
+  unit: string | null;
+  first_at: string | null;
+  last_at: string | null;
+  last_value: number | null;
+  readings: number;
+  min: number | null;
+  max: number | null;
+  avg: number | null;
+  stddev: number | null;
+  zeros: number;
+  days_with_data: number;
+  days_expected: number;
+  longest_gap_hours: number | null;
+  prev_readings: number;
+  prev_avg: number | null;
+  pulls_succeeded: number;
+  pulls_failed: number;
+  last_error: string | null;
+  // Average value per series bucket; null where the logger sent nothing.
+  series: (number | null)[];
+};
+
+export type LoggerDashboard = {
+  period: HomeDashboard["period"] & { last_day: string };
+  scope: { loggers: number; reporting: number; ok: number; silent: number; never: number };
+  readings: { count: number; prev: number; days_with_data: number; days_expected: number };
+  pulls: { succeeded: number; failed: number; pending: number; loggers_failed: number };
+  latest_run: {
+    id: number;
+    created_at: string;
+    range_end: string;
+    status: "running" | "success" | "partial" | "failed" | "no_loggers";
+    loggers: number;
+    succeeded: number;
+    failed: number;
+    readings_saved: number;
+  } | null;
+  series: { bucket: string; readings: number; loggers: number }[];
+  loggers: DashboardLogger[];
+};
