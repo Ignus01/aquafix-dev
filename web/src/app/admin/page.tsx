@@ -26,27 +26,42 @@ import {
   type LocationFilterOption,
   type PeriodPreset,
 } from "@/lib/dashboard/types";
-import type { LoggerDashboard } from "@/lib/dashboard/types";
+import type { LoggerDashboard, WaterUsageReport as WaterUsageData } from "@/lib/dashboard/types";
 import { PageHeader } from "./page-header";
 import { BarList, ColumnChart, Legend, SegmentBar } from "./dashboard/charts";
 import { Card, Empty, Kpi, Readout, TONE_PILL, delta, shareDelta } from "./dashboard/cards";
 import { DashboardFilters, type FilterState } from "./dashboard/filters";
 import { LoggerReport } from "./dashboard/logger-report";
 import { SitesTable } from "./dashboard/sites-table";
+import { WaterUsageReport } from "./dashboard/water-usage-report";
 
 // Admin home: the operations dashboard. Modelled on the AquaFix Power BI
 // "Overview" page (slicers, location / grading / incident overviews) and the
 // board report (headline KPIs, condition trend, delivery, incidents). All
 // figures come from public.home_dashboard() under the caller's RLS.
 //
-// System admins also get a Loggers tab: the logger readings over the same
-// period and filters, from public.logger_dashboard().
+// System admins also get a Loggers tab (the logger readings over the same
+// period and filters, from public.logger_dashboard()) and a Water usage tab
+// (daily usage per volume meter, from public.water_usage_report()).
 
 const TABS = [
   { key: "operations", label: "Operations" },
   { key: "loggers", label: "Loggers" },
+  { key: "water", label: "Water usage" },
 ] as const;
 type Tab = (typeof TABS)[number]["key"];
+
+const TAB_FUNCTIONS: Record<Tab, string> = {
+  operations: "home_dashboard",
+  loggers: "logger_dashboard",
+  water: "water_usage_report",
+};
+
+const TAB_TITLES: Record<Tab, string> = {
+  operations: "Operations overview",
+  loggers: "Logger data",
+  water: "Water usage",
+};
 
 const BANDS: GradingBand[] = ["critical", "warning", "fair", "good"];
 
@@ -81,7 +96,7 @@ export default async function HomePage(props: PageProps<"/admin">) {
   const params = await props.searchParams;
   const supabase = await createClient();
 
-  // Logger data is readable by system admins only (RLS).
+  // Logger data and water usage are readable by system admins only (RLS).
   const tabs = roles.includes("system_admin") ? TABS : TABS.filter((t) => t.key === "operations");
   const tab: Tab = tabs.find((t) => t.key === params.tab)?.key ?? "operations";
 
@@ -99,7 +114,7 @@ export default async function HomePage(props: PageProps<"/admin">) {
   };
 
   const [dash, regions, organisations, locations] = await Promise.all([
-    supabase.rpc(tab === "loggers" ? "logger_dashboard" : "home_dashboard", {
+    supabase.rpc(TAB_FUNCTIONS[tab], {
       p_from: from,
       p_to: to,
       p_region_id: filters.region || null,
@@ -129,7 +144,7 @@ export default async function HomePage(props: PageProps<"/admin">) {
 
   const header = (
     <>
-      <PageHeader breadcrumb="Home" title={tab === "loggers" ? "Logger data" : "Operations overview"} />
+      <PageHeader breadcrumb="Home" title={TAB_TITLES[tab]} />
       {tabs.length > 1 && (
         <nav className="mx-4 flex gap-1 overflow-x-auto border-b border-border [scrollbar-width:none] md:mx-8 print:hidden [&::-webkit-scrollbar]:hidden">
           {tabs.map((t) => (
@@ -159,7 +174,7 @@ export default async function HomePage(props: PageProps<"/admin">) {
 
   if (dash.error || !dash.data) {
     const missing = dash.error?.code === "PGRST202";
-    const fn = tab === "loggers" ? "logger_dashboard" : "home_dashboard";
+    const fn = TAB_FUNCTIONS[tab];
     return (
       <div className="flex flex-1 flex-col">
         {header}
@@ -173,6 +188,15 @@ export default async function HomePage(props: PageProps<"/admin">) {
             </p>
           </div>
         </div>
+      </div>
+    );
+  }
+
+  if (tab === "water") {
+    return (
+      <div className="flex flex-1 flex-col">
+        {header}
+        <WaterUsageReport data={dash.data as WaterUsageData} timeZone={timeZone} />
       </div>
     );
   }
