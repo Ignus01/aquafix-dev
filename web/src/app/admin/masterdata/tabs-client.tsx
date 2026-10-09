@@ -163,6 +163,7 @@ export function MasterdataTabs({
                   legacyUidField,
                   { key: "name", label: "Name", type: "text", required: true, section: "Details" },
                   { key: "code", label: "Code", type: "text", required: true, mono: true },
+                  { key: "logger_code", label: "Logger code", type: "text", mono: true },
                   {
                     key: "asset_type_id",
                     label: "Asset Type",
