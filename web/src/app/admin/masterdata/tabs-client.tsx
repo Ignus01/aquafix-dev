@@ -13,6 +13,7 @@ import type {
   Grading,
   Asset,
 } from "@/lib/masterdata/types";
+import { LOGGER_TYPE_OPTIONS } from "@/lib/masterdata/types";
 import type { Inspection } from "@/lib/inspection-setup/types";
 import { canInspectionSetup } from "@/lib/inspection-setup/permissions";
 import * as actions from "./actions";
@@ -164,6 +165,12 @@ export function MasterdataTabs({
                   { key: "name", label: "Name", type: "text", required: true, section: "Details" },
                   { key: "code", label: "Code", type: "text", required: true, mono: true },
                   { key: "logger_code", label: "Logger code", type: "text", mono: true },
+                  {
+                    key: "logger_type",
+                    label: "Logger type",
+                    type: "select",
+                    options: LOGGER_TYPE_OPTIONS,
+                  },
                   {
                     key: "asset_type_id",
                     label: "Asset Type",

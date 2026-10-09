@@ -47,22 +47,32 @@ export async function getSettings(): Promise<SystemSettings> {
     .select(
       "email_enabled, brevo_secret_id, brevo_key_last4, brevo_key_status, brevo_key_checked_at, " +
         "brevo_key_account, brevo_key_changed_at, brevo_key_changed_by, sender_name, sender_email, " +
-        "reply_to_email, app_url, time_zone, vat_rate",
+        "reply_to_email, app_url, time_zone, vat_rate, " +
+        "hydrus_secret_id, hydrus_password_changed_at, hydrus_password_changed_by",
     )
     .eq("id", 1)
     .single();
   if (error) throw error;
-  const row = data as unknown as Omit<SystemSettings, "has_key" | "brevo_key_changed_by_name"> & {
+  const row = data as unknown as Omit<
+    SystemSettings,
+    "has_key" | "brevo_key_changed_by_name" | "has_hydrus_password" | "hydrus_password_changed_by_name"
+  > & {
     brevo_secret_id: string | null;
     brevo_key_changed_by: string | null;
+    hydrus_secret_id: string | null;
+    hydrus_password_changed_by: string | null;
   };
-  const nameMap = await names([row.brevo_key_changed_by]);
-  const { brevo_secret_id, brevo_key_changed_by, ...rest } = row;
+  const nameMap = await names([row.brevo_key_changed_by, row.hydrus_password_changed_by]);
+  const { brevo_secret_id, brevo_key_changed_by, hydrus_secret_id, hydrus_password_changed_by, ...rest } = row;
   return {
     ...rest,
     vat_rate: Number(row.vat_rate),
     has_key: brevo_secret_id !== null,
     brevo_key_changed_by_name: brevo_key_changed_by ? (nameMap.get(brevo_key_changed_by) ?? null) : null,
+    has_hydrus_password: hydrus_secret_id !== null,
+    hydrus_password_changed_by_name: hydrus_password_changed_by
+      ? (nameMap.get(hydrus_password_changed_by) ?? null)
+      : null,
   };
 }
 
@@ -221,6 +231,25 @@ export async function runDataMigration(
   const result = await runODataMigration(group === "transactions" ? "transactions" : "reference");
   revalidatePath("/admin", "layout");
   return { error: result.fatal, result };
+}
+
+// Hydrus logger API password: stored in Vault (write-only).
+export async function setHydrusPassword(password: string): Promise<ActionResult> {
+  await requireSystemAdmin();
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("set_hydrus_password", { p_password: password });
+  if (error) return { error: friendlyError(error) };
+  revalidate();
+  return { error: null };
+}
+
+export async function removeHydrusPassword(): Promise<ActionResult> {
+  await requireSystemAdmin();
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("remove_hydrus_password");
+  if (error) return { error: friendlyError(error) };
+  revalidate();
+  return { error: null };
 }
 
 // EML-R12.

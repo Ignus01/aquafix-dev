@@ -12,6 +12,7 @@ import type {
   ColourContainer,
   Grading,
   Asset,
+  LoggerType,
 } from "@/lib/masterdata/types";
 
 type ActionResult = { error: string | null };
@@ -384,22 +385,35 @@ export async function listAssets(): Promise<Asset[]> {
   const { data, error } = await supabase
     .from("asset")
     .select(
-      "id, legacy_uid, name, code, logger_code, purchase_date, active, has_service_plan, service_interval, asset_type_id, location_id, asset_type:asset_type_id(name), location:location_id(name)",
+      "id, legacy_uid, name, code, logger_code, logger_type, purchase_date, active, has_service_plan, service_interval, asset_type_id, location_id, asset_type:asset_type_id(name), location:location_id(name)",
     )
     .order("name");
   if (error) throw error;
   return data as unknown as Asset[];
 }
 
+// A logger type is required with a logger code, and cleared without one.
+function loggerColumns(
+  values: Record<string, string>,
+): { logger_code: string | null; logger_type: LoggerType | null } | { error: string } {
+  const code = values.logger_code?.trim() || null;
+  const type = (values.logger_type || null) as LoggerType | null;
+  if (!code) return { logger_code: null, logger_type: null };
+  if (!type) return { error: "Choose a logger type for the logger code." };
+  return { logger_code: code, logger_type: type };
+}
+
 export async function createAsset(
   values: Record<string, string>,
 ): Promise<ActionResult> {
   await requireAnyMasterdataRole();
+  const logger = loggerColumns(values);
+  if ("error" in logger) return logger;
   const supabase = await createClient();
   const { error } = await supabase.from("asset").insert({
     name: values.name?.trim(),
     code: values.code?.trim(),
-    logger_code: values.logger_code?.trim() || null,
+    ...logger,
     purchase_date: values.purchase_date || null,
     active: values.active === "true",
     has_service_plan: values.has_service_plan === "true",
@@ -417,13 +431,15 @@ export async function updateAsset(
   values: Record<string, string>,
 ): Promise<ActionResult> {
   await requireAnyMasterdataRole();
+  const logger = loggerColumns(values);
+  if ("error" in logger) return logger;
   const supabase = await createClient();
   const { error } = await supabase
     .from("asset")
     .update({
       name: values.name?.trim(),
       code: values.code?.trim(),
-      logger_code: values.logger_code?.trim() || null,
+      ...logger,
       purchase_date: values.purchase_date || null,
       active: values.active === "true",
       has_service_plan: values.has_service_plan === "true",

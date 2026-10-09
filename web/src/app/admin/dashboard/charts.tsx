@@ -8,7 +8,7 @@ import { useEffect, useRef, useState } from "react";
 // surface gaps between stacked segments, hairline grid, text in ink tokens
 // (never the series colour), a hover/focus tooltip on every mark.
 
-function useWidth<T extends HTMLElement>(fallback: number) {
+export function useWidth<T extends HTMLElement>(fallback: number) {
   const ref = useRef<T>(null);
   const [width, setWidth] = useState(fallback);
   useEffect(() => {
@@ -42,10 +42,10 @@ function columnPath(x: number, yTop: number, w: number, yBase: number, rounded: 
   return `M${x},${yBase}V${yTop + r}Q${x},${yTop} ${x + r},${yTop}H${x + w - r}Q${x + w},${yTop} ${x + w},${yTop + r}V${yBase}Z`;
 }
 
-type TipRow = { label: string; value: string; colour?: string };
-type Tip = { x: number; y: number; title: string; rows: TipRow[] };
+export type TipRow = { label: string; value: string; colour?: string };
+export type Tip = { x: number; y: number; title: string; rows: TipRow[] };
 
-function Tooltip({ tip, width }: { tip: Tip | null; width: number }) {
+export function Tooltip({ tip, width }: { tip: Tip | null; width: number }) {
   if (!tip) return null;
   const boxWidth = 196;
   const left = Math.min(Math.max(tip.x - boxWidth / 2, 0), Math.max(0, width - boxWidth));

@@ -53,6 +53,7 @@ const REFERENCED_MESSAGES: Record<string, string> = {
   "instruction:inspection_activity": "Instruction already has Inspection Activities linked to it.",
   // Services (Service_Asset / Service_OrganisationServiceSupplier).
   "asset:service": "Cannot delete this Asset as it has services.",
+  "asset:logger_reading": "Cannot delete this Asset as it has logger data.",
   "organisation:service": "This Organisation is the supplier on a service, so it can't be deleted.",
   // Stock masterdata.
   "product_type:product": "This Product Type is used by a product, so it can't be deleted.",

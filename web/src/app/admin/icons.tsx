@@ -298,6 +298,14 @@ export function BarChartIcon({ className }: { className?: string }) {
   );
 }
 
+export function ActivityIcon({ className }: { className?: string }) {
+  return (
+    <Svg className={className}>
+      <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+    </Svg>
+  );
+}
+
 export function PackageIcon({ className }: { className?: string }) {
   return (
     <svg
