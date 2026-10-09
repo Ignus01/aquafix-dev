@@ -384,7 +384,7 @@ export async function listAssets(): Promise<Asset[]> {
   const { data, error } = await supabase
     .from("asset")
     .select(
-      "id, legacy_uid, name, code, purchase_date, active, has_service_plan, service_interval, asset_type_id, location_id, asset_type:asset_type_id(name), location:location_id(name)",
+      "id, legacy_uid, name, code, logger_code, purchase_date, active, has_service_plan, service_interval, asset_type_id, location_id, asset_type:asset_type_id(name), location:location_id(name)",
     )
     .order("name");
   if (error) throw error;
@@ -399,6 +399,7 @@ export async function createAsset(
   const { error } = await supabase.from("asset").insert({
     name: values.name?.trim(),
     code: values.code?.trim(),
+    logger_code: values.logger_code?.trim() || null,
     purchase_date: values.purchase_date || null,
     active: values.active === "true",
     has_service_plan: values.has_service_plan === "true",
@@ -422,6 +423,7 @@ export async function updateAsset(
     .update({
       name: values.name?.trim(),
       code: values.code?.trim(),
+      logger_code: values.logger_code?.trim() || null,
       purchase_date: values.purchase_date || null,
       active: values.active === "true",
       has_service_plan: values.has_service_plan === "true",

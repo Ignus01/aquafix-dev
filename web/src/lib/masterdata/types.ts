@@ -58,6 +58,7 @@ export type Asset = {
   legacy_uid: number;
   name: string;
   code: string;
+  logger_code: string | null;
   purchase_date: string | null;
   active: boolean;
   has_service_plan: boolean;

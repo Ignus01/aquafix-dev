@@ -14,6 +14,7 @@ const UNIQUE_MESSAGES: Record<string, string> = {
   public_holiday_date_key: "There is already a public holiday on that date.",
   instruction_asset_allocation_instruction_asset_key:
     "Already added — that asset is already on this instruction.",
+  asset_logger_code_key: "Must be unique — another asset already uses that logger code.",
   // Stock masterdata.
   product_code_key: "Must be unique — a product with that code already exists.",
   product_name_key: "Must be unique — a product with that name already exists.",
