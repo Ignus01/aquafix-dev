@@ -86,6 +86,21 @@ migration creates, and needs the same `project_url` secret as the email worker):
 npx supabase functions deploy logger-worker --use-api --no-verify-jwt
 ```
 
+### Water usage
+
+Home → Water usage (system admins) reports daily usage per volume meter (readings in m³,
+the meter's running total). `logger_daily_usage` holds one row per meter per day: the total
+at the next local midnight minus the total at this one, interpolated between readings.
+Recording a pull refreshes that meter's days from 30 days before the pulled range, so the
+report reads at most one row per meter per day however many readings there are. Duplicate
+feeds, counter excursions and meter resets are left out and listed in
+`logger_usage_issue`; the migration's header explains the rules. Changing the app time zone
+recalculates every day. To recalculate by hand (e.g. after correcting readings):
+
+```sql
+select public.refresh_all_logger_daily_usage();
+```
+
 ## Services
 
 A service is one maintenance or repair job on an asset. `save_service()` validates, stamps

@@ -169,3 +169,48 @@ export type LoggerDashboard = {
   series: { bucket: string; readings: number; loggers: number }[];
   loggers: DashboardLogger[];
 };
+
+// Shape of public.water_usage_report() (supabase/migrations/20261012120000_water_usage.sql).
+
+export type WaterMeter = {
+  id: string;
+  name: string;
+  code: string;
+  logger_code: string | null;
+  active: boolean;
+  location_id: string;
+  location: string;
+  region: string;
+  organisation: string;
+  // The meter's first day with usage, ever.
+  first_day: string;
+  // m³ per day from period.first_day to period.last_day; null = no figure.
+  usage: (number | null)[];
+  // One character per day: o ok, e estimated, g long gap, r reset, - none.
+  status: string;
+};
+
+export type WaterUsageIssue = {
+  asset_id: string;
+  kind: "duplicate" | "excursion" | "reset";
+  from_at: string;
+  to_at: string;
+  readings: number;
+  low: number | null;
+  high: number | null;
+  fell_back_to: number | null;
+};
+
+export type WaterUsageReport = {
+  period: { from: string; to: string; first_day: string | null; last_day: string | null; today: string };
+  meters: WaterMeter[];
+  excluded: {
+    id: string;
+    name: string;
+    code: string;
+    location: string;
+    unit: string | null;
+    reason: "no_readings" | "not_volume";
+  }[];
+  issues: WaterUsageIssue[];
+};
