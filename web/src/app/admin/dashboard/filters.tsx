@@ -28,15 +28,18 @@ export type FilterState = {
 
 // One row of page-level filters (period + Power BI-style region /
 // organisation / site slicers), kept in the URL so a view can be shared.
+// `tab` is the home page tab they sit on (none = the default one).
 export function DashboardFilters({
   state,
   today,
+  tab,
   regions,
   organisations,
   locations,
 }: {
   state: FilterState;
   today: string;
+  tab?: string;
   regions: FilterOption[];
   organisations: FilterOption[];
   locations: LocationFilterOption[];
@@ -49,6 +52,7 @@ export function DashboardFilters({
   function apply(next: Partial<FilterState>) {
     const merged = { ...state, ...next };
     const params = new URLSearchParams();
+    if (tab) params.set("tab", tab);
     if (merged.period !== "90d") params.set("period", merged.period);
     if (merged.period === "custom") {
       params.set("from", merged.from);

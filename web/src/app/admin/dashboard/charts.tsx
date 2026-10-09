@@ -252,14 +252,16 @@ export type BarRow = { label: string; value: number; href?: string; note?: strin
 export function BarList({
   rows,
   colour = "#0a7f9e",
-  format = fmt,
+  unit = "count",
   max,
 }: {
   rows: BarRow[];
   colour?: string;
-  format?: (n: number) => string;
+  // What the values are (a function can't be passed from a Server Component).
+  unit?: "count" | "percent";
   max?: number;
 }) {
+  const format = unit === "percent" ? (n: number) => `${Math.round(n)}%` : fmt;
   const top = max ?? Math.max(1, ...rows.map((r) => r.value));
   return (
     <ul className="flex flex-col gap-2.5">
