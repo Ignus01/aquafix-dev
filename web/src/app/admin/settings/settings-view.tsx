@@ -24,11 +24,13 @@ import {
 } from "../ui";
 import {
   removeApiKey,
+  removeHydrusPassword,
   resendEmail,
   runDataMigration,
   saveSettings,
   sendTestEmail,
   setApiKey,
+  setHydrusPassword,
   testConnection,
 } from "./actions";
 
@@ -95,6 +97,7 @@ const AUDIT_LABELS: Record<string, string> = {
   app_url: "App URL",
   time_zone: "Time zone",
   vat_rate: "VAT rate",
+  hydrus_password: "Hydrus password",
 };
 
 export function SettingsView({
@@ -426,6 +429,8 @@ export function SettingsView({
         </div>
       </section>
 
+      <HydrusPassword settings={settings} />
+
       <DataMigration configured={odataConfigured} />
 
       <EmailLog rows={emailLog} timeZone={tz} />
@@ -440,8 +445,8 @@ export function SettingsView({
               <li key={a.id} className="flex flex-wrap gap-x-3 gap-y-0.5 px-5 py-2.5 text-[13px] md:px-6">
                 <span className="font-medium text-ink">
                   {AUDIT_LABELS[a.field] ?? a.field}
-                  {a.field === "brevo_api_key"
-                    ? ` ${a.new_value?.replace(/^key /, "")}`
+                  {a.field === "brevo_api_key" || a.field === "hydrus_password"
+                    ? ` ${a.new_value?.replace(/^(key|password) /, "")}`
                     : `: ${a.old_value ?? "—"} → ${a.new_value ?? "—"}`}
                 </span>
                 <span className="text-muted">
@@ -456,6 +461,153 @@ export function SettingsView({
 
       {keyModal && <ReplaceKeyModal onClose={() => setKeyModal(false)} onSaved={setKeyNotice} />}
     </div>
+  );
+}
+
+// The one password the Hydrus logger API is called with for every logger.
+// Write-only: stored in Vault and never sent back to the browser.
+function HydrusPassword({ settings }: { settings: SystemSettings }) {
+  const [modal, setModal] = useState(false);
+  const [notice, setNotice] = useState<Notice>(null);
+  const [isPending, startTransition] = useTransition();
+
+  function remove() {
+    if (!confirm("Remove the Hydrus password? Loggers will be pulled with an empty password.")) return;
+    setNotice(null);
+    startTransition(async () => {
+      const res = await removeHydrusPassword();
+      setNotice(res.error ? { tone: "danger", text: res.error } : { tone: "muted", text: "Password removed." });
+    });
+  }
+
+  return (
+    <section className="rounded-card border border-border bg-card">
+      <div className="border-b border-border px-5 py-4 md:px-6">
+        <h2 className={sectionHeadingClass}>Logger data (Hydrus)</h2>
+        <p className="mt-1 text-[13px] text-muted">
+          Readings are pulled daily at 06:00 for every active asset with a Hydrus logger code. See{" "}
+          <Link href="/admin/logger-data" className="text-primary hover:text-primary-hover">
+            Logger Data
+          </Link>
+          .
+        </p>
+      </div>
+      <div className="flex flex-col gap-4 px-5 py-5 md:px-6">
+        <div className="grid gap-2 sm:grid-cols-[180px_1fr]">
+          <span className={`${labelClass} sm:pt-1`}>API password</span>
+          <div className="flex flex-col gap-2">
+            {settings.has_hydrus_password ? (
+              <span className="font-mono text-sm text-ink">●●●●●●●●</span>
+            ) : (
+              <span className="text-sm text-muted">Not set: loggers are pulled with an empty password</span>
+            )}
+            {settings.hydrus_password_changed_at && (
+              <span className="text-xs text-muted">
+                Last changed {formatDateTime(settings.hydrus_password_changed_at, settings.time_zone)}
+                {settings.hydrus_password_changed_by_name && ` by ${settings.hydrus_password_changed_by_name}`}
+              </span>
+            )}
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={isPending}
+                onClick={() => {
+                  setNotice(null);
+                  setModal(true);
+                }}
+                className={secondaryButtonClass}
+              >
+                {settings.has_hydrus_password ? "Replace password" : "Set password"}
+              </button>
+              {settings.has_hydrus_password && (
+                <button
+                  type="button"
+                  disabled={isPending}
+                  onClick={remove}
+                  className="h-[40px] rounded-control border border-danger/30 bg-white px-4 text-sm font-medium text-danger transition-colors hover:bg-danger-bg disabled:opacity-60"
+                >
+                  Remove password
+                </button>
+              )}
+            </div>
+            <NoticeLine notice={notice} />
+          </div>
+        </div>
+      </div>
+      {modal && <HydrusPasswordModal onClose={() => setModal(false)} onSaved={setNotice} />}
+    </section>
+  );
+}
+
+function HydrusPasswordModal({ onClose, onSaved }: { onClose: () => void; onSaved: (n: Notice) => void }) {
+  const [password, setPassword] = useState("");
+  const [show, setShow] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+
+  function submit() {
+    setError(null);
+    if (!password.trim()) {
+      setError("Enter the password.");
+      return;
+    }
+    startTransition(async () => {
+      const res = await setHydrusPassword(password);
+      setPassword("");
+      if (res.error) {
+        setError(res.error);
+        return;
+      }
+      onSaved({ tone: "success", text: "Password saved." });
+      onClose();
+    });
+  }
+
+  return (
+    <Modal
+      open
+      title="Hydrus API password"
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" disabled={isPending} onClick={onClose} className={secondaryButtonClass}>
+            Cancel
+          </button>
+          <button type="button" disabled={isPending} onClick={submit} className={primaryButtonClass}>
+            {isPending ? "Saving…" : "Save password"}
+          </button>
+        </>
+      }
+    >
+      <form
+        className="flex flex-col gap-1.5"
+        onSubmit={(e) => {
+          e.preventDefault();
+          submit();
+        }}
+      >
+        <label htmlFor="hydrus_password" className={labelClass}>Password</label>
+        <div className="flex gap-2">
+          <input
+            id="hydrus_password"
+            autoFocus
+            autoComplete="off"
+            spellCheck={false}
+            type={show ? "text" : "password"}
+            className={`${inputClass} font-mono`}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+          <button type="button" onClick={() => setShow((v) => !v)} className={`${secondaryButtonClass} shrink-0`}>
+            {show ? "Hide" : "Show"}
+          </button>
+        </div>
+        <span className="text-xs text-muted">
+          Used for every Hydrus logger. Once saved, it can&apos;t be viewed again.
+        </span>
+        {error && <span className="text-xs text-danger">{error}</span>}
+      </form>
+    </Modal>
   );
 }
 

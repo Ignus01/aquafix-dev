@@ -53,12 +53,21 @@ export type Grading = {
   colour_container: { name: string } | null;
 };
 
+// public.logger_type: which API an asset's logger code is pulled from.
+export type LoggerType = "HYDRUS" | "DATAV8";
+
+export const LOGGER_TYPE_OPTIONS: { value: LoggerType; label: string }[] = [
+  { value: "HYDRUS", label: "Hydrus" },
+  { value: "DATAV8", label: "Datav8" },
+];
+
 export type Asset = {
   id: string;
   legacy_uid: number;
   name: string;
   code: string;
   logger_code: string | null;
+  logger_type: LoggerType | null;
   purchase_date: string | null;
   active: boolean;
   has_service_plan: boolean;

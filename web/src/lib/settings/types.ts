@@ -17,6 +17,10 @@ export type SystemSettings = {
   app_url: string | null;
   time_zone: string;
   vat_rate: number;
+  // Hydrus logger API password (Vault). Write-only, like the Brevo key.
+  has_hydrus_password: boolean;
+  hydrus_password_changed_at: string | null;
+  hydrus_password_changed_by_name: string | null;
 };
 
 export type SettingsForm = {

@@ -59,6 +59,33 @@ Daily schedules skip weekends and the dates in `public_holiday`, unless the sche
 includes them. Add each year's public holidays under Inspections → Scheduled →
 **Public holidays**. A date that isn't listed is a normal working day.
 
+## Logger data
+
+Assets with a logger code have a logger type (`HYDRUS` or `DATAV8`, required with the
+code). Only Hydrus is pulled so far, from the KovcoLabs Hydrus API
+(`www.electrodevsa.co.za/wm/api/retrieve.php`).
+
+- `pg_cron` runs `run_daily_logger_pull()` at 04:00 UTC (06:00 SAST): one run for the 24
+  hours up to 06:00 SAST, for every **active** asset with a Hydrus logger code.
+- System admins can pull up to 7 days by hand (Admin → Logger Data → Pull data), for all
+  loggers or selected assets.
+- A run queues one `logger_pull_result` per logger. The `logger-worker` Edge Function
+  claims them, calls `method=params` (for the unit) and `method=readings`, and records the
+  readings in `logger_reading`. It is kicked through `pg_net` when a run starts and every
+  minute by `pg_cron` while a logger is due; network errors and 5xx retry after 1 and 5
+  minutes. Every run and logger result shows under Logger Data → Run log.
+- A reading is unique per logger code + time; pulling it again overwrites the value and
+  unit. Hydrus times have no zone and are read as SAST.
+- One API password for all loggers is set under Admin → System Settings → Logger data
+  (stored in Vault). Not set = empty password, the Hydrus default.
+
+Deploy the worker with the others (it checks the Vault `logger_worker_secret` the
+migration creates, and needs the same `project_url` secret as the email worker):
+
+```bash
+npx supabase functions deploy logger-worker --use-api --no-verify-jwt
+```
+
 ## Services
 
 A service is one maintenance or repair job on an asset. `save_service()` validates, stamps

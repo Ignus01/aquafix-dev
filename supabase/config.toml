@@ -396,6 +396,11 @@ verify_jwt = false
 [functions.brevo-send-test]
 verify_jwt = false
 
+# Logger data: logger-worker checks the Vault `logger_worker_secret` the
+# database sends.
+[functions.logger-worker]
+verify_jwt = false
+
 [analytics]
 enabled = true
 port = 54327

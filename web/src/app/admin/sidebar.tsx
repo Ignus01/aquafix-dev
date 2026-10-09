@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import {
+  ActivityIcon,
   AlertTriangleIcon,
   BarChartIcon,
   ChevronRightIcon,
@@ -81,6 +82,7 @@ function navSections(isSystemAdmin: boolean): NavSection[] {
             label: "Admin",
             items: [
               { href: "/admin/users", label: "User Management", icon: UsersIcon },
+              { href: "/admin/logger-data", label: "Logger Data", icon: ActivityIcon },
               { href: "/admin/settings", label: "System Settings", icon: SettingsIcon },
             ],
           },
