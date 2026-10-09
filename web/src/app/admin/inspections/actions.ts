@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
+import { selectAll } from "@/lib/supabase/select-all";
 import { getCurrentUser, requireRole } from "@/lib/auth";
 import { friendlyError } from "@/lib/db-errors";
 import type { IncidentImage } from "@/lib/incidents/types";
@@ -111,8 +112,7 @@ async function removeFiles(supabase: SupabaseClient, paths: string[]) {
 export async function listAssetOptions(): Promise<AssetOption[]> {
   await requireRole(INSPECTION_READERS);
   const supabase = await createClient();
-  const { data, error } = await supabase.from("asset").select(ASSET_COLUMNS).order("name").limit(MAX_ROWS);
-  if (error) throw error;
+  const data = await selectAll(() => supabase.from("asset").select(ASSET_COLUMNS).order("name").order("id"));
   return data as unknown as AssetOption[];
 }
 

@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { selectAll } from "@/lib/supabase/select-all";
 import { requireRole } from "@/lib/auth";
 import { friendlyError } from "@/lib/db-errors";
 import type {
@@ -82,12 +83,13 @@ export async function deleteRegion(id: string): Promise<ActionResult> {
 export async function listOrganisations(): Promise<Organisation[]> {
   await requireAnyMasterdataRole();
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("organisation")
-    .select("id, legacy_uid, name, active, is_supplier, is_service_supplier")
-    .order("name");
-  if (error) throw error;
-  return data;
+  return selectAll(() =>
+    supabase
+      .from("organisation")
+      .select("id, legacy_uid, name, active, is_supplier, is_service_supplier")
+      .order("name")
+      .order("id"),
+  );
 }
 
 export async function createOrganisation(
@@ -203,13 +205,15 @@ export async function deleteAssetType(id: string): Promise<ActionResult> {
 export async function listLocations(): Promise<Location[]> {
   await requireAnyMasterdataRole();
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("location")
-    .select(
-      "id, legacy_uid, name, active, transfer_type, is_stock_manager, is_asset_manager, region_id, organisation_id, region:region_id(name), organisation:organisation_id(name)",
-    )
-    .order("name");
-  if (error) throw error;
+  const data = await selectAll(() =>
+    supabase
+      .from("location")
+      .select(
+        "id, legacy_uid, name, active, transfer_type, is_stock_manager, is_asset_manager, region_id, organisation_id, region:region_id(name), organisation:organisation_id(name)",
+      )
+      .order("name")
+      .order("id"),
+  );
   return data as unknown as Location[];
 }
 
@@ -382,13 +386,15 @@ export async function deleteGrading(id: string): Promise<ActionResult> {
 export async function listAssets(): Promise<Asset[]> {
   await requireAnyMasterdataRole();
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("asset")
-    .select(
-      "id, legacy_uid, name, code, logger_code, logger_type, purchase_date, active, has_service_plan, service_interval, asset_type_id, location_id, asset_type:asset_type_id(name), location:location_id(name)",
-    )
-    .order("name");
-  if (error) throw error;
+  const data = await selectAll(() =>
+    supabase
+      .from("asset")
+      .select(
+        "id, legacy_uid, name, code, logger_code, logger_type, purchase_date, active, has_service_plan, service_interval, asset_type_id, location_id, asset_type:asset_type_id(name), location:location_id(name)",
+      )
+      .order("name")
+      .order("id"),
+  );
   return data as unknown as Asset[];
 }
 
