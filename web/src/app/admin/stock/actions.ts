@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { selectAll } from "@/lib/supabase/select-all";
 import { requireRole } from "@/lib/auth";
 import { friendlyError } from "@/lib/db-errors";
 import type {
@@ -263,11 +264,13 @@ export async function deletePackType(id: string): Promise<ActionResult> {
 export async function listStorageAreas(): Promise<StorageArea[]> {
   await requireAnyRole();
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("storage_area")
-    .select("id, legacy_uid, code, name, active, location_id, location:location(name)")
-    .order("name");
-  if (error) throw error;
+  const data = await selectAll(() =>
+    supabase
+      .from("storage_area")
+      .select("id, legacy_uid, code, name, active, location_id, location:location(name)")
+      .order("name")
+      .order("id"),
+  );
   return data as unknown as StorageArea[];
 }
 
@@ -317,13 +320,15 @@ export async function deleteStorageArea(id: string): Promise<ActionResult> {
 export async function listProducts(): Promise<Product[]> {
   await requireAnyRole();
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("product")
-    .select(
-      "id, legacy_uid, code, name, active, product_type_id, uom_id, product_type:product_type(name), uom:unit_of_measure!uom_id(code)",
-    )
-    .order("name");
-  if (error) throw error;
+  const data = await selectAll(() =>
+    supabase
+      .from("product")
+      .select(
+        "id, legacy_uid, code, name, active, product_type_id, uom_id, product_type:product_type(name), uom:unit_of_measure!uom_id(code)",
+      )
+      .order("name")
+      .order("id"),
+  );
   return data as unknown as Product[];
 }
 

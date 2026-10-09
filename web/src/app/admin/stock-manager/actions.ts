@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { selectAll } from "@/lib/supabase/select-all";
 import { requireRole } from "@/lib/auth";
 import { friendlyError } from "@/lib/db-errors";
 import { STOCK_READERS, STOCK_DOC_RIGHTS } from "@/lib/stock-manager/permissions";
@@ -156,15 +157,20 @@ export async function listStock(): Promise<StockRow[]> {
   await requireRole(STOCK_READERS);
   const supabase = await createClient();
   const [stock, items, areas] = await Promise.all([
-    supabase.from("storage_area_item_stock").select("item_id, storage_area_id, qty, base_qty"),
-    supabase.from("item").select("id, name, code, product:product_id(uom:uom_id(code))"),
-    supabase.from("storage_area").select("id, name, code"),
+    selectAll(() =>
+      supabase
+        .from("storage_area_item_stock")
+        .select("item_id, storage_area_id, qty, base_qty")
+        .order("item_id")
+        .order("storage_area_id"),
+    ),
+    selectAll(() => supabase.from("item").select("id, name, code, product:product_id(uom:uom_id(code))").order("id")),
+    selectAll(() => supabase.from("storage_area").select("id, name, code").order("id")),
   ]);
-  for (const r of [stock, items, areas]) if (r.error) throw r.error;
 
-  const itemById = new Map((items.data as unknown as { id: string; name: string; code: string | null; product: { uom: { code: string } | null } | null }[]).map((i) => [i.id, i]));
-  const areaById = new Map((areas.data ?? []).map((a) => [a.id, a]));
-  return (stock.data ?? [])
+  const itemById = new Map((items as unknown as { id: string; name: string; code: string | null; product: { uom: { code: string } | null } | null }[]).map((i) => [i.id, i]));
+  const areaById = new Map(areas.map((a) => [a.id, a]));
+  return stock
     .map((s) => {
       const item = itemById.get(s.item_id);
       const area = areaById.get(s.storage_area_id);
