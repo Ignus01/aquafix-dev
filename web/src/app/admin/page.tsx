@@ -26,7 +26,11 @@ import {
   type LocationFilterOption,
   type PeriodPreset,
 } from "@/lib/dashboard/types";
-import type { LoggerDashboard, WaterUsageReport as WaterUsageData } from "@/lib/dashboard/types";
+import type {
+  LoggerDashboard,
+  WaterTargetMatrix,
+  WaterUsageReport as WaterUsageData,
+} from "@/lib/dashboard/types";
 import { PageHeader } from "./page-header";
 import { BarList, ColumnChart, Legend, SegmentBar } from "./dashboard/charts";
 import { Card, Empty, Kpi, Readout, TONE_PILL, delta, shareDelta } from "./dashboard/cards";
@@ -41,8 +45,10 @@ import { WaterUsageReport } from "./dashboard/water-usage-report";
 // figures come from public.home_dashboard() under the caller's RLS.
 //
 // System admins also get a Loggers tab (the logger readings over the same
-// period and filters, from public.logger_dashboard()) and a Water usage tab
-// (daily usage per volume meter, from public.water_usage_report()).
+// period and filters, from public.logger_dashboard()). System admins and
+// admins get a Water usage tab (treated water vs each site's target, from
+// public.water_target_matrix(), and daily usage per volume meter, from
+// public.water_usage_report()).
 
 const TABS = [
   { key: "operations", label: "Operations" },
@@ -96,8 +102,12 @@ export default async function HomePage(props: PageProps<"/admin">) {
   const params = await props.searchParams;
   const supabase = await createClient();
 
-  // Logger data and water usage are readable by system admins only (RLS).
-  const tabs = roles.includes("system_admin") ? TABS : TABS.filter((t) => t.key === "operations");
+  // Logger data is readable by system admins only, water usage by system
+  // admins and admins (RLS).
+  const isSystemAdmin = roles.includes("system_admin");
+  const tabs = TABS.filter(
+    (t) => t.key === "operations" || isSystemAdmin || (t.key === "water" && roles.includes("admin")),
+  );
   const tab: Tab = tabs.find((t) => t.key === params.tab)?.key ?? "operations";
 
   const { data: tzData } = await supabase.rpc("app_time_zone");
@@ -113,14 +123,16 @@ export default async function HomePage(props: PageProps<"/admin">) {
     location: uuidParam(params.location),
   };
 
-  const [dash, regions, organisations, locations] = await Promise.all([
-    supabase.rpc(TAB_FUNCTIONS[tab], {
-      p_from: from,
-      p_to: to,
-      p_region_id: filters.region || null,
-      p_organisation_id: filters.organisation || null,
-      p_location_id: filters.location || null,
-    }),
+  const scope = {
+    p_from: from,
+    p_to: to,
+    p_region_id: filters.region || null,
+    p_organisation_id: filters.organisation || null,
+    p_location_id: filters.location || null,
+  };
+  const [dash, matrix, regions, organisations, locations] = await Promise.all([
+    supabase.rpc(TAB_FUNCTIONS[tab], scope),
+    tab === "water" ? supabase.rpc("water_target_matrix", scope) : null,
     supabase.from("region").select("id, name").eq("active", true).order("name"),
     supabase.from("organisation").select("id, name").eq("active", true).order("name"),
     supabase
@@ -172,9 +184,15 @@ export default async function HomePage(props: PageProps<"/admin">) {
     </>
   );
 
-  if (dash.error || !dash.data) {
-    const missing = dash.error?.code === "PGRST202";
-    const fn = TAB_FUNCTIONS[tab];
+  const failed =
+    dash.error || !dash.data
+      ? { result: dash, fn: TAB_FUNCTIONS[tab] }
+      : matrix && (matrix.error || !matrix.data)
+        ? { result: matrix, fn: "water_target_matrix" }
+        : null;
+  if (failed) {
+    const missing = failed.result.error?.code === "PGRST202";
+    const fn = failed.fn;
     return (
       <div className="flex flex-1 flex-col">
         {header}
@@ -184,7 +202,7 @@ export default async function HomePage(props: PageProps<"/admin">) {
             <p className="mt-1 text-sm text-muted">
               {missing
                 ? `The database is missing the ${fn} function. Apply the latest migrations (npx supabase db push).`
-                : (dash.error?.message ?? "Please try again.")}
+                : (failed.result.error?.message ?? "Please try again.")}
             </p>
           </div>
         </div>
@@ -196,7 +214,12 @@ export default async function HomePage(props: PageProps<"/admin">) {
     return (
       <div className="flex flex-1 flex-col">
         {header}
-        <WaterUsageReport data={dash.data as WaterUsageData} timeZone={timeZone} />
+        <WaterUsageReport
+          data={dash.data as WaterUsageData}
+          matrix={matrix!.data as WaterTargetMatrix}
+          timeZone={timeZone}
+          canOpenReadings={isSystemAdmin}
+        />
       </div>
     );
   }

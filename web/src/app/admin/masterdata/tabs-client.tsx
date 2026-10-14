@@ -13,7 +13,8 @@ import type {
   Grading,
   Asset,
 } from "@/lib/masterdata/types";
-import { LOGGER_TYPE_OPTIONS } from "@/lib/masterdata/types";
+import { LOGGER_TYPE_OPTIONS, METER_TYPE_OPTIONS } from "@/lib/masterdata/types";
+import { BandEditor, TargetInput } from "./target-bands";
 import type { Inspection } from "@/lib/inspection-setup/types";
 import { canInspectionSetup } from "@/lib/inspection-setup/permissions";
 import * as actions from "./actions";
@@ -172,6 +173,14 @@ export function MasterdataTabs({
                     options: LOGGER_TYPE_OPTIONS,
                   },
                   {
+                    key: "meter_type",
+                    label: "Meter type",
+                    type: "select",
+                    options: METER_TYPE_OPTIONS,
+                    filter: true,
+                    render: (v) => METER_TYPE_OPTIONS.find((o) => o.value === v)?.label ?? "—",
+                  },
+                  {
                     key: "asset_type_id",
                     label: "Asset Type",
                     type: "select",
@@ -298,6 +307,33 @@ export function MasterdataTabs({
                   },
                   { key: "is_stock_manager", label: "Stock manager", type: "boolean", defaultValue: "true" },
                   { key: "is_asset_manager", label: "Asset manager", type: "boolean", defaultValue: "true" },
+                  {
+                    key: "volume_target",
+                    label: "Daily volume target (m³)",
+                    columnLabel: "Target",
+                    type: "number",
+                    section: "Water",
+                    renderInput: (ctx) => <TargetInput {...ctx} />,
+                    render: (v) =>
+                      v ? (
+                        <span className="font-mono text-[13px] tabular-nums">
+                          {Number(v).toLocaleString("en-US", { maximumFractionDigits: 2 })} m³
+                        </span>
+                      ) : (
+                        "—"
+                      ),
+                  },
+                  {
+                    key: "target_bands",
+                    label: "Colour bands",
+                    type: "text",
+                    section: "Water",
+                    hideInTable: true,
+                    showIf: (values) => Boolean(values.volume_target?.trim()),
+                    renderInput: ({ value, setValue }) => (
+                      <BandEditor value={value} onChange={(v) => setValue("target_bands", v)} />
+                    ),
+                  },
                   { ...activeField, section: "Status" },
                 ] satisfies FieldConfig[]
               }

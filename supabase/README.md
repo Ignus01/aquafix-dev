@@ -88,7 +88,7 @@ npx supabase functions deploy logger-worker --use-api --no-verify-jwt
 
 ### Water usage
 
-Home → Water usage (system admins) reports daily usage per volume meter (readings in m³,
+Home → Water usage (system admins and admins) reports daily usage per volume meter (readings in m³,
 the meter's running total). `logger_daily_usage` holds one row per meter per day: the total
 at the next local midnight minus the total at this one, interpolated between readings.
 Recording a pull refreshes that meter's days from 30 days before the pulled range, so the
@@ -100,6 +100,20 @@ recalculates every day. To recalculate by hand (e.g. after correcting readings):
 ```sql
 select public.refresh_all_logger_daily_usage();
 ```
+
+Admins can read the daily usage and its issues but not the raw readings (`logger_reading`),
+the Logger data pages or the Loggers tab, which stay system-admin only.
+
+#### Treated water vs target
+
+Each asset has a meter type (Treated Meter, Borehole Meter, Other; blank = not a meter), and
+each location an optional daily target in m³ (`volume_target`) with its own colour bands
+(`location_target_band`: a band runs from its `from_pct` up to the next one, and a location
+with a target has one at 0%). `save_location_target()` saves a target and its bands together;
+clearing the target keeps the bands. `water_target_matrix()` gives each active location's
+treated water in per day up to yesterday: the sum of its Treated Meters' daily usage, with no
+figure for a day on which any of them has none. Borehole and Other meters are left out, since
+they often measure the same water before treatment.
 
 ## Services
 

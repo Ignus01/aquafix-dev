@@ -14,7 +14,10 @@ import type {
   Grading,
   Asset,
   LoggerType,
+  MeterType,
+  TargetBand,
 } from "@/lib/masterdata/types";
+import { parseBands, sortBands, targetBandsError } from "../dashboard/water-format";
 
 type ActionResult = { error: string | null };
 
@@ -209,29 +212,78 @@ export async function listLocations(): Promise<Location[]> {
     supabase
       .from("location")
       .select(
-        "id, legacy_uid, name, active, transfer_type, is_stock_manager, is_asset_manager, region_id, organisation_id, region:region_id(name), organisation:organisation_id(name)",
+        "id, legacy_uid, name, active, transfer_type, is_stock_manager, is_asset_manager, volume_target, region_id, organisation_id, region:region_id(name), organisation:organisation_id(name), target_bands:location_target_band(from_pct, colour, label)",
       )
       .order("name")
       .order("id"),
   );
-  return data as unknown as Location[];
+  return (data as unknown as Location[]).map((l) => ({
+    ...l,
+    target_bands: sortBands(l.target_bands ?? []),
+  }));
+}
+
+// The Water section's target and bands, checked before anything is saved.
+// Without a target the bands are ignored (the stored ones are kept).
+function targetValues(
+  values: Record<string, string>,
+): { target: number | null; bands: TargetBand[] | null } | { error: string } {
+  const raw = values.volume_target?.trim();
+  if (!raw) return { target: null, bands: null };
+  const target = Number(raw);
+  if (!Number.isFinite(target) || target <= 0) {
+    return { error: "The daily volume target must be more than 0 m³." };
+  }
+  const bands = parseBands(values.target_bands).map((b) => ({
+    ...b,
+    label: b.label?.trim() || null,
+  }));
+  const bandError = targetBandsError(bands);
+  if (bandError) return { error: bandError };
+  return { target: Math.round(target * 100) / 100, bands: sortBands(bands) };
+}
+
+// Target and bands change together or not at all (one database function).
+async function saveTarget(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  locationId: string,
+  target: { target: number | null; bands: TargetBand[] | null },
+) {
+  return supabase.rpc("save_location_target", {
+    p_location_id: locationId,
+    p_target: target.target,
+    p_bands: target.bands,
+  });
 }
 
 export async function createLocation(
   values: Record<string, string>,
 ): Promise<ActionResult> {
   await requireAnyMasterdataRole();
+  const target = targetValues(values);
+  if ("error" in target) return target;
   const supabase = await createClient();
-  const { error } = await supabase.from("location").insert({
-    name: values.name?.trim(),
-    active: values.active === "true",
-    transfer_type: values.transfer_type || "AUTO",
-    is_stock_manager: values.is_stock_manager === "true",
-    is_asset_manager: values.is_asset_manager === "true",
-    region_id: values.region_id || null,
-    organisation_id: values.organisation_id || null,
-  });
+  const { data, error } = await supabase
+    .from("location")
+    .insert({
+      name: values.name?.trim(),
+      active: values.active === "true",
+      transfer_type: values.transfer_type || "AUTO",
+      is_stock_manager: values.is_stock_manager === "true",
+      is_asset_manager: values.is_asset_manager === "true",
+      region_id: values.region_id || null,
+      organisation_id: values.organisation_id || null,
+    })
+    .select("id")
+    .single();
   if (error) return { error: friendlyError(error) };
+  if (target.target !== null) {
+    const { error: targetError } = await saveTarget(supabase, data.id, target);
+    if (targetError) {
+      revalidatePath("/admin/masterdata");
+      return { error: `The location was saved, but not its target: ${friendlyError(targetError)}` };
+    }
+  }
   revalidatePath("/admin/masterdata");
   return { error: null };
 }
@@ -241,6 +293,8 @@ export async function updateLocation(
   values: Record<string, string>,
 ): Promise<ActionResult> {
   await requireAnyMasterdataRole();
+  const target = targetValues(values);
+  if ("error" in target) return target;
   const supabase = await createClient();
   const { error } = await supabase
     .from("location")
@@ -255,7 +309,9 @@ export async function updateLocation(
     })
     .eq("id", id);
   if (error) return { error: friendlyError(error) };
+  const { error: targetError } = await saveTarget(supabase, id, target);
   revalidatePath("/admin/masterdata");
+  if (targetError) return { error: `The location was saved, but not its target: ${friendlyError(targetError)}` };
   return { error: null };
 }
 
@@ -390,7 +446,7 @@ export async function listAssets(): Promise<Asset[]> {
     supabase
       .from("asset")
       .select(
-        "id, legacy_uid, name, code, logger_code, logger_type, purchase_date, active, has_service_plan, service_interval, asset_type_id, location_id, asset_type:asset_type_id(name), location:location_id(name)",
+        "id, legacy_uid, name, code, logger_code, logger_type, meter_type, purchase_date, active, has_service_plan, service_interval, asset_type_id, location_id, asset_type:asset_type_id(name), location:location_id(name)",
       )
       .order("name")
       .order("id"),
@@ -409,6 +465,10 @@ function loggerColumns(
   return { logger_code: code, logger_type: type };
 }
 
+const METER_TYPES: MeterType[] = ["treated", "borehole", "other"];
+const meterType = (values: Record<string, string>): MeterType | null =>
+  METER_TYPES.find((t) => t === values.meter_type) ?? null;
+
 export async function createAsset(
   values: Record<string, string>,
 ): Promise<ActionResult> {
@@ -420,6 +480,7 @@ export async function createAsset(
     name: values.name?.trim(),
     code: values.code?.trim(),
     ...logger,
+    meter_type: meterType(values),
     purchase_date: values.purchase_date || null,
     active: values.active === "true",
     has_service_plan: values.has_service_plan === "true",
@@ -446,6 +507,7 @@ export async function updateAsset(
       name: values.name?.trim(),
       code: values.code?.trim(),
       ...logger,
+      meter_type: meterType(values),
       purchase_date: values.purchase_date || null,
       active: values.active === "true",
       has_service_plan: values.has_service_plan === "true",

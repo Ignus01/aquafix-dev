@@ -1,3 +1,5 @@
+import type { MeterType, TargetBand } from "@/lib/masterdata/types";
+
 // Shape of public.home_dashboard() (supabase/migrations/20261004120000_home_dashboard.sql).
 
 export type GradingBand = "good" | "fair" | "warning" | "critical";
@@ -178,6 +180,8 @@ export type WaterMeter = {
   code: string;
   logger_code: string | null;
   active: boolean;
+  // Null = not set: the meter is left out of Treated water vs target.
+  meter_type: MeterType | null;
   location_id: string;
   location: string;
   region: string;
@@ -213,4 +217,29 @@ export type WaterUsageReport = {
     reason: "no_readings" | "not_volume";
   }[];
   issues: WaterUsageIssue[];
+};
+
+// Shape of public.water_target_matrix() (supabase/migrations/20261014120000_volume_target.sql).
+
+export type WaterTargetLocation = {
+  id: string;
+  name: string;
+  region: string;
+  // m³ per day; null = no target.
+  target: number | null;
+  // Highest from_pct first.
+  bands: TargetBand[];
+  // Treated meters counted, and their ids by name.
+  meters: number;
+  meter_ids: string[];
+  // Treated water in per day, m³; null = no figure.
+  usage: (number | null)[];
+  // One character per day: o ok, e estimated, g long gap, r reset, - none.
+  status: string;
+};
+
+export type WaterTargetMatrix = {
+  // From the period's start to the earlier of its end and yesterday.
+  days: string[];
+  locations: WaterTargetLocation[];
 };
