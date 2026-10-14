@@ -243,3 +243,27 @@ export type WaterTargetMatrix = {
   days: string[];
   locations: WaterTargetLocation[];
 };
+
+// Shape of public.water_borehole_matrix() (supabase/migrations/20261015120000_borehole_usage_limit.sql).
+
+export type WaterBoreholeLocation = {
+  id: string;
+  name: string;
+  region: string;
+  // m³ per day, the sum of its borehole meters' limits; null when any has none.
+  limit: number | null;
+  // Borehole meters counted, their ids by name, and how many have no limit.
+  meters: number;
+  meter_ids: string[];
+  unlimited: number;
+  // Borehole usage per day, m³; null = no figure.
+  usage: (number | null)[];
+  // One character per day: o ok, e estimated, g long gap, r reset, - none.
+  status: string;
+};
+
+export type WaterBoreholeMatrix = {
+  // From the period's start to the earlier of its end and yesterday.
+  days: string[];
+  locations: WaterBoreholeLocation[];
+};

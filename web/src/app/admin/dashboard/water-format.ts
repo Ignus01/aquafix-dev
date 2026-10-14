@@ -1,5 +1,5 @@
 import { addDays, formatDay } from "@/lib/dashboard/format";
-import type { Bucket, WaterMeter, WaterTargetLocation } from "@/lib/dashboard/types";
+import type { Bucket, WaterMeter } from "@/lib/dashboard/types";
 import type { MeterType, TargetBand, TargetBandColour } from "@/lib/masterdata/types";
 
 // Figures shared by the Water usage tab's cards, charts and table, and the
@@ -118,7 +118,11 @@ export function targetBandsError(bands: TargetBand[]): string | null {
   return null;
 }
 
-// ---- Treated water vs target -----------------------------------------------
+// ---- Treated water vs target, Borehole usage vs limit ----------------------
+
+// A site's figure per day in a matrix: m³ (null = no figure) and one status
+// character per day.
+export type MatrixSeries = { usage: (number | null)[]; status: string };
 
 export type TargetCell = {
   start: string;
@@ -135,8 +139,8 @@ export type TargetCell = {
 
 // A location's figure over some of the matrix's days: the day itself, or
 // the average per day over the days with a figure, blank when under half
-// the days have one.
-function targetCell(loc: WaterTargetLocation, days: string[], idx: number[]): TargetCell {
+// the days have one. meter names the meters summed, for why a day is blank.
+function targetCell(loc: MatrixSeries, days: string[], idx: number[], meter: string): TargetCell {
   const start = days[idx[0]];
   const end = days[idx[idx.length - 1]];
   if (idx.length === 1) {
@@ -154,8 +158,8 @@ function targetCell(loc: WaterTargetLocation, days: string[], idx: number[]): Ta
         loc.usage[i] !== null && loc.usage[i] !== undefined
           ? null
           : s === "r"
-            ? "A treated meter was reset that day."
-            : "A treated meter has no figure for that day.",
+            ? `A ${meter} was reset that day.`
+            : `A ${meter} has no figure for that day.`,
     };
   }
   let total = 0;
@@ -183,9 +187,10 @@ function targetCell(loc: WaterTargetLocation, days: string[], idx: number[]): Ta
 // One cell per bucket of the matrix's days, and the average per day over
 // the whole period.
 export function targetRow(
-  loc: WaterTargetLocation,
+  loc: MatrixSeries,
   days: string[],
   bucket: Bucket,
+  meter = "treated meter",
 ): { cells: TargetCell[]; avg: TargetCell | null } {
   const groups: number[][] = [];
   days.forEach((day, i) => {
@@ -194,8 +199,8 @@ export function targetRow(
     else groups.push([i]);
   });
   return {
-    cells: groups.map((g) => targetCell(loc, days, g)),
-    avg: days.length ? targetCell(loc, days, days.map((_, i) => i)) : null,
+    cells: groups.map((g) => targetCell(loc, days, g, meter)),
+    avg: days.length ? targetCell(loc, days, days.map((_, i) => i), meter) : null,
   };
 }
 
