@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { addDays, bucketTitle, fmt, formatDay, formatRange } from "@/lib/dashboard/format";
 import type {
   Bucket,
+  WaterBoreholeMatrix,
   WaterMeter,
   WaterTargetMatrix,
   WaterUsageIssue,
@@ -15,7 +16,7 @@ import { secondaryButtonClass, tableHeadCellClass } from "../ui";
 import { Card, Empty, Kpi } from "./cards";
 import { Legend } from "./charts";
 import { readingsHref, shortDateTime } from "./logger-format";
-import { TargetMatrix } from "./target-matrix";
+import { BoreholeMatrix, TargetMatrix } from "./target-matrix";
 import { UsageChart } from "./usage-chart";
 import {
   bucketise,
@@ -29,12 +30,14 @@ import {
 } from "./water-format";
 
 // Home → Water usage (system admins and admins): treated water vs each
-// site's target, then daily usage per volume meter, by site. Figures come
-// from public.water_target_matrix() and public.water_usage_report(), which
-// read the daily usage the database keeps as readings arrive. Meters at one
-// site are shown side by side, never added up, except the Treated Meters in
-// the target matrix: a borehole meter and a treated meter often measure the
-// same water before and after treatment.
+// site's target, borehole usage vs each site's limit, then daily usage per
+// volume meter, by site. Figures come from public.water_target_matrix(),
+// public.water_borehole_matrix() and public.water_usage_report(), which read
+// the daily usage the database keeps as readings arrive. Meters at one site
+// are shown side by side, never added up, except the Treated Meters in the
+// target matrix and the Borehole Meters in the limit matrix: a borehole
+// meter and a treated meter often measure the same water before and after
+// treatment.
 //
 // Only system admins can open the meter readings (Logger data), so for
 // admins the links to them show as plain text.
@@ -107,11 +110,13 @@ function csvOf(meters: WaterMeter[], days: string[]): string {
 export function WaterUsageReport({
   data: d,
   matrix,
+  boreholes,
   timeZone,
   canOpenReadings,
 }: {
   data: Report;
   matrix: WaterTargetMatrix;
+  boreholes: WaterBoreholeMatrix;
   timeZone: string;
   canOpenReadings: boolean;
 }) {
@@ -140,6 +145,7 @@ export function WaterUsageReport({
     return (
       <div className="flex flex-col gap-4 px-4 pt-3 pb-10 md:px-8">
         <TargetMatrix data={matrix} canOpenReadings={canOpenReadings} />
+        <BoreholeMatrix data={boreholes} canOpenReadings={canOpenReadings} />
         <div className="rounded-card border border-border bg-card">
           <Empty>No water usage for this period and these filters.</Empty>
         </div>
@@ -193,6 +199,7 @@ export function WaterUsageReport({
         )}
 
         <TargetMatrix data={matrix} canOpenReadings={canOpenReadings} />
+        <BoreholeMatrix data={boreholes} canOpenReadings={canOpenReadings} />
 
         <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Key figures">
           <Kpi label="Sites" value={fmt(sites.length)} note={`${fmt(new Set(d.meters.map((m) => m.region)).size)} regions`} />

@@ -94,6 +94,8 @@ export type Asset = {
   logger_type: LoggerType | null;
   // Null = not a meter.
   meter_type: MeterType | null;
+  // m³ per day; Borehole Meters only. Null = no limit.
+  usage_limit: number | null;
   purchase_date: string | null;
   active: boolean;
   has_service_plan: boolean;

@@ -28,6 +28,7 @@ import {
 } from "@/lib/dashboard/types";
 import type {
   LoggerDashboard,
+  WaterBoreholeMatrix,
   WaterTargetMatrix,
   WaterUsageReport as WaterUsageData,
 } from "@/lib/dashboard/types";
@@ -47,7 +48,8 @@ import { WaterUsageReport } from "./dashboard/water-usage-report";
 // System admins also get a Loggers tab (the logger readings over the same
 // period and filters, from public.logger_dashboard()). System admins and
 // admins get a Water usage tab (treated water vs each site's target, from
-// public.water_target_matrix(), and daily usage per volume meter, from
+// public.water_target_matrix(), borehole usage vs each site's limit, from
+// public.water_borehole_matrix(), and daily usage per volume meter, from
 // public.water_usage_report()).
 
 const TABS = [
@@ -130,9 +132,10 @@ export default async function HomePage(props: PageProps<"/admin">) {
     p_organisation_id: filters.organisation || null,
     p_location_id: filters.location || null,
   };
-  const [dash, matrix, regions, organisations, locations] = await Promise.all([
+  const [dash, matrix, boreholes, regions, organisations, locations] = await Promise.all([
     supabase.rpc(TAB_FUNCTIONS[tab], scope),
     tab === "water" ? supabase.rpc("water_target_matrix", scope) : null,
+    tab === "water" ? supabase.rpc("water_borehole_matrix", scope) : null,
     supabase.from("region").select("id, name").eq("active", true).order("name"),
     supabase.from("organisation").select("id, name").eq("active", true).order("name"),
     supabase
@@ -189,7 +192,9 @@ export default async function HomePage(props: PageProps<"/admin">) {
       ? { result: dash, fn: TAB_FUNCTIONS[tab] }
       : matrix && (matrix.error || !matrix.data)
         ? { result: matrix, fn: "water_target_matrix" }
-        : null;
+        : boreholes && (boreholes.error || !boreholes.data)
+          ? { result: boreholes, fn: "water_borehole_matrix" }
+          : null;
   if (failed) {
     const missing = failed.result.error?.code === "PGRST202";
     const fn = failed.fn;
@@ -217,6 +222,7 @@ export default async function HomePage(props: PageProps<"/admin">) {
         <WaterUsageReport
           data={dash.data as WaterUsageData}
           matrix={matrix!.data as WaterTargetMatrix}
+          boreholes={boreholes!.data as WaterBoreholeMatrix}
           timeZone={timeZone}
           canOpenReadings={isSystemAdmin}
         />

@@ -115,6 +115,16 @@ treated water in per day up to yesterday: the sum of its Treated Meters' daily u
 figure for a day on which any of them has none. Borehole and Other meters are left out, since
 they often measure the same water before treatment.
 
+#### Borehole usage vs limit
+
+A Borehole Meter can have a daily usage limit in m³ (`asset.usage_limit`, the licensed
+abstraction volume). The `asset_usage_limit_check` constraint allows a limit only on Borehole
+Meters and only above 0; the asset form clears it when the meter type changes.
+`water_borehole_matrix()` works like `water_target_matrix()` with Borehole Meters in place of
+Treated Meters: each active location's borehole usage per day up to yesterday, against the
+sum of its borehole meters' limits (null when any of them has none). The Water usage tab
+colours a day green at or below the limit and red above it.
+
 ## Services
 
 A service is one maintenance or repair job on an asset. `save_service()` validates, stamps

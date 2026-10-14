@@ -181,6 +181,14 @@ export function MasterdataTabs({
                     render: (v) => METER_TYPE_OPTIONS.find((o) => o.value === v)?.label ?? "—",
                   },
                   {
+                    key: "usage_limit",
+                    label: "Usage limit (m³/day)",
+                    type: "number",
+                    step: "0.01",
+                    showIf: (values) => values.meter_type === "borehole",
+                    hideInTable: true,
+                  },
+                  {
                     key: "asset_type_id",
                     label: "Asset Type",
                     type: "select",
