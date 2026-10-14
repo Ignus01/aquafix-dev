@@ -3,12 +3,19 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { addDays, bucketTitle, fmt, formatDay, formatRange } from "@/lib/dashboard/format";
-import type { Bucket, WaterMeter, WaterUsageIssue, WaterUsageReport as Report } from "@/lib/dashboard/types";
+import type {
+  Bucket,
+  WaterMeter,
+  WaterTargetMatrix,
+  WaterUsageIssue,
+  WaterUsageReport as Report,
+} from "@/lib/dashboard/types";
 import { ArrowDownIcon, ArrowUpIcon, DownloadIcon } from "../icons";
 import { secondaryButtonClass, tableHeadCellClass } from "../ui";
 import { Card, Empty, Kpi } from "./cards";
 import { Legend } from "./charts";
 import { readingsHref, shortDateTime } from "./logger-format";
+import { TargetMatrix } from "./target-matrix";
 import { UsageChart } from "./usage-chart";
 import {
   bucketise,
@@ -21,11 +28,16 @@ import {
   type MeterStats,
 } from "./water-format";
 
-// Home → Water usage (system admins): daily usage per volume meter, by site.
-// Every figure comes from public.water_usage_report(), which reads the daily
-// usage the database keeps as readings arrive. Meters at one site are shown
-// side by side, never added up: a borehole meter and a treated meter often
-// measure the same water before and after treatment.
+// Home → Water usage (system admins and admins): treated water vs each
+// site's target, then daily usage per volume meter, by site. Figures come
+// from public.water_target_matrix() and public.water_usage_report(), which
+// read the daily usage the database keeps as readings arrive. Meters at one
+// site are shown side by side, never added up, except the Treated Meters in
+// the target matrix: a borehole meter and a treated meter often measure the
+// same water before and after treatment.
+//
+// Only system admins can open the meter readings (Logger data), so for
+// admins the links to them show as plain text.
 
 const BUCKETS: { key: Bucket; label: string }[] = [
   { key: "day", label: "Daily" },
@@ -92,7 +104,17 @@ function csvOf(meters: WaterMeter[], days: string[]): string {
   return rows.map((r) => r.map((c) => (/[",\n]/.test(c) ? `"${c.replace(/"/g, '""')}"` : c)).join(",")).join("\n");
 }
 
-export function WaterUsageReport({ data: d, timeZone }: { data: Report; timeZone: string }) {
+export function WaterUsageReport({
+  data: d,
+  matrix,
+  timeZone,
+  canOpenReadings,
+}: {
+  data: Report;
+  matrix: WaterTargetMatrix;
+  timeZone: string;
+  canOpenReadings: boolean;
+}) {
   const first = d.period.first_day;
   const last = d.period.last_day;
   const days = useMemo(() => (first && last ? daysFrom(first, last) : []), [first, last]);
@@ -117,6 +139,7 @@ export function WaterUsageReport({ data: d, timeZone }: { data: Report; timeZone
   if (!first || !last) {
     return (
       <div className="flex flex-col gap-4 px-4 pt-3 pb-10 md:px-8">
+        <TargetMatrix data={matrix} canOpenReadings={canOpenReadings} />
         <div className="rounded-card border border-border bg-card">
           <Empty>No water usage for this period and these filters.</Empty>
         </div>
@@ -154,13 +177,22 @@ export function WaterUsageReport({ data: d, timeZone }: { data: Report; timeZone
         {behind && (
           <p className="rounded-card border border-warning/30 bg-warning-bg px-4 py-2.5 text-[13px] text-warning">
             No usage yet for {formatRange(behind.from, behind.to)}: those days&rsquo; readings haven&rsquo;t been pulled.
-            Pull them under{" "}
-            <Link href="/admin/logger-data" className="font-semibold underline">
-              Logger data
-            </Link>
-            .
+            {canOpenReadings ? (
+              <>
+                {" "}
+                Pull them under{" "}
+                <Link href="/admin/logger-data" className="font-semibold underline">
+                  Logger data
+                </Link>
+                .
+              </>
+            ) : (
+              " A system admin can pull them under Logger data."
+            )}
           </p>
         )}
+
+        <TargetMatrix data={matrix} canOpenReadings={canOpenReadings} />
 
         <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Key figures">
           <Kpi label="Sites" value={fmt(sites.length)} note={`${fmt(new Set(d.meters.map((m) => m.region)).size)} regions`} />
@@ -253,11 +285,15 @@ export function WaterUsageReport({ data: d, timeZone }: { data: Report; timeZone
                               <span
                                 aria-hidden="true"
                                 className="h-[3px] w-3.5 shrink-0 rounded-full"
-                                style={{ background: meterColour(m.name) }}
+                                style={{ background: meterColour(m.meter_type) }}
                               />
-                              <Link href={readingsHref(m.id, first, last)} className="text-ink hover:underline">
-                                {m.name}
-                              </Link>
+                              {canOpenReadings ? (
+                                <Link href={readingsHref(m.id, first, last)} className="text-ink hover:underline">
+                                  {m.name}
+                                </Link>
+                              ) : (
+                                <span className="text-ink">{m.name}</span>
+                              )}
                             </span>
                             <div className="pl-[22px] text-xs text-muted">
                               {m.code}
@@ -363,7 +399,7 @@ function SiteCard({ site, days, bucket, rows }: { site: Site; days: string[]; bu
   const lines = site.meters.map((m) => ({
     key: m.id,
     label: m.name,
-    colour: meterColour(m.name),
+    colour: meterColour(m.meter_type),
     points: bucketise(m, days, bucket),
   }));
   const anyEstimated = lines.some((l) => l.points.some((p) => p.estimated > 0));
@@ -475,6 +511,13 @@ function DataQuality({ report: d, days, timeZone }: { report: Report; days: stri
 
   for (const m of d.meters) {
     const title = `${m.location} – ${m.name}`;
+    if (m.meter_type === null) {
+      items.push({
+        key: `${m.id}-type`,
+        title,
+        text: "Meter type not set, so it isn’t counted in Treated water vs target. Set it on the asset under Master Data.",
+      });
+    }
     for (const i of issuesBy.get(m.id) ?? []) {
       const key = `${m.id}-${i.kind}-${i.from_at}`;
       if (i.kind === "duplicate") {
@@ -549,7 +592,7 @@ function DataQuality({ report: d, days, timeZone }: { report: Report; days: stri
                 <span
                   aria-hidden="true"
                   className="mt-[7px] h-[3px] w-3.5 shrink-0 rounded-full"
-                  style={{ background: meter ? meterColour(meter.name) : "#9aa3b5" }}
+                  style={{ background: meter ? meterColour(meter.meter_type) : "#9aa3b5" }}
                 />
                 <p className="text-ink/90">
                   <span className="font-semibold text-ink">{item.title}</span>: {item.text}

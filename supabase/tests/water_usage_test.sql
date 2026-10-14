@@ -161,15 +161,6 @@ create temp table result (d jsonb);
 grant all on result to authenticated;
 
 select set_config('request.jwt.claims',
-  '{"sub": "10000000-0000-0000-1092-000000000002", "role": "authenticated"}', true);
-set local role authenticated;
-select throws_ok(
-  $$ select public.water_usage_report('2026-01-01', '2026-01-31') $$,
-  '42501', 'Only system admins can see logger data.', 'an admin cannot see the water usage report');
-select is((select count(*) from public.logger_daily_usage), 0::bigint, 'nor read the daily usage');
-reset role;
-
-select set_config('request.jwt.claims',
   '{"sub": "10000000-0000-0000-1092-000000000001", "role": "authenticated"}', true);
 set local role authenticated;
 select throws_ok(
@@ -177,6 +168,22 @@ select throws_ok(
   '22023', null, 'the period must not end before it starts');
 insert into result
 select public.water_usage_report('2025-12-01', '2026-01-31', null, null, 'a2000000-0000-0000-1092-000000000001');
+reset role;
+
+-- Admins see the whole tab too, but not the raw readings.
+select set_config('request.jwt.claims',
+  '{"sub": "10000000-0000-0000-1092-000000000002", "role": "authenticated"}', true);
+set local role authenticated;
+select is(
+  public.water_usage_report('2025-12-01', '2026-01-31', null, null, 'a2000000-0000-0000-1092-000000000001'),
+  (select d from result),
+  'an admin sees the same water usage report');
+select ok((select count(*) from public.logger_daily_usage) > 0, 'an admin can read the daily usage');
+select is((select count(*) from public.logger_reading), 0::bigint, 'but not the raw readings');
+select ok(
+  public.water_usage_report('2026-01-01', '2026-01-31') -> 'excluded' @>
+    '[{"name": "WU D", "unit": "kPa", "reason": "not_volume"}]'::jsonb,
+  'an admin still sees which loggers are not volume meters');
 reset role;
 
 select is(
@@ -193,7 +200,7 @@ select is((select array_agg(m ->> 'name' order by m ->> 'name') from meters), ar
 select is(
   (select m - 'id' - 'location_id' from meters where m ->> 'name' = 'WU C'),
   jsonb_build_object(
-    'name', 'WU C', 'code', 'WU-C', 'logger_code', 'wu_c', 'active', true,
+    'name', 'WU C', 'code', 'WU-C', 'logger_code', 'wu_c', 'active', true, 'meter_type', null,
     'location', 'WU-Plant', 'region', 'WU-North', 'organisation', 'WU-ORG', 'first_day', '2026-01-01',
     'usage', '[14.4, null, 14.4, null, null, null, null, null, null, null, null]'::jsonb,
     'status', 'oro--------'),

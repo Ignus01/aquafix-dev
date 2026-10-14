@@ -40,6 +40,22 @@ export interface FieldConfig {
   mono?: boolean;
   // Groups consecutive fields under an uppercase section heading in the drawer form.
   section?: string;
+  // The table column's heading, when shorter than the form label.
+  columnLabel?: string;
+  // Number inputs: the step (e.g. "0.01").
+  step?: string;
+  // Replaces the built-in input; setValue can change any field of the form.
+  renderInput?: (ctx: {
+    value: string;
+    values: Record<string, string>;
+    setValue: (key: string, v: string) => void;
+  }) => ReactNode;
+  // Shown in the form only while this returns true.
+  showIf?: (values: Record<string, string>) => boolean;
+  // A form-only field: no table column, not searched.
+  hideInTable?: boolean;
+  // Select fields: a dropdown above the table to filter on the column.
+  filter?: boolean;
 }
 
 export interface EntityCrudTableProps {
@@ -92,6 +108,8 @@ function initialValues(
       values[f.key] = f.defaultValue;
     } else if (f.type === "boolean") {
       values[f.key] = String(Boolean(raw));
+    } else if (raw !== null && typeof raw === "object") {
+      values[f.key] = JSON.stringify(raw);
     } else {
       values[f.key] = raw === undefined || raw === null ? "" : String(raw);
     }
@@ -138,6 +156,7 @@ function Field({
     <input
       className={inputClass}
       type={field.type === "number" ? "number" : field.type === "date" ? "date" : "text"}
+      step={field.step}
       value={value}
       required={field.required}
       onChange={(e) => onChange(e.target.value)}
@@ -146,7 +165,7 @@ function Field({
 }
 
 function FormFields({
-  fields,
+  fields: allFields,
   values,
   onChange,
 }: {
@@ -154,6 +173,7 @@ function FormFields({
   values: Record<string, string>;
   onChange: (key: string, v: string) => void;
 }) {
+  const fields = allFields.filter((f) => !f.showIf || f.showIf(values));
   const sectionStarts = fields.map(
     (f, i) => f.section !== undefined && f.section !== fields[i - 1]?.section,
   );
@@ -174,17 +194,24 @@ function FormFields({
                 {f.label}
               </label>
             )}
-            <Field
-              field={f}
-              value={values[f.key] ?? ""}
-              onChange={(v) => onChange(f.key, v)}
-            />
+            {f.renderInput ? (
+              f.renderInput({ value: values[f.key] ?? "", values, setValue: onChange })
+            ) : (
+              <Field
+                field={f}
+                value={values[f.key] ?? ""}
+                onChange={(v) => onChange(f.key, v)}
+              />
+            )}
           </div>
         );
       })}
     </div>
   );
 }
+
+// "" = all rows; FILTER_NONE = rows where the column is blank.
+const FILTER_NONE = "\u0000none";
 
 // What the user sees for a select is the option's label, not the stored id,
 // so search and sort by that.
@@ -236,10 +263,13 @@ export function EntityCrudTable({
 }: EntityCrudTableProps) {
   const addFields = fields.filter((f) => !f.hideInForm && !f.editOnly);
   const editFields = fields.filter((f) => !f.hideInForm);
+  const columns = useMemo(() => fields.filter((f) => !f.hideInTable), [fields]);
+  const filterFields = columns.filter((f) => f.filter && f.type === "select");
   const hasActiveField = fields.some((f) => f.key === "active" && f.statusBadge);
 
   const [query, setQuery] = useState("");
   const [activeOnly, setActiveOnly] = useState(false);
+  const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
   const [sort, toggleSort] = useSort();
 
   const [drawer, setDrawer] = useState<
@@ -255,19 +285,26 @@ export function EntityCrudTable({
   const filteredRows = useMemo(() => {
     let list = rows;
     if (activeOnly) list = list.filter((r) => Boolean(r.active));
+    for (const [key, want] of Object.entries(columnFilters)) {
+      if (!want) continue;
+      list = list.filter((r) => {
+        const v = r[key] === null || r[key] === undefined ? "" : String(r[key]);
+        return want === FILTER_NONE ? v === "" : v === want;
+      });
+    }
     if (query.trim()) {
       const q = query.trim().toLowerCase();
       list = list.filter((r) =>
-        fields.some((f) => f.type !== "boolean" && displayValue(f, r).toLowerCase().includes(q)),
+        columns.some((f) => f.type !== "boolean" && displayValue(f, r).toLowerCase().includes(q)),
       );
     }
-    const sortField = sort && fields.find((f) => f.key === sort.key);
+    const sortField = sort && columns.find((f) => f.key === sort.key);
     return sort && sortField ? sortRows(list, (r) => sortValue(sortField, r), sort.desc) : list;
-  }, [rows, query, activeOnly, fields, sort]);
+  }, [rows, query, activeOnly, columnFilters, columns, sort]);
 
   const { pageItems, ...paging } = usePagination(
     filteredRows,
-    `${query}|${activeOnly}|${sort?.key}|${sort?.desc}`,
+    `${query}|${activeOnly}|${JSON.stringify(columnFilters)}|${sort?.key}|${sort?.desc}`,
   );
 
   function openAdd() {
@@ -342,6 +379,28 @@ export function EntityCrudTable({
           </button>
         )}
 
+        {filterFields.map((f) => (
+          <select
+            key={f.key}
+            aria-label={`Filter by ${f.label.toLowerCase()}`}
+            value={columnFilters[f.key] ?? ""}
+            onChange={(e) => setColumnFilters((c) => ({ ...c, [f.key]: e.target.value }))}
+            className={`h-[38px] rounded-full border px-3.5 text-[13px] font-medium outline-none transition-colors focus:border-primary ${
+              columnFilters[f.key]
+                ? "border-primary bg-primary/10 text-primary-hover"
+                : "border-border bg-white text-ink"
+            }`}
+          >
+            <option value="">All {f.label.toLowerCase()}s</option>
+            {f.options?.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+            <option value={FILTER_NONE}>Not set</option>
+          </select>
+        ))}
+
         <div className="flex-1" />
 
         {canCreate && (
@@ -366,10 +425,10 @@ export function EntityCrudTable({
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-table-head">
-                {fields.map((f) => (
+                {columns.map((f) => (
                   <SortableTh
                     key={f.key}
-                    label={f.label}
+                    label={f.columnLabel ?? f.label}
                     sortKey={f.key}
                     sort={sort}
                     onSort={toggleSort}
@@ -387,7 +446,7 @@ export function EntityCrudTable({
               {filteredRows.length === 0 && (
                 <tr>
                   <td
-                    colSpan={fields.length + 1}
+                    colSpan={columns.length + 1}
                     className="px-4 py-8 text-center text-muted"
                   >
                     {rows.length === 0 ? (
@@ -400,6 +459,7 @@ export function EntityCrudTable({
                           onClick={() => {
                             setQuery("");
                             setActiveOnly(false);
+                            setColumnFilters({});
                           }}
                           className="font-semibold text-primary hover:text-primary-hover"
                         >
@@ -417,7 +477,7 @@ export function EntityCrudTable({
                     key={id}
                     className="h-[50px] border-t border-border transition-colors hover:bg-row-hover"
                   >
-                    {fields.map((f) => (
+                    {columns.map((f) => (
                       <td key={f.key} className="px-4 text-ink">
                         {renderCell(f, row)}
                       </td>
