@@ -39,6 +39,7 @@ import { DashboardFilters, type FilterState } from "./dashboard/filters";
 import { LoggerReport } from "./dashboard/logger-report";
 import { SitesTable } from "./dashboard/sites-table";
 import { WaterUsageReport } from "./dashboard/water-usage-report";
+import { latestSampleBySite } from "@/lib/quality/site-quality";
 
 // Admin home: the operations dashboard. Modelled on the AquaFix Power BI
 // "Overview" page (slicers, location / grading / incident overviews) and the
@@ -50,7 +51,8 @@ import { WaterUsageReport } from "./dashboard/water-usage-report";
 // admins get a Water usage tab (treated water vs each site's target, from
 // public.water_target_matrix(), borehole usage vs each site's limit, from
 // public.water_borehole_matrix(), and daily usage per volume meter, from
-// public.water_usage_report()).
+// public.water_usage_report()). Both matrices also show each site's latest
+// lab sample in the period (public.lab_sample_overview).
 
 const TABS = [
   { key: "operations", label: "Operations" },
@@ -132,10 +134,11 @@ export default async function HomePage(props: PageProps<"/admin">) {
     p_organisation_id: filters.organisation || null,
     p_location_id: filters.location || null,
   };
-  const [dash, matrix, boreholes, regions, organisations, locations] = await Promise.all([
+  const [dash, matrix, boreholes, quality, regions, organisations, locations] = await Promise.all([
     supabase.rpc(TAB_FUNCTIONS[tab], scope),
     tab === "water" ? supabase.rpc("water_target_matrix", scope) : null,
     tab === "water" ? supabase.rpc("water_borehole_matrix", scope) : null,
+    tab === "water" ? latestSampleBySite(supabase, scope) : null,
     supabase.from("region").select("id, name").eq("active", true).order("name"),
     supabase.from("organisation").select("id, name").eq("active", true).order("name"),
     supabase
@@ -225,6 +228,7 @@ export default async function HomePage(props: PageProps<"/admin">) {
           boreholes={boreholes!.data as WaterBoreholeMatrix}
           timeZone={timeZone}
           canOpenReadings={isSystemAdmin}
+          quality={quality}
         />
       </div>
     );
