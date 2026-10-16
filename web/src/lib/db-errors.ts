@@ -75,6 +75,14 @@ const REFERENCED_MESSAGES: Record<string, string> = {
   "purchase_order:intake": "Stock has been received against this purchase order, so it can't be deleted.",
   "purchase_order_item:intake_item": "Stock has been received against this line, so it can't be deleted.",
   "load:intake": "This load has intakes, so it can't be deleted.",
+  // Quality.
+  "quality_parameter:lab_result": "This Parameter has lab results, so it can't be deleted. Mark it inactive instead.",
+  "quality_parameter:lab_parameter_map":
+    "A lab column is mapped to this Parameter, so it can't be deleted. Change the mapping first.",
+  "location:lab_sample": "This Location has lab results, so it can't be deleted.",
+  "location:lab_location_map": "A lab locality is mapped to this Location, so it can't be deleted.",
+  "lab:lab_import": "This Lab has imports, so it can't be deleted. Mark it inactive instead.",
+  "lab:lab_sample": "This Lab has samples, so it can't be deleted. Mark it inactive instead.",
 };
 
 export function friendlyError(error: DbError): string {

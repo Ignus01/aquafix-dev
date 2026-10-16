@@ -9,6 +9,7 @@ import {
   BarChartIcon,
   ChevronRightIcon,
   ClipboardCheckIcon,
+  FlaskIcon,
   GridIcon,
   HomeIcon,
   ListChecksIcon,
@@ -17,7 +18,9 @@ import {
   PackageIcon,
   ReceiptIcon,
   SettingsIcon,
+  SlidersIcon,
   TransferIcon,
+  UploadIcon,
   UsersIcon,
   WrenchIcon,
   XIcon,
@@ -43,9 +46,14 @@ const isOrders = ({ pathname, tab }: Loc) =>
   (pathname === STOCK_MANAGER && tab === "purchase-orders") || under(pathname, `${STOCK_MANAGER}/purchase-orders`);
 const isSummary = ({ pathname, tab }: Loc) => pathname === STOCK_MANAGER && (tab ?? "summary") === "summary";
 
+// Lab Results is the Quality page itself and its sample pages; Import and
+// Parameters sit under the same path.
+const QUALITY = "/admin/quality";
+const isLabResults = ({ pathname }: Loc) => pathname === QUALITY || under(pathname, `${QUALITY}/samples`);
+
 // Grouped as in the Mendix app's menu, so its users find things where they
 // expect them.
-function navSections(isSystemAdmin: boolean): NavSection[] {
+function navSections(isSystemAdmin: boolean, canImportLabResults: boolean): NavSection[] {
   return [
     {
       label: "Master Data",
@@ -61,6 +69,14 @@ function navSections(isSystemAdmin: boolean): NavSection[] {
         { href: "/admin/inspections", label: "Inspections", icon: ListChecksIcon },
         { href: "/admin/incidents", label: "Incidents", icon: AlertTriangleIcon },
         { href: "/admin/services", label: "Services", icon: WrenchIcon },
+      ],
+    },
+    {
+      label: "Quality",
+      items: [
+        { href: QUALITY, label: "Lab Results", icon: FlaskIcon, isActive: isLabResults },
+        ...(canImportLabResults ? [{ href: `${QUALITY}/import`, label: "Import", icon: UploadIcon }] : []),
+        { href: `${QUALITY}/parameters`, label: "Parameters", icon: SlidersIcon },
       ],
     },
     {
@@ -96,10 +112,12 @@ function navSections(isSystemAdmin: boolean): NavSection[] {
 export function Sidebar({
   email,
   isSystemAdmin,
+  canImportLabResults,
   signOutAction,
 }: {
   email: string | null;
   isSystemAdmin: boolean;
+  canImportLabResults: boolean;
   signOutAction: () => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
@@ -119,7 +137,12 @@ export function Sidebar({
       </header>
 
       <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col bg-sidebar text-sidebar-text md:flex print:hidden">
-        <SidebarContent email={email} isSystemAdmin={isSystemAdmin} signOutAction={signOutAction} />
+        <SidebarContent
+          email={email}
+          isSystemAdmin={isSystemAdmin}
+          canImportLabResults={canImportLabResults}
+          signOutAction={signOutAction}
+        />
       </aside>
 
       {open && (
@@ -137,6 +160,7 @@ export function Sidebar({
             <SidebarContent
               email={email}
               isSystemAdmin={isSystemAdmin}
+              canImportLabResults={canImportLabResults}
               signOutAction={signOutAction}
               onNavigate={() => setOpen(false)}
             />
@@ -175,11 +199,13 @@ function NavLink({
 function SidebarContent({
   email,
   isSystemAdmin,
+  canImportLabResults,
   signOutAction,
   onNavigate,
 }: {
   email: string | null;
   isSystemAdmin: boolean;
+  canImportLabResults: boolean;
   signOutAction: () => Promise<void>;
   onNavigate?: () => void;
 }) {
@@ -191,7 +217,7 @@ function SidebarContent({
   // a collapsed section opens it again, so the current page is never hidden.
   const [collapsed, setCollapsed] = useState<Record<string, string>>({});
 
-  const sections = navSections(isSystemAdmin);
+  const sections = navSections(isSystemAdmin, canImportLabResults);
 
   return (
     <>
