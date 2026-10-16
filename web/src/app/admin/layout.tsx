@@ -1,5 +1,6 @@
 import { getCurrentUser, getCurrentUserRoles } from "@/lib/auth";
 import { signOut } from "@/app/login/actions";
+import { isQualityAdmin } from "@/lib/quality/permissions";
 import { Sidebar } from "./sidebar";
 
 export default async function AdminLayout({
@@ -16,6 +17,7 @@ export default async function AdminLayout({
       <Sidebar
         email={user?.email ?? null}
         isSystemAdmin={isSystemAdmin}
+        canImportLabResults={isQualityAdmin(roles)}
         signOutAction={signOut}
       />
       <main className="flex flex-1 flex-col overflow-y-auto">{children}</main>

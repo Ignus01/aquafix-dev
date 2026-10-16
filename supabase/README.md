@@ -136,6 +136,31 @@ have one open service at a time (unique index). Files go in the private `service
 bucket; deleting a service removes them with the service role, so the web app needs
 `SUPABASE_SERVICE_ROLE_KEY` (already used by user management).
 
+## Quality: lab results
+
+Water-quality lab certificates (`.xlsx`) are imported under Quality → Import (system admins
+and admins; everyone else reads). The browser uploads each file to the private `lab-results`
+bucket (10 MB, `<user id>/…`); the web app parses it with `exceljs` and keeps it as a staged
+`lab_import` (the parsed sheet is in `lab_import.parsed`). `commit_lab_import()` then imports
+the chosen staged files in one transaction: it adds the lab if new, saves the mappings chosen
+in the Map step, and writes one `lab_sample` per certificate row and one `lab_result` per value.
+
+- `quality_parameter`: Aquafix's parameters with acceptable min/max, seeded with the CP-01
+  parameters and SANS 241-1:2015 limits. Limits are global.
+- `lab_parameter_map` / `lab_location_map`: a lab's column or locality → a parameter or
+  location (null = ignore), saved once per lab and reused by later imports. A column whose
+  unit changed has to be confirmed again. Editing a mapping affects future imports only.
+- A negative value means "below detection" (`< 0.002`) unless the parameter can be negative
+  (LSI); `value` is then the positive figure × the mapping's factor.
+- A lab no is imported once per lab (`p_replace` re-imports it). Two columns of one file
+  can't map to the same parameter.
+- Out of spec is never stored: `lab_result_status()` compares a result with its parameter's
+  current limits (`ok`, `high`, `low`, `inconclusive`, `no_limit`), and the
+  `lab_result_view` / `lab_sample_overview` views use it, so changing a limit re-colours past
+  results.
+- Staged imports that are never imported stay listed under Lab Results → Imports, where they
+  can be continued or cancelled (cancelling removes the file). There is no automatic clean-up.
+
 ## Tests
 
 `supabase/tests/` holds pgTAP tests, including the inspection validation test vectors

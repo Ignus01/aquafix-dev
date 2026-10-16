@@ -342,3 +342,39 @@ export function TransferIcon({ className }: { className?: string }) {
     </svg>
   );
 }
+
+export function FlaskIcon({ className }: { className?: string }) {
+  return (
+    <Svg className={className}>
+      <path d="M9 3h6" />
+      <path d="M10 3v6.5L4.6 18.2A2 2 0 0 0 6.3 21h11.4a2 2 0 0 0 1.7-2.8L14 9.5V3" />
+      <path d="M7.5 15h9" />
+    </Svg>
+  );
+}
+
+export function UploadIcon({ className }: { className?: string }) {
+  return (
+    <Svg className={className}>
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <path d="m17 8-5-5-5 5" />
+      <path d="M12 3v12" />
+    </Svg>
+  );
+}
+
+export function SlidersIcon({ className }: { className?: string }) {
+  return (
+    <Svg className={className}>
+      <path d="M4 21v-7" />
+      <path d="M4 10V3" />
+      <path d="M12 21v-9" />
+      <path d="M12 8V3" />
+      <path d="M20 21v-5" />
+      <path d="M20 12V3" />
+      <path d="M2 14h4" />
+      <path d="M10 8h4" />
+      <path d="M18 16h4" />
+    </Svg>
+  );
+}
