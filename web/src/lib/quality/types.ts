@@ -124,6 +124,18 @@ export type ResultRow = {
   status: ResultStatus;
 };
 
+// A site's latest lab sample in a period (the Water usage matrices' Quality
+// column), and how many samples it had in the period.
+export type SiteQuality = {
+  sample_id: string;
+  lab_no: string;
+  sampled_on: string;
+  out_of_spec: number;
+  inconclusive: number;
+  out_of_spec_names: string[];
+  samples: number;
+};
+
 export type QualityFilter = {
   period: string;
   from: string;

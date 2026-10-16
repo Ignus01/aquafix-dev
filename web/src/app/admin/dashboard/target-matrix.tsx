@@ -11,6 +11,7 @@ import type {
   WaterTargetMatrix,
 } from "@/lib/dashboard/types";
 import type { TargetBand, TargetBandColour } from "@/lib/masterdata/types";
+import type { SiteQuality } from "@/lib/quality/types";
 import { Empty } from "./cards";
 import { readingsHref } from "./logger-format";
 import {
@@ -137,11 +138,53 @@ function BandLegend({ bands, withLabels = false }: { bands: TargetBand[]; withLa
   );
 }
 
+// The Quality column: the site's latest lab sample in the period, green when
+// every result is acceptable, red with the parameters out of spec, orange
+// when only inconclusive (a detection limit above the limit).
+function qualityTitle(q: SiteQuality): string {
+  const parts = [`Latest lab sample ${q.lab_no}, sampled ${formatDay(q.sampled_on)}`];
+  if (q.out_of_spec) parts.push(`${q.out_of_spec} out of spec: ${q.out_of_spec_names.join(", ")}`);
+  if (q.inconclusive) parts.push(`${q.inconclusive} inconclusive`);
+  if (!q.out_of_spec && !q.inconclusive) parts.push("all results acceptable");
+  if (q.samples > 1) parts.push(`${q.samples} samples in the period`);
+  return parts.join(" · ");
+}
+
+function QualityCell({ q }: { q: SiteQuality | undefined }) {
+  if (!q) {
+    return (
+      <span className="text-xs text-muted" title="No lab sample sampled in this period">
+        No sample
+      </span>
+    );
+  }
+  const colour: TargetBandColour = q.out_of_spec ? "red" : q.inconclusive ? "orange" : "green";
+  const label = q.out_of_spec
+    ? `${q.out_of_spec} out · ${q.out_of_spec_names.join(", ")}`
+    : q.inconclusive
+      ? `${q.inconclusive} inconclusive`
+      : "Acceptable";
+  const title = qualityTitle(q);
+  return (
+    <Link href={`/admin/quality/samples/${q.sample_id}`} title={title} aria-label={title} className="group/q block">
+      <span
+        className="inline-flex max-w-[190px] items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold group-hover/q:underline"
+        style={bandStyle(colour)}
+      >
+        <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: BAND_STYLES[colour].swatch }} />
+        <span className="truncate">{label}</span>
+      </span>
+      <span className="mt-0.5 block text-[11px] text-muted">{formatDay(q.sampled_on)}</span>
+    </Link>
+  );
+}
+
 function UsageMatrix<L extends MatrixLocation>({
   days,
   locations,
   rule,
   canOpenReadings,
+  quality,
   title,
   description,
   empty,
@@ -157,6 +200,8 @@ function UsageMatrix<L extends MatrixLocation>({
   locations: L[];
   rule: Rule<L>;
   canOpenReadings: boolean;
+  // Latest lab sample per site; null hides the Quality column.
+  quality: Record<string, SiteQuality> | null;
   title: string;
   description: (bucket: Bucket) => ReactNode;
   // Shown when the scope has no sites with this meter type.
@@ -219,6 +264,15 @@ function UsageMatrix<L extends MatrixLocation>({
                   <th className="px-3 py-2 text-right font-semibold whitespace-nowrap" title={figureTitle}>
                     {figureLabel}
                   </th>
+                  {/* Before the day columns, so it shows without scrolling. */}
+                  {quality && (
+                    <th
+                      className="px-3 py-2 text-left font-semibold whitespace-nowrap"
+                      title="The site's latest lab sample in the period, against today's acceptable levels"
+                    >
+                      Quality
+                    </th>
+                  )}
                   {columns.map((c) => {
                     const start = bucketStart(c.start, bucket);
                     return (
@@ -271,6 +325,11 @@ function UsageMatrix<L extends MatrixLocation>({
                           Number(figure).toLocaleString("en-US", { maximumFractionDigits: 2 })
                         )}
                       </td>
+                      {quality && (
+                        <td className="border-t border-border px-3 py-2 align-top whitespace-nowrap group-hover:bg-row-hover">
+                          <QualityCell q={quality[loc.id]} />
+                        </td>
+                      )}
                       {cells.map((c) => {
                         const link = href(c);
                         const title = cellTitle(c, loc, rule, bucket);
@@ -308,6 +367,14 @@ function UsageMatrix<L extends MatrixLocation>({
             {legend}
             <span>* estimated: a gap of over an hour in the readings</span>
             <span>{noFigure}</span>
+            {quality && (
+              <span>
+                Quality: the latest lab sample in the period;{" "}
+                <Link href="/admin/quality" className="font-semibold text-primary hover:text-primary-hover">
+                  all lab results
+                </Link>
+              </span>
+            )}
           </div>
         </>
       )}
@@ -328,13 +395,22 @@ const TARGET_RULE: Rule<WaterTargetLocation> = {
   colour: (value, loc) => (loc.target ? (bandFor(loc.bands, (value / loc.target) * 100)?.colour ?? null) : null),
 };
 
-export function TargetMatrix({ data, canOpenReadings }: { data: WaterTargetMatrix; canOpenReadings: boolean }) {
+export function TargetMatrix({
+  data,
+  canOpenReadings,
+  quality,
+}: {
+  data: WaterTargetMatrix;
+  canOpenReadings: boolean;
+  quality: Record<string, SiteQuality> | null;
+}) {
   return (
     <UsageMatrix
       days={data.days}
       locations={data.locations}
       rule={TARGET_RULE}
       canOpenReadings={canOpenReadings}
+      quality={quality}
       title="Treated water vs target"
       description={(bucket) => (
         <>
@@ -386,13 +462,22 @@ const LIMIT_RULE: Rule<WaterBoreholeLocation> = {
   colour: (value, loc) => (loc.limit ? (value <= loc.limit ? "green" : "red") : null),
 };
 
-export function BoreholeMatrix({ data, canOpenReadings }: { data: WaterBoreholeMatrix; canOpenReadings: boolean }) {
+export function BoreholeMatrix({
+  data,
+  canOpenReadings,
+  quality,
+}: {
+  data: WaterBoreholeMatrix;
+  canOpenReadings: boolean;
+  quality: Record<string, SiteQuality> | null;
+}) {
   return (
     <UsageMatrix
       days={data.days}
       locations={data.locations}
       rule={LIMIT_RULE}
       canOpenReadings={canOpenReadings}
+      quality={quality}
       title="Borehole usage vs limit"
       description={(bucket) => (
         <>

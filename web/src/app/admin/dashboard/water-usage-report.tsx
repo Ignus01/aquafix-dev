@@ -11,6 +11,7 @@ import type {
   WaterUsageIssue,
   WaterUsageReport as Report,
 } from "@/lib/dashboard/types";
+import type { SiteQuality } from "@/lib/quality/types";
 import { ArrowDownIcon, ArrowUpIcon, DownloadIcon } from "../icons";
 import { secondaryButtonClass, tableHeadCellClass } from "../ui";
 import { Card, Empty, Kpi } from "./cards";
@@ -113,12 +114,15 @@ export function WaterUsageReport({
   boreholes,
   timeZone,
   canOpenReadings,
+  quality,
 }: {
   data: Report;
   matrix: WaterTargetMatrix;
   boreholes: WaterBoreholeMatrix;
   timeZone: string;
   canOpenReadings: boolean;
+  // Each site's latest lab sample in the period; null = lab results unavailable.
+  quality: Record<string, SiteQuality> | null;
 }) {
   const first = d.period.first_day;
   const last = d.period.last_day;
@@ -144,8 +148,8 @@ export function WaterUsageReport({
   if (!first || !last) {
     return (
       <div className="flex flex-col gap-4 px-4 pt-3 pb-10 md:px-8">
-        <TargetMatrix data={matrix} canOpenReadings={canOpenReadings} />
-        <BoreholeMatrix data={boreholes} canOpenReadings={canOpenReadings} />
+        <TargetMatrix data={matrix} canOpenReadings={canOpenReadings} quality={quality} />
+        <BoreholeMatrix data={boreholes} canOpenReadings={canOpenReadings} quality={quality} />
         <div className="rounded-card border border-border bg-card">
           <Empty>No water usage for this period and these filters.</Empty>
         </div>
@@ -198,8 +202,8 @@ export function WaterUsageReport({
           </p>
         )}
 
-        <TargetMatrix data={matrix} canOpenReadings={canOpenReadings} />
-        <BoreholeMatrix data={boreholes} canOpenReadings={canOpenReadings} />
+        <TargetMatrix data={matrix} canOpenReadings={canOpenReadings} quality={quality} />
+        <BoreholeMatrix data={boreholes} canOpenReadings={canOpenReadings} quality={quality} />
 
         <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Key figures">
           <Kpi label="Sites" value={fmt(sites.length)} note={`${fmt(new Set(d.meters.map((m) => m.region)).size)} regions`} />
