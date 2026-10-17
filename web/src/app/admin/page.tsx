@@ -37,9 +37,11 @@ import { BarList, ColumnChart, Legend, SegmentBar } from "./dashboard/charts";
 import { Card, Empty, Kpi, Readout, TONE_PILL, delta, shareDelta } from "./dashboard/cards";
 import { DashboardFilters, type FilterState } from "./dashboard/filters";
 import { LoggerReport } from "./dashboard/logger-report";
+import { QualityReport } from "./dashboard/quality-report";
 import { SitesTable } from "./dashboard/sites-table";
 import { WaterUsageReport } from "./dashboard/water-usage-report";
-import { latestSampleBySite } from "@/lib/quality/site-quality";
+import { buildQualityReport } from "@/lib/quality/report";
+import { latestSampleBySite, qualityReadings } from "@/lib/quality/site-quality";
 
 // Admin home: the operations dashboard. Modelled on the AquaFix Power BI
 // "Overview" page (slicers, location / grading / incident overviews) and the
@@ -52,25 +54,31 @@ import { latestSampleBySite } from "@/lib/quality/site-quality";
 // public.water_target_matrix(), borehole usage vs each site's limit, from
 // public.water_borehole_matrix(), and daily usage per volume meter, from
 // public.water_usage_report()). Both matrices also show each site's latest
-// lab sample in the period (public.lab_sample_overview).
+// lab sample in the period (public.lab_sample_overview). Everyone gets a
+// Quality tab: lab results and on-site inspection readings against the same
+// parameter limits (public.water_quality_reading).
 
 const TABS = [
   { key: "operations", label: "Operations" },
   { key: "loggers", label: "Loggers" },
   { key: "water", label: "Water usage" },
+  { key: "quality", label: "Quality" },
 ] as const;
 type Tab = (typeof TABS)[number]["key"];
 
-const TAB_FUNCTIONS: Record<Tab, string> = {
+// The Quality tab reads a view instead (qualityReadings).
+const TAB_FUNCTIONS: Record<Tab, string | null> = {
   operations: "home_dashboard",
   loggers: "logger_dashboard",
   water: "water_usage_report",
+  quality: null,
 };
 
 const TAB_TITLES: Record<Tab, string> = {
   operations: "Operations overview",
   loggers: "Logger data",
   water: "Water usage",
+  quality: "Water quality",
 };
 
 const BANDS: GradingBand[] = ["critical", "warning", "fair", "good"];
@@ -110,7 +118,11 @@ export default async function HomePage(props: PageProps<"/admin">) {
   // admins and admins (RLS).
   const isSystemAdmin = roles.includes("system_admin");
   const tabs = TABS.filter(
-    (t) => t.key === "operations" || isSystemAdmin || (t.key === "water" && roles.includes("admin")),
+    (t) =>
+      t.key === "operations" ||
+      t.key === "quality" ||
+      isSystemAdmin ||
+      (t.key === "water" && roles.includes("admin")),
   );
   const tab: Tab = tabs.find((t) => t.key === params.tab)?.key ?? "operations";
 
@@ -134,11 +146,18 @@ export default async function HomePage(props: PageProps<"/admin">) {
     p_organisation_id: filters.organisation || null,
     p_location_id: filters.location || null,
   };
-  const [dash, matrix, boreholes, quality, regions, organisations, locations] = await Promise.all([
-    supabase.rpc(TAB_FUNCTIONS[tab], scope),
+  const fn = TAB_FUNCTIONS[tab];
+  const [dash, matrix, boreholes, quality, readings, regions, organisations, locations] = await Promise.all([
+    fn ? supabase.rpc(fn, scope) : null,
     tab === "water" ? supabase.rpc("water_target_matrix", scope) : null,
     tab === "water" ? supabase.rpc("water_borehole_matrix", scope) : null,
     tab === "water" ? latestSampleBySite(supabase, scope) : null,
+    tab === "quality"
+      ? qualityReadings(supabase, scope).then(
+          (rows) => ({ data: rows, error: null }),
+          (error: { code?: string; message: string }) => ({ data: null, error }),
+        )
+      : null,
     supabase.from("region").select("id, name").eq("active", true).order("name"),
     supabase.from("organisation").select("id, name").eq("active", true).order("name"),
     supabase
@@ -191,16 +210,18 @@ export default async function HomePage(props: PageProps<"/admin">) {
   );
 
   const failed =
-    dash.error || !dash.data
-      ? { result: dash, fn: TAB_FUNCTIONS[tab] }
+    dash && (dash.error || !dash.data)
+      ? { result: dash, fn: `${fn} function` }
       : matrix && (matrix.error || !matrix.data)
-        ? { result: matrix, fn: "water_target_matrix" }
+        ? { result: matrix, fn: "water_target_matrix function" }
         : boreholes && (boreholes.error || !boreholes.data)
-          ? { result: boreholes, fn: "water_borehole_matrix" }
-          : null;
+          ? { result: boreholes, fn: "water_borehole_matrix function" }
+          : readings && readings.error
+            ? { result: readings, fn: "water_quality_reading view" }
+            : null;
   if (failed) {
-    const missing = failed.result.error?.code === "PGRST202";
-    const fn = failed.fn;
+    // PGRST202: no such function; PGRST205: no such table or view.
+    const missing = ["PGRST202", "PGRST205"].includes(failed.result.error?.code ?? "");
     return (
       <div className="flex flex-1 flex-col">
         {header}
@@ -209,11 +230,29 @@ export default async function HomePage(props: PageProps<"/admin">) {
             <p className="text-sm font-semibold text-ink">The dashboard couldn&rsquo;t be loaded.</p>
             <p className="mt-1 text-sm text-muted">
               {missing
-                ? `The database is missing the ${fn} function. Apply the latest migrations (npx supabase db push).`
+                ? `The database is missing the ${failed.fn}. Apply the latest migrations (npx supabase db push).`
                 : (failed.result.error?.message ?? "Please try again.")}
             </p>
           </div>
         </div>
+      </div>
+    );
+  }
+
+  if (tab === "quality") {
+    // The trend's own pickers; the filters drop them when they change.
+    const q = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) {
+      if (k !== "qsite" && k !== "qparam" && typeof v === "string") q.set(k, v);
+    }
+    const report = buildQualityReport(readings!.data!, {
+      location: uuidParam(params.qsite) || undefined,
+      parameter: uuidParam(params.qparam) || undefined,
+    });
+    return (
+      <div className="flex flex-1 flex-col">
+        {header}
+        <QualityReport data={report} from={from} to={to} query={q.toString()} />
       </div>
     );
   }
@@ -223,7 +262,7 @@ export default async function HomePage(props: PageProps<"/admin">) {
       <div className="flex flex-1 flex-col">
         {header}
         <WaterUsageReport
-          data={dash.data as WaterUsageData}
+          data={dash!.data as WaterUsageData}
           matrix={matrix!.data as WaterTargetMatrix}
           boreholes={boreholes!.data as WaterBoreholeMatrix}
           timeZone={timeZone}
@@ -238,12 +277,12 @@ export default async function HomePage(props: PageProps<"/admin">) {
     return (
       <div className="flex flex-1 flex-col">
         {header}
-        <LoggerReport data={dash.data as LoggerDashboard} timeZone={timeZone} />
+        <LoggerReport data={dash!.data as LoggerDashboard} timeZone={timeZone} />
       </div>
     );
   }
 
-  const d = dash.data as HomeDashboard;
+  const d = dash!.data as HomeDashboard;
   const ids = [...d.inspectors.map((i) => i.id), ...d.overdue_instructions.map((i) => i.account_id)].filter(
     (id): id is string => Boolean(id),
   );

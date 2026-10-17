@@ -1,6 +1,7 @@
 import "server-only";
 import type { createClient } from "@/lib/supabase/server";
 import { selectAll } from "@/lib/supabase/select-all";
+import type { QualityReading } from "./report";
 import type { SiteQuality } from "./types";
 
 type Scope = {
@@ -61,4 +62,35 @@ export async function latestSampleBySite(
   } catch {
     return null;
   }
+}
+
+const READING_COLUMNS =
+  "source, id, location_id, location_name, asset_name, sampled_on, sampled_at, reference, sample_id, " +
+  "inspection_activity_id, parameter_id, parameter_name, parameter_short_name, unit, min_acceptable, " +
+  "max_acceptable, decimals, sort_order, value, below_detection, status";
+
+// Every lab result and on-site reading in the period and scope
+// (public.water_quality_reading), for the Quality tab.
+export async function qualityReadings(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  scope: Scope,
+): Promise<QualityReading[]> {
+  const rows = (await selectAll(() => {
+    let q = supabase
+      .from("water_quality_reading")
+      .select(READING_COLUMNS)
+      .gte("sampled_on", scope.p_from)
+      .lte("sampled_on", scope.p_to);
+    if (scope.p_region_id) q = q.eq("region_id", scope.p_region_id);
+    if (scope.p_organisation_id) q = q.eq("organisation_id", scope.p_organisation_id);
+    if (scope.p_location_id) q = q.eq("location_id", scope.p_location_id);
+    return q.order("sampled_on").order("source").order("id");
+  })) as unknown as QualityReading[];
+  // numeric columns can arrive as strings.
+  return rows.map((r) => ({
+    ...r,
+    value: Number(r.value),
+    min_acceptable: r.min_acceptable === null ? null : Number(r.min_acceptable),
+    max_acceptable: r.max_acceptable === null ? null : Number(r.max_acceptable),
+  }));
 }
