@@ -6,6 +6,7 @@ import {
   listGradingOptions,
   listIncidentTypes,
   listInspections,
+  listQualityParameterOptions,
 } from "./actions";
 import { InspectionSetupTabs } from "./tabs-client";
 
@@ -15,13 +16,15 @@ import { InspectionSetupTabs } from "./tabs-client";
 export default async function InspectionSetupPage() {
   const roles = await requireRole(["system_admin", "admin", "user", "viewer"]);
 
-  const [inspections, incidentTypes, gradings, assetTypes, accounts] = await Promise.all([
-    listInspections(),
-    listIncidentTypes(),
-    listGradingOptions(),
-    listAssetTypeOptions(),
-    listAccounts(),
-  ]);
+  const [inspections, incidentTypes, gradings, assetTypes, accounts, qualityParameters] =
+    await Promise.all([
+      listInspections(),
+      listIncidentTypes(),
+      listGradingOptions(),
+      listAssetTypeOptions(),
+      listAccounts(),
+      listQualityParameterOptions(),
+    ]);
 
   return (
     <div className="flex flex-1 flex-col">
@@ -33,6 +36,7 @@ export default async function InspectionSetupPage() {
         gradings={gradings}
         assetTypes={assetTypes}
         accounts={accounts}
+        qualityParameters={qualityParameters}
       />
     </div>
   );

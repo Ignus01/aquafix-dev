@@ -11,6 +11,7 @@ import type {
   IncidentType,
   Inspection,
   InspectionDetail,
+  QualityParameterOption,
 } from "@/lib/inspection-setup/types";
 import * as actions from "./actions";
 import { InspectionEditor } from "./inspection-editor";
@@ -50,6 +51,7 @@ export function InspectionSetupTabs({
   gradings,
   assetTypes,
   accounts,
+  qualityParameters,
 }: {
   roles: MasterdataRole[];
   inspections: Inspection[];
@@ -57,6 +59,7 @@ export function InspectionSetupTabs({
   gradings: GradingOption[];
   assetTypes: { id: string; name: string; active: boolean }[];
   accounts: Account[];
+  qualityParameters: QualityParameterOption[];
 }) {
   const [tab, setTab] = useState<TabKey>("inspection");
   const counts: Record<TabKey, number> = {
@@ -72,6 +75,7 @@ export function InspectionSetupTabs({
   const [, startTransition] = useTransition();
 
   const canEditInspections = canInspectionSetup(roles, "inspection", "update");
+  const parameterNameById = new Map(qualityParameters.map((p) => [p.id, p.name]));
 
   function openInspection(row: Record<string, unknown>) {
     setLoadError(null);
@@ -166,6 +170,12 @@ export function InspectionSetupTabs({
                     </span>
                   ),
                 },
+                {
+                  key: "quality_parameter_id",
+                  label: "Quality parameter",
+                  type: "text",
+                  render: (v) => parameterNameById.get(v) ?? "—",
+                },
                 { key: "is_required", label: "Required", type: "boolean", render: yesNo },
                 { key: "nr_of_images_required", label: "Images", type: "number" },
                 activeField,
@@ -233,6 +243,7 @@ export function InspectionSetupTabs({
           gradings={gradings}
           assetTypes={assetTypes}
           incidentTypes={incidentTypes}
+          qualityParameters={qualityParameters}
           onClose={() => setEditor(null)}
         />
       )}

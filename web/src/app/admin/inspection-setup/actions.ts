@@ -13,6 +13,7 @@ import type {
   Inspection,
   InspectionDetail,
   InspectionRule,
+  QualityParameterOption,
   SaveInspectionPayload,
 } from "@/lib/inspection-setup/types";
 
@@ -38,7 +39,7 @@ export async function listInspections(): Promise<Inspection[]> {
   const { data, error } = await supabase
     .from("inspection")
     .select(
-      "id, legacy_uid, name, description, value_type, is_required, active, nr_of_images_required",
+      "id, legacy_uid, name, description, value_type, is_required, active, nr_of_images_required, is_water_quality_parameter, quality_parameter_id",
     )
     .order("name");
   if (error) throw error;
@@ -55,7 +56,7 @@ export async function getInspectionDetail(
     supabase
       .from("inspection")
       .select(
-        "id, legacy_uid, name, description, value_type, is_required, active, nr_of_images_required",
+        "id, legacy_uid, name, description, value_type, is_required, active, nr_of_images_required, is_water_quality_parameter, quality_parameter_id",
       )
       .eq("id", id)
       .maybeSingle(),
@@ -155,6 +156,19 @@ export async function listAssetTypeOptions(): Promise<
   const { data, error } = await supabase
     .from("asset_type")
     .select("id, name, active")
+    .order("name");
+  if (error) throw error;
+  return data;
+}
+
+// Picker for water-quality inspections, in the Parameters page's order.
+export async function listQualityParameterOptions(): Promise<QualityParameterOption[]> {
+  await requireAnyRole();
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("quality_parameter")
+    .select("id, name, unit, active")
+    .order("sort_order")
     .order("name");
   if (error) throw error;
   return data;

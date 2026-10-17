@@ -23,6 +23,7 @@ import {
   type IncidentType,
   type InspectionDetail,
   type InspectionValueType,
+  type QualityParameterOption,
 } from "@/lib/inspection-setup/types";
 import { saveInspection } from "./actions";
 import { DropDownOptionModal, FeedbackModal } from "./editor-modals";
@@ -60,6 +61,8 @@ type Draft = {
   is_required: boolean;
   active: boolean;
   nr_of_images_required: string;
+  is_water_quality_parameter: boolean;
+  quality_parameter_id: string;
   options: OptionDraft[];
   rules: RuleDraft[];
   allocations: AllocationDraft[];
@@ -80,6 +83,8 @@ function toDraft(detail: InspectionDetail | null): Draft {
       is_required: true,
       active: true,
       nr_of_images_required: "0",
+      is_water_quality_parameter: false,
+      quality_parameter_id: "",
       options: [],
       rules: [],
       allocations: [],
@@ -94,6 +99,8 @@ function toDraft(detail: InspectionDetail | null): Draft {
     is_required: i.is_required,
     active: i.active,
     nr_of_images_required: String(i.nr_of_images_required),
+    is_water_quality_parameter: i.is_water_quality_parameter,
+    quality_parameter_id: i.quality_parameter_id ?? "",
     options: detail.drop_down_options.map((o) => ({
       key: o.id,
       id: o.id,
@@ -128,7 +135,9 @@ function isNumber(v: string) {
   return v.trim() !== "" && Number.isFinite(Number(v));
 }
 
-type FieldErrors = Partial<Record<"name" | "value_type" | "nr_of_images_required", string>>;
+type FieldErrors = Partial<
+  Record<"name" | "value_type" | "nr_of_images_required" | "quality_parameter_id", string>
+>;
 
 export function InspectionEditor({
   detail,
@@ -136,6 +145,7 @@ export function InspectionEditor({
   gradings,
   assetTypes,
   incidentTypes,
+  qualityParameters,
   onClose,
 }: {
   detail: InspectionDetail | null;
@@ -143,6 +153,7 @@ export function InspectionEditor({
   gradings: GradingOption[];
   assetTypes: { id: string; name: string; active: boolean }[];
   incidentTypes: IncidentType[];
+  qualityParameters: QualityParameterOption[];
   onClose: () => void;
 }) {
   const [draft, setDraft] = useState<Draft>(() => toDraft(detail));
@@ -295,6 +306,11 @@ export function InspectionEditor({
     if (!draft.value_type) errs.value_type = "Required";
     if (!isNonNegativeInt(draft.nr_of_images_required))
       errs.nr_of_images_required = "Must be a whole number, 0 or more";
+    if (draft.is_water_quality_parameter) {
+      if (!draft.quality_parameter_id) errs.quality_parameter_id = "Required";
+      if (draft.value_type && draft.value_type !== "DECIMAL_VALUE")
+        errs.value_type = "A water quality parameter must be DECIMAL_VALUE";
+    }
     setFieldErrors(errs);
     setError(null);
     if (Object.keys(errs).length > 0) return;
@@ -330,6 +346,10 @@ export function InspectionEditor({
         is_required: draft.is_required,
         active: draft.active,
         nr_of_images_required: Number(draft.nr_of_images_required),
+        is_water_quality_parameter: draft.is_water_quality_parameter,
+        quality_parameter_id: draft.is_water_quality_parameter
+          ? draft.quality_parameter_id || null
+          : null,
         drop_down_options: draft.options.map((o) => ({
           id: o.id,
           name: o.name,
@@ -460,7 +480,42 @@ export function InspectionEditor({
               disabled={readOnly}
               onChange={(v) => patch({ active: v })}
             />
+            {/* A reading is a number, so switching this on picks DECIMAL_VALUE
+                when no value type is chosen yet. */}
+            <Switch
+              label="Water quality parameter"
+              checked={draft.is_water_quality_parameter}
+              disabled={readOnly}
+              onChange={(v) =>
+                patch({
+                  is_water_quality_parameter: v,
+                  ...(v && !draft.value_type ? { value_type: "DECIMAL_VALUE" } : {}),
+                })
+              }
+            />
           </div>
+          {draft.is_water_quality_parameter && (
+            <FormRow label="Quality parameter" error={fieldErrors.quality_parameter_id}>
+              <select
+                className={inputClass}
+                value={draft.quality_parameter_id}
+                disabled={readOnly}
+                onChange={(e) => patch({ quality_parameter_id: e.target.value })}
+              >
+                <option value="">Select…</option>
+                {qualityParameters
+                  .filter((p) => p.active || p.id === draft.quality_parameter_id)
+                  .map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({p.unit})
+                    </option>
+                  ))}
+              </select>
+              <span className="text-xs text-muted">
+                Readings are reported with the lab results for this parameter.
+              </span>
+            </FormRow>
+          )}
         </div>
 
         {/* Right column — child configuration */}
