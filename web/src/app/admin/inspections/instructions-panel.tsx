@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState, useTransition } from "react";
 import { formatDateTime } from "@/lib/incidents/format";
-import { formatPlainDate } from "@/lib/inspections/dates";
+import { formatPlainDate, zonedDay } from "@/lib/inspections/dates";
 import {
   INSTRUCTION_STATUS_LABELS,
   type AccountOption,
@@ -66,10 +66,12 @@ export function InstructionsPanel({
     });
   }
 
+  const day = zonedDay(timeZone);
   const columns: Column<InstructionListRow>[] = [
     {
       key: "uid",
       label: "UID",
+      filter: "number",
       text: (r) => r.legacy_uid,
       render: (r) => (
         <Link
@@ -80,10 +82,11 @@ export function InstructionsPanel({
         </Link>
       ),
     },
-    { key: "name", label: "Name", text: (r) => r.name, render: (r) => r.name },
+    { key: "name", label: "Name", filter: "text", text: (r) => r.name, render: (r) => r.name },
     {
       key: "comment",
       label: "Comment",
+      filter: "text",
       text: (r) => r.comment,
       className: "",
       render: (r) =>
@@ -95,7 +98,13 @@ export function InstructionsPanel({
           <span className="text-muted">—</span>
         ),
     },
-    { key: "account", label: "Assigned to", text: (r) => r.account_name, render: (r) => r.account_name ?? "—" },
+    {
+      key: "account",
+      label: "Assigned to",
+      filter: "select",
+      text: (r) => r.account_name,
+      render: (r) => r.account_name ?? "—",
+    },
     {
       key: "progress",
       label: "Progress",
@@ -106,12 +115,14 @@ export function InstructionsPanel({
     {
       key: "status",
       label: "Status",
+      filter: "select",
       text: (r) => INSTRUCTION_STATUS_LABELS[r.status],
       render: (r) => <InstructionStatusBadge status={r.status} />,
     },
     {
       key: "due",
       label: "Required completed",
+      filter: "date",
       text: (r) => r.required_completed_date,
       render: (r) => (
         <span className={r.status !== "completed" && r.required_completed_date < today ? "font-semibold text-danger" : ""}>
@@ -122,12 +133,15 @@ export function InstructionsPanel({
     {
       key: "scheduled",
       label: "Scheduled",
+      filter: "select",
       text: (r) => (r.is_scheduled ? "Yes" : "No"),
       render: (r) => <YesNo value={r.is_scheduled} />,
     },
     {
       key: "changed",
       label: "Changed",
+      filter: "date",
+      filterValue: (r) => day(r.updated_at),
       text: (r) => formatDateTime(r.updated_at, timeZone),
       sortValue: (r) => r.updated_at,
       render: (r) => <span className="text-muted">{formatDateTime(r.updated_at, timeZone)}</span>,
@@ -142,7 +156,7 @@ export function InstructionsPanel({
         columns={columns}
         getKey={(r) => r.id}
         emptyLabel="No instructions yet."
-        searchPlaceholder="Search instructions…"
+        rowLimit={null}
         exportName="instructions"
         toolbar={
           canEdit && (

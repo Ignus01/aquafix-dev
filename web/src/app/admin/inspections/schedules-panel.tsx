@@ -90,6 +90,7 @@ export function SchedulesPanel({
     {
       key: "uid",
       label: "UID",
+      filter: "number",
       text: (r) => r.legacy_uid,
       render: (r) => (
         <button
@@ -101,10 +102,11 @@ export function SchedulesPanel({
         </button>
       ),
     },
-    { key: "name", label: "Name", text: (r) => r.name, render: (r) => r.name },
+    { key: "name", label: "Name", filter: "text", text: (r) => r.name, render: (r) => r.name },
     {
       key: "comment",
       label: "Comment",
+      filter: "text",
       text: (r) => r.comment,
       className: "",
       render: (r) =>
@@ -116,10 +118,17 @@ export function SchedulesPanel({
           <span className="text-muted">—</span>
         ),
     },
-    { key: "account", label: "Assigned to", text: (r) => r.account_name, render: (r) => r.account_name ?? "—" },
+    {
+      key: "account",
+      label: "Assigned to",
+      filter: "select",
+      text: (r) => r.account_name,
+      render: (r) => r.account_name ?? "—",
+    },
     {
       key: "type",
       label: "Schedule",
+      filter: "text",
       text: (r) => `${SCHEDULE_TYPE_LABELS[r.schedule_type]} ${describeSchedule(r)}`,
       render: (r) => (
         <span>
@@ -131,26 +140,30 @@ export function SchedulesPanel({
     {
       key: "weekends",
       label: "Weekends",
+      filter: "select",
       text: (r) => (r.include_weekends ? "Yes" : "No"),
       render: (r) => <YesNo value={r.include_weekends} />,
     },
     {
       key: "holidays",
       label: "Public holidays",
+      filter: "select",
       text: (r) => (r.include_public_holidays ? "Yes" : "No"),
       render: (r) => <YesNo value={r.include_public_holidays} />,
     },
     {
       key: "day",
       label: "Day of month",
+      filter: "number",
       text: (r) => r.day_of_month,
       render: (r) => r.day_of_month ?? <span className="text-muted">—</span>,
     },
-    { key: "days", label: "Days to complete", text: (r) => r.days_to_complete, render: (r) => r.days_to_complete },
-    { key: "assets", label: "Assets", text: (r) => r.asset_ids.length, render: (r) => r.asset_ids.length },
+    { key: "days", label: "Days to complete", filter: "number", text: (r) => r.days_to_complete, render: (r) => r.days_to_complete },
+    { key: "assets", label: "Assets", filter: "number", text: (r) => r.asset_ids.length, render: (r) => r.asset_ids.length },
     {
       key: "active",
       label: "Active",
+      filter: "select",
       text: (r) => (r.active ? "Active" : "Inactive"),
       render: (r) => <StatusBadge active={r.active} />,
     },
@@ -168,7 +181,7 @@ export function SchedulesPanel({
         columns={columns}
         getKey={(r) => r.id}
         emptyLabel="No scheduled instructions yet."
-        searchPlaceholder="Search schedules…"
+        rowLimit={null}
         exportName="scheduled-instructions"
         toolbar={
           <>

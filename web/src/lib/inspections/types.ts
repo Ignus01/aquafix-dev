@@ -149,8 +149,34 @@ export type ValueListRow = {
     id: string;
     legacy_uid: number;
     inspection_date: string;
-    asset: AssetOption;
+    asset: { name: string; asset_type: { name: string }; location: { name: string } };
   };
+};
+
+// Inspection Values → Edit.
+export type ValueEditContext = {
+  id: string;
+  is_current: boolean;
+  text_value: string;
+  decimal_value: number;
+  date_value: string | null;
+  inspection_drop_down_option_id: string | null;
+  inspection: {
+    id: string;
+    name: string;
+    value_type: InspectionValueType;
+    is_required: boolean;
+    options: { id: string; name: string; active: boolean }[];
+  };
+  activity: { legacy_uid: number; inspection_date: string; asset: { name: string } };
+};
+
+// The answer for the value's type; the others are kept as they are.
+export type UpdateValuePayload = {
+  text_value: string;
+  decimal_value: number;
+  date_value: string | null;
+  drop_down_option_id: string | null;
 };
 
 export type ActivityValue = {

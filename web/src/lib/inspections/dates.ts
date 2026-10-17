@@ -9,6 +9,13 @@ export function todayInZone(timeZone: string, at: Date = new Date()): string {
   return ymdFormat(timeZone).format(at);
 }
 
+// ISO timestamp → its `YYYY-MM-DD` day in the zone, reusing one formatter
+// (for filtering long lists by day).
+export function zonedDay(timeZone: string): (iso: string) => string {
+  const format = ymdFormat(timeZone);
+  return (iso) => format.format(new Date(iso));
+}
+
 function zonedParts(date: Date, timeZone: string) {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone,
