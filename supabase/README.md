@@ -164,7 +164,9 @@ in the Map step, and writes one `lab_sample` per certificate row and one `lab_re
   `quality_parameter` it measures (`DECIMAL_VALUE` only; a check constraint and
   `save_inspection()` enforce it). `water_quality_reading` lists lab results and the current
   values of those inspections together (`source` = `lab` / `site`), per location and day,
-  with the same `lab_result_status()` against the parameter's limits.
+  with the same `lab_result_status()` against the parameter's limits. A site value counts
+  when its saved answer (`display_value`) is a number or its value isn't 0, so old TEXT
+  answers ("N/A", blanks) on inspections switched to `DECIMAL_VALUE` don't read as 0.
 
 ## Tests
 
