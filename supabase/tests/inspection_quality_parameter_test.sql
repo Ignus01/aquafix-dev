@@ -185,5 +185,22 @@ select is(
    where location_id = 'a2000000-0000-0000-1017-000000000001' and source = 'site'),
   1, 'unlinking an inspection removes its readings from the report');
 
+-- Old TEXT answers on an inspection that became DECIMAL_VALUE: a note reads
+-- as 0 and is left out; a number kept only in the value, or a real 0, counts.
+reset role;
+insert into public.inspection_activity (id, asset_id) values
+  ('c0000000-0000-0000-1017-000000000001', '30000000-0000-0000-1017-000000000001');
+insert into public.inspection_value (inspection_activity_id, inspection_id, text_value, decimal_value, display_value)
+select 'c0000000-0000-0000-1017-000000000001', (select id from ids where name = 'ph'), t, d, s
+from (values ('N/A', 0, 'N/A'), ('', 0, ''), ('7.76', 7.76, ''), ('0', 0, '0')) as x(t, d, s);
+
+select pg_temp.as_user(3);
+set local role authenticated;
+select results_eq(
+  $$select value from public.water_quality_reading
+    where inspection_activity_id = 'c0000000-0000-0000-1017-000000000001' order by value$$,
+  $$values (0::numeric), (7.76)$$,
+  'answers that aren''t numbers are left out; a number in the value or a real 0 counts');
+
 select * from finish();
 rollback;
