@@ -13,12 +13,18 @@ type RangeableQuery<T> = {
 
 // Pages through a select until a short page. `query` builds a fresh query each
 // time; its order must be unique (end on "id") so pages don't skip or repeat.
-export async function selectAll<T>(query: () => RangeableQuery<T>): Promise<T[]> {
+// `parallel` pages are requested at a time, for tables with tens of thousands
+// of rows.
+export async function selectAll<T>(query: () => RangeableQuery<T>, { parallel = 1 } = {}): Promise<T[]> {
   const rows: T[] = [];
-  for (let from = 0; ; from += PAGE) {
-    const { data, error } = await query().range(from, from + PAGE - 1);
-    if (error) throw error;
-    rows.push(...(data ?? []));
-    if (!data || data.length < PAGE) return rows;
+  for (let from = 0; ; from += PAGE * parallel) {
+    const pages = await Promise.all(
+      Array.from({ length: parallel }, (_, i) => query().range(from + i * PAGE, from + (i + 1) * PAGE - 1)),
+    );
+    for (const { data, error } of pages) {
+      if (error) throw error;
+      rows.push(...(data ?? []));
+      if (!data || data.length < PAGE) return rows;
+    }
   }
 }

@@ -147,7 +147,7 @@ async function TabContent({
     case "activities":
       return <ActivitiesPanel activities={await actions.listActivities()} canDelete={isAdmin} timeZone={timeZone} />;
     case "values":
-      return <ValuesPanel values={await actions.listValues()} timeZone={timeZone} />;
+      return <ValuesPanel values={await actions.listValues()} canEdit={isAdmin} timeZone={timeZone} />;
     case "cumulative":
       return <CumulativePanel rows={await actions.listCumulativeValues()} canEdit={isAdmin} timeZone={timeZone} />;
   }

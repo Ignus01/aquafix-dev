@@ -34,6 +34,8 @@ import type {
   SaveScheduledInstructionPayload,
   ScheduleRun,
   ScheduledInstructionRow,
+  UpdateValuePayload,
+  ValueEditContext,
   ValueListRow,
 } from "@/lib/inspections/types";
 
@@ -42,7 +44,8 @@ import type {
 
 const BUCKET = "inspection-images";
 const SIGNED_URL_TTL = 60 * 60;
-const MAX_ROWS = 1000;
+// Pages requested at a time when a grid loads a whole table (selectAll).
+const PARALLEL_PAGES = 6;
 
 type ActionResult = { error: string | null };
 
@@ -185,12 +188,10 @@ async function withAccountNames(supabase: SupabaseClient, rows: RawInstruction[]
 export async function listInstructions(): Promise<InstructionListRow[]> {
   await requireRole(INSPECTION_BACK_OFFICE);
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("instruction")
-    .select(INSTRUCTION_COLUMNS)
-    .order("legacy_uid", { ascending: false })
-    .limit(MAX_ROWS);
-  if (error) throw error;
+  const data = await selectAll(
+    () => supabase.from("instruction").select(INSTRUCTION_COLUMNS).order("legacy_uid", { ascending: false }).order("id"),
+    { parallel: PARALLEL_PAGES },
+  );
   return withAccountNames(supabase, data as unknown as RawInstruction[]);
 }
 
@@ -333,14 +334,16 @@ export async function deleteInstructionAllocation(
 export async function listScheduledInstructions(): Promise<ScheduledInstructionRow[]> {
   await requireRole(INSPECTION_BACK_OFFICE);
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("scheduled_instruction")
-    .select(
-      "id, legacy_uid, name, comment, schedule_type, include_weekends, include_public_holidays, " +
-        "day_of_month, week_days, days_to_complete, active, account_id, assets:scheduled_instruction_asset(asset_id)",
-    )
-    .order("legacy_uid");
-  if (error) throw error;
+  const data = await selectAll(() =>
+    supabase
+      .from("scheduled_instruction")
+      .select(
+        "id, legacy_uid, name, comment, schedule_type, include_weekends, include_public_holidays, " +
+          "day_of_month, week_days, days_to_complete, active, account_id, assets:scheduled_instruction_asset(asset_id)",
+      )
+      .order("legacy_uid")
+      .order("id"),
+  );
   const rows = data as unknown as (Omit<ScheduledInstructionRow, "account_name" | "asset_ids"> & {
     assets: { asset_id: string }[];
   })[];
@@ -487,12 +490,10 @@ export async function listMyActivitiesToday(): Promise<ActivityListRow[]> {
 export async function listActivities(): Promise<ActivityListRow[]> {
   await requireRole(INSPECTION_BACK_OFFICE);
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("inspection_activity")
-    .select(ACTIVITY_COLUMNS)
-    .order("inspection_date", { ascending: false })
-    .limit(MAX_ROWS);
-  if (error) throw error;
+  const data = await selectAll(
+    () => supabase.from("inspection_activity").select(ACTIVITY_COLUMNS).order("inspection_date", { ascending: false }).order("id"),
+    { parallel: PARALLEL_PAGES },
+  );
   return toActivityRows(supabase, data as unknown as RawActivity[]);
 }
 
@@ -500,16 +501,21 @@ export async function listActivities(): Promise<ActivityListRow[]> {
 export async function listValues(): Promise<ValueListRow[]> {
   await requireRole(INSPECTION_BACK_OFFICE);
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("inspection_value")
-    .select(
-      `id, display_value, is_current, sort_order, images:inspection_image(count), inspection:inspection_id(id, name), ` +
-        `grading:grading_id(${GRADING_COLUMNS}), ` +
-        `activity:inspection_activity_id(id, legacy_uid, inspection_date, asset:asset_id(${ASSET_COLUMNS}))`,
-    )
-    .order("created_at", { ascending: false })
-    .limit(MAX_ROWS);
-  if (error) throw error;
+  // Tens of thousands of rows: only the names the grid shows.
+  const data = await selectAll(
+    () =>
+      supabase
+        .from("inspection_value")
+        .select(
+          `id, display_value, is_current, sort_order, images:inspection_image(count), inspection:inspection_id(id, name), ` +
+            `grading:grading_id(${GRADING_COLUMNS}), ` +
+            `activity:inspection_activity_id(id, legacy_uid, inspection_date, ` +
+            `asset:asset_id(name, asset_type:asset_type_id(name), location:location_id(name)))`,
+        )
+        .order("created_at", { ascending: false })
+        .order("id"),
+    { parallel: PARALLEL_PAGES },
+  );
   type Raw = Omit<ValueListRow, "image_count" | "grading"> & {
     sort_order: number;
     images: { count: number }[];
@@ -527,6 +533,51 @@ export async function listValues(): Promise<ValueListRow[]> {
       void _sortOrder;
       return { ...v, grading: toGrading(grading), image_count: images[0]?.count ?? 0 };
     });
+}
+
+// Inspection Values → Edit (admins): the value and its inspection's options.
+export async function getValueForEdit(id: string): Promise<ValueEditContext | null> {
+  await requireRole(INSPECTION_ADMINS);
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("inspection_value")
+    .select(
+      "id, is_current, text_value, decimal_value, date_value, inspection_drop_down_option_id, " +
+        "inspection:inspection_id(id, name, value_type, is_required, options:inspection_drop_down_option(id, name, active, priority)), " +
+        "activity:inspection_activity_id(legacy_uid, inspection_date, asset:asset_id(name))",
+    )
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  const v = data as unknown as Omit<ValueEditContext, "inspection"> & {
+    inspection: Omit<ValueEditContext["inspection"], "options"> & {
+      options: (ValueEditContext["inspection"]["options"][number] & { priority: number })[];
+    };
+  };
+  return {
+    ...v,
+    inspection: {
+      ...v.inspection,
+      options: v.inspection.options
+        .sort((a, b) => a.priority - b.priority || a.name.localeCompare(b.name))
+        .map(({ priority: _priority, ...o }) => {
+          void _priority;
+          return o;
+        }),
+    },
+  };
+}
+
+// Inspection Values → Edit → update_inspection_value (display value, grading,
+// the activity's grading and the cumulative store follow, as on capture).
+export async function updateValue(id: string, payload: UpdateValuePayload): Promise<ActionResult> {
+  await requireRole(INSPECTION_ADMINS);
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("update_inspection_value", { p_value_id: id, p_value: payload });
+  if (error) return { error: friendlyError(error) };
+  revalidate();
+  return { error: null };
 }
 
 // InspectionActivity_ViewInspectionValue, with each value's photos.
@@ -638,12 +689,15 @@ export async function getInspectionImageDownloadUrl(
 export async function listCumulativeValues(): Promise<CumulativeRow[]> {
   await requireRole(INSPECTION_BACK_OFFICE);
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("inspection_cumulative_value")
-    .select(`id, legacy_uid, latest_value, updated_at, inspection:inspection_id(id, name), asset:asset_id(${ASSET_COLUMNS})`)
-    .order("updated_at", { ascending: false })
-    .limit(MAX_ROWS);
-  if (error) throw error;
+  const data = await selectAll(
+    () =>
+      supabase
+        .from("inspection_cumulative_value")
+        .select(`id, legacy_uid, latest_value, updated_at, inspection:inspection_id(id, name), asset:asset_id(${ASSET_COLUMNS})`)
+        .order("updated_at", { ascending: false })
+        .order("id"),
+    { parallel: PARALLEL_PAGES },
+  );
   return data as unknown as CumulativeRow[];
 }
 
