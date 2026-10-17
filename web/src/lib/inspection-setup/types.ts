@@ -17,6 +17,10 @@ export type Inspection = {
   is_required: boolean;
   active: boolean;
   nr_of_images_required: number;
+  // A water-quality reading (DECIMAL_VALUE only), reported with the lab
+  // results under the linked quality parameter.
+  is_water_quality_parameter: boolean;
+  quality_parameter_id: string | null;
 };
 
 export type DropDownOption = {
@@ -69,6 +73,8 @@ export type SaveInspectionPayload = {
   is_required: boolean;
   active: boolean;
   nr_of_images_required: number;
+  is_water_quality_parameter: boolean;
+  quality_parameter_id: string | null;
   drop_down_options: (Omit<DropDownOption, "id"> & { id: string | null })[];
   rules: (Omit<InspectionRule, "id" | "is_first"> & { id: string | null })[];
   allocations: { id: string | null; asset_type_id: string }[];
@@ -102,6 +108,14 @@ export type GradingOption = {
   name: string;
   priority: number;
   hex_colour: string | null;
+};
+
+// Quality parameter picker for water-quality inspections.
+export type QualityParameterOption = {
+  id: string;
+  name: string;
+  unit: string;
+  active: boolean;
 };
 
 // An AssetType's allocation list, as shown on the Asset Type drawer.

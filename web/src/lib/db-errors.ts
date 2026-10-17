@@ -79,6 +79,8 @@ const REFERENCED_MESSAGES: Record<string, string> = {
   "quality_parameter:lab_result": "This Parameter has lab results, so it can't be deleted. Mark it inactive instead.",
   "quality_parameter:lab_parameter_map":
     "A lab column is mapped to this Parameter, so it can't be deleted. Change the mapping first.",
+  "quality_parameter:inspection":
+    "An inspection measures this Parameter, so it can't be deleted. Unlink it in Inspection Setup first.",
   "location:lab_sample": "This Location has lab results, so it can't be deleted.",
   "location:lab_location_map": "A lab locality is mapped to this Location, so it can't be deleted.",
   "lab:lab_import": "This Lab has imports, so it can't be deleted. Mark it inactive instead.",

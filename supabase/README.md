@@ -160,6 +160,11 @@ in the Map step, and writes one `lab_sample` per certificate row and one `lab_re
   results.
 - Staged imports that are never imported stay listed under Lab Results → Imports, where they
   can be continued or cancelled (cancelling removes the file). There is no automatic clean-up.
+- On-site readings: an `inspection` with `is_water_quality_parameter` on is linked to the
+  `quality_parameter` it measures (`DECIMAL_VALUE` only; a check constraint and
+  `save_inspection()` enforce it). `water_quality_reading` lists lab results and the current
+  values of those inspections together (`source` = `lab` / `site`), per location and day,
+  with the same `lab_result_status()` against the parameter's limits.
 
 ## Tests
 
