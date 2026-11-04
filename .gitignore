@@ -2,3 +2,6 @@ node_modules/
 .env
 .env.local
 .env.*.local
+
+# PowerSync: per-project secrets (powersync_role password)
+powersync/*.local.sql

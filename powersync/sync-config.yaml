@@ -1,0 +1,131 @@
+# PowerSync Sync Streams for the Aquafix inspector app (instance aquafix-prod).
+# Paste into PowerSync Dashboard → Sync Streams, validate, then deploy.
+#
+# READ THIS FIRST: PowerSync reads Postgres as powersync_role, which has
+# BYPASSRLS. Supabase RLS does not apply to anything below. This file is the
+# only thing deciding what each phone receives. Keep it in step with:
+#   supabase/migrations/20261102130000_powersync_role.sql        SELECT grants
+#   supabase/migrations/20261102140000_powersync_publication.sql replicated tables
+#   powersync/verify_streams.sql                                 expected rows per user
+#
+# Who: auth.user_id() is the `sub` of the user's Supabase JWT, signed by
+# Supabase Auth, so the phone can't change it. No stream reads subscription
+# or connection parameters, so the phone can't ask for more than it is given.
+#
+# Who may sync at all: users with a role that can capture inspections
+# (system_admin, admin or user in user_masterdata_roles). Viewers and users
+# with no role get nothing. Sign-up is open, so a valid login is not enough
+# on its own. Removing a user's role stops their sync.
+#
+# Buckets: PowerSync allows 1,000 per user and makes one per value a stream
+# filters on. Every stream here filters on the user id or on nothing, so a
+# user gets 3 buckets however much they inspect. That is why child rows carry
+# a copied sync_user_id instead of being filtered through their parent
+# (see 20261102120000_powersync_sync_window.sql).
+#
+# Writes don't go through this file: the app uploads with the same RPCs as
+# the web app (save_inspection_activity), which check permissions.
+
+config:
+  edition: 3
+
+streams:
+  # --------------------------------------------------------------------------
+  # reference_data: the same rows for every user who may sync.
+  #
+  # Everything needed to capture an inspection on any asset, including
+  # ad-hoc inspections on assets with no instruction: assets with their
+  # location and type, which inspections apply to which asset type, the
+  # inspections with their options, rules, feedback and gradings, water
+  # quality parameters, and each asset's latest cumulative reading (for the
+  # ">= previous value" check). Inactive rows are included so history still
+  # shows their names. Every role can already read all of this in the web
+  # app, so nothing here is narrower in RLS.
+  #
+  # Filters on no row column: one bucket shared by all users. The only
+  # condition is the role check.
+  # --------------------------------------------------------------------------
+  reference_data:
+    auto_subscribe: true
+    with:
+      capture_users: SELECT user_id FROM user_masterdata_roles WHERE role != 'viewer'
+    queries:
+      - SELECT * FROM asset WHERE auth.user_id() IN capture_users
+      - SELECT * FROM asset_type WHERE auth.user_id() IN capture_users
+      - SELECT * FROM location WHERE auth.user_id() IN capture_users
+      - SELECT * FROM grading WHERE auth.user_id() IN capture_users
+      - SELECT * FROM colour_container WHERE auth.user_id() IN capture_users
+      - SELECT * FROM inspection WHERE auth.user_id() IN capture_users
+      - SELECT * FROM inspection_drop_down_option WHERE auth.user_id() IN capture_users
+      - SELECT * FROM inspection_rule WHERE auth.user_id() IN capture_users
+      - SELECT * FROM feedback WHERE auth.user_id() IN capture_users
+      - SELECT * FROM inspection_allocation WHERE auth.user_id() IN capture_users
+      - SELECT * FROM quality_parameter WHERE auth.user_id() IN capture_users
+      - SELECT * FROM inspection_cumulative_value WHERE auth.user_id() IN capture_users
+
+  # --------------------------------------------------------------------------
+  # my_instructions: the instructions assigned to this user, and their asset
+  # allocations.
+  #
+  # Matches the web app's rule for field users (RLS instruction_select:
+  # account_id = auth.uid()), limited to the sync window: instructions due
+  # 14 days ago or later, open or completed (instruction.in_sync_window).
+  # Open instructions overdue by more than 14 days are left out.
+  #
+  # instruction_asset_allocation.sync_user_id is the instruction's account_id
+  # while the instruction is in the window, null otherwise, kept by trigger.
+  # Reassigning an instruction moves it and its allocations to the new
+  # user's phone and off the old one.
+  #
+  # Both queries filter on the user id: one bucket per user.
+  # --------------------------------------------------------------------------
+  my_instructions:
+    auto_subscribe: true
+    with:
+      capture_users: SELECT user_id FROM user_masterdata_roles WHERE role != 'viewer'
+    queries:
+      - |
+        SELECT * FROM instruction
+        WHERE account_id = auth.user_id()
+          AND in_sync_window = true
+          AND auth.user_id() IN capture_users
+      - |
+        SELECT * FROM instruction_asset_allocation
+        WHERE sync_user_id = auth.user_id()
+          AND auth.user_id() IN capture_users
+
+  # --------------------------------------------------------------------------
+  # my_inspections: the inspections this user captured (inspection_activity.
+  # created_by) in the last 14 days, with their values and photos.
+  #
+  # Narrower than the web app, where every role reads every activity: a phone
+  # gets only the user's own recent work. That covers editing today's
+  # inspections (only the inspector's own from today can be edited) and
+  # recent history.
+  #
+  # inspection_activity.in_sync_window is true for 14 days after the
+  # inspection date. inspection_value.sync_user_id and
+  # inspection_image.sync_user_id are the activity's created_by while it is
+  # in the window, null otherwise, kept by trigger. inspection_image rows are
+  # metadata only; the photos stay in the private Storage bucket.
+  #
+  # All three queries filter on the user id: one bucket per user.
+  # --------------------------------------------------------------------------
+  my_inspections:
+    auto_subscribe: true
+    with:
+      capture_users: SELECT user_id FROM user_masterdata_roles WHERE role != 'viewer'
+    queries:
+      - |
+        SELECT * FROM inspection_activity
+        WHERE created_by = auth.user_id()
+          AND in_sync_window = true
+          AND auth.user_id() IN capture_users
+      - |
+        SELECT * FROM inspection_value
+        WHERE sync_user_id = auth.user_id()
+          AND auth.user_id() IN capture_users
+      - |
+        SELECT * FROM inspection_image
+        WHERE sync_user_id = auth.user_id()
+          AND auth.user_id() IN capture_users
