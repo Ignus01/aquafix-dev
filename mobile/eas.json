@@ -1,0 +1,23 @@
+{
+  "cli": {
+    "version": ">= 16.0.0",
+    "appVersionSource": "local"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "env": { "APP_ENV": "development" }
+    },
+    "staging": {
+      "distribution": "internal",
+      "channel": "staging",
+      "env": { "APP_ENV": "staging" },
+      "android": { "buildType": "apk" }
+    },
+    "production": {
+      "channel": "production",
+      "env": { "APP_ENV": "production" }
+    }
+  }
+}
