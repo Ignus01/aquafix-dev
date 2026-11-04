@@ -6,6 +6,7 @@
 # only thing deciding what each phone receives. Keep it in step with:
 #   supabase/migrations/20261102130000_powersync_role.sql        SELECT grants
 #   supabase/migrations/20261102140000_powersync_publication.sql replicated tables
+#     (both extended by 20261104150000_powersync_incidents_stock_services.sql)
 #   powersync/verify_streams.sql                                 expected rows per user
 #
 # Who: auth.user_id() is the `sub` of the user's Supabase JWT, signed by
@@ -19,12 +20,14 @@
 #
 # Buckets: PowerSync allows 1,000 per user and makes one per value a stream
 # filters on. Every stream here filters on the user id or on nothing, so a
-# user gets 3 buckets however much they inspect. That is why child rows carry
-# a copied sync_user_id instead of being filtered through their parent
-# (see 20261102120000_powersync_sync_window.sql).
+# user gets 8 buckets (3 shared, 5 their own) however much they capture.
+# That is why child rows carry a copied sync_user_id or incident_open instead
+# of being filtered through their parent (see
+# 20261102120000_powersync_sync_window.sql).
 #
 # Writes don't go through this file: the app uploads with the same RPCs as
-# the web app (save_inspection_activity), which check permissions.
+# the web app (save_inspection_activity, save_incident, ...), which check
+# permissions.
 
 config:
   edition: 3
@@ -41,6 +44,13 @@ streams:
   # ">= previous value" check). Inactive rows are included so history still
   # shows their names. Every role can already read all of this in the web
   # app, so nothing here is narrower in RLS.
+  #
+  # Also: incident types (incident form), storage areas and items (stock
+  # documents) and every
+  # user's name, for "created by" offline. profiles sends id and username
+  # only, never the phone number. That is wider than the web app's RLS on
+  # profiles (own row, or all for admins), where other users' names come
+  # from the get_user_names RPC instead.
   #
   # Filters on no row column: one bucket shared by all users. The only
   # condition is the role check.
@@ -62,6 +72,10 @@ streams:
       - SELECT * FROM inspection_allocation WHERE auth.user_id() IN capture_users
       - SELECT * FROM quality_parameter WHERE auth.user_id() IN capture_users
       - SELECT * FROM inspection_cumulative_value WHERE auth.user_id() IN capture_users
+      - SELECT * FROM incident_type WHERE auth.user_id() IN capture_users
+      - SELECT * FROM storage_area WHERE auth.user_id() IN capture_users
+      - SELECT * FROM item WHERE auth.user_id() IN capture_users
+      - SELECT id, username FROM profiles WHERE auth.user_id() IN capture_users
 
   # --------------------------------------------------------------------------
   # my_instructions: the instructions assigned to this user, and their asset
@@ -127,4 +141,152 @@ streams:
       - |
         SELECT * FROM inspection_image
         WHERE sync_user_id = auth.user_id()
+          AND auth.user_id() IN capture_users
+
+  # --------------------------------------------------------------------------
+  # open_incidents: every incident not completed, whoever raised it, with its
+  # notes and photos.
+  #
+  # Every role reads every incident in the web app (RLS incident_select), so
+  # this is no wider. incident_note and incident_image carry incident_open,
+  # a copy of "the incident is not completed" kept by trigger (a photo on a
+  # note copies it through the note). Completing an incident takes it off
+  # every phone except its creator's (my_incidents). incident_image rows are
+  # metadata only; the photos stay in the private Storage bucket.
+  #
+  # Filters on no user: one bucket shared by all users.
+  # --------------------------------------------------------------------------
+  open_incidents:
+    auto_subscribe: true
+    with:
+      capture_users: SELECT user_id FROM user_masterdata_roles WHERE role != 'viewer'
+    queries:
+      - |
+        SELECT * FROM incident
+        WHERE status != 'completed'
+          AND auth.user_id() IN capture_users
+      - |
+        SELECT * FROM incident_note
+        WHERE incident_open = true
+          AND auth.user_id() IN capture_users
+      - |
+        SELECT * FROM incident_image
+        WHERE incident_open = true
+          AND auth.user_id() IN capture_users
+
+  # --------------------------------------------------------------------------
+  # my_incidents: the incidents this user raised (incident.created_by) while
+  # open and until 7 days after completion (completed_at today or in the 6
+  # days before, app time zone), with their notes and photos. Open ones
+  # arrive through open_incidents too; this keeps the user's recently
+  # completed ones for the "Only my incidents" list.
+  #
+  # incident.sync_user_id is created_by inside that window, null otherwise,
+  # kept by trigger and moved by the hourly job; incident_note and
+  # incident_image carry a copy.
+  #
+  # All three queries filter on the user id: one bucket per user.
+  # --------------------------------------------------------------------------
+  my_incidents:
+    auto_subscribe: true
+    with:
+      capture_users: SELECT user_id FROM user_masterdata_roles WHERE role != 'viewer'
+    queries:
+      - |
+        SELECT * FROM incident
+        WHERE sync_user_id = auth.user_id()
+          AND auth.user_id() IN capture_users
+      - |
+        SELECT * FROM incident_note
+        WHERE sync_user_id = auth.user_id()
+          AND auth.user_id() IN capture_users
+      - |
+        SELECT * FROM incident_image
+        WHERE sync_user_id = auth.user_id()
+          AND auth.user_id() IN capture_users
+
+  # --------------------------------------------------------------------------
+  # open_services: every service not completed, and the name of every
+  # service supplier for the service card. Read-only on the phone.
+  #
+  # Every role reads every service in the web app (RLS service_select).
+  # organisation sends id and name only, and only service suppliers.
+  #
+  # Filters on no user: one bucket shared by all users.
+  # --------------------------------------------------------------------------
+  open_services:
+    auto_subscribe: true
+    with:
+      capture_users: SELECT user_id FROM user_masterdata_roles WHERE role != 'viewer'
+    queries:
+      - |
+        SELECT * FROM service
+        WHERE is_completed = false
+          AND auth.user_id() IN capture_users
+      - |
+        SELECT id, name FROM organisation
+        WHERE is_service_supplier = true
+          AND auth.user_id() IN capture_users
+
+  # --------------------------------------------------------------------------
+  # my_stock: the stock documents this user created (created_by) dated today
+  # or in the 6 days before (app time zone), with their lines: transfers,
+  # work orders, stock takes and loads (a load has no lines).
+  #
+  # Narrower than the web app, where stock writers read every document. A
+  # header's sync_user_id is created_by inside the window, null otherwise,
+  # kept by trigger and moved by the hourly job; its lines carry a copy.
+  #
+  # All seven queries filter on the user id: one bucket per user.
+  # --------------------------------------------------------------------------
+  my_stock:
+    auto_subscribe: true
+    with:
+      capture_users: SELECT user_id FROM user_masterdata_roles WHERE role != 'viewer'
+    queries:
+      - |
+        SELECT * FROM transfer_main
+        WHERE sync_user_id = auth.user_id()
+          AND auth.user_id() IN capture_users
+      - |
+        SELECT * FROM transfer_item
+        WHERE sync_user_id = auth.user_id()
+          AND auth.user_id() IN capture_users
+      - |
+        SELECT * FROM work_order
+        WHERE sync_user_id = auth.user_id()
+          AND auth.user_id() IN capture_users
+      - |
+        SELECT * FROM work_order_item
+        WHERE sync_user_id = auth.user_id()
+          AND auth.user_id() IN capture_users
+      - |
+        SELECT * FROM stock_take
+        WHERE sync_user_id = auth.user_id()
+          AND auth.user_id() IN capture_users
+      - |
+        SELECT * FROM stock_take_item
+        WHERE sync_user_id = auth.user_id()
+          AND auth.user_id() IN capture_users
+      - |
+        SELECT * FROM load
+        WHERE sync_user_id = auth.user_id()
+          AND auth.user_id() IN capture_users
+
+  # --------------------------------------------------------------------------
+  # my_roles: this user's own roles, for tile visibility.
+  #
+  # user_masterdata_roles has no id column (its key is user_id and role), so
+  # the query makes one: PowerSync needs a unique text id per row.
+  #
+  # Filters on the user id: one bucket per user.
+  # --------------------------------------------------------------------------
+  my_roles:
+    auto_subscribe: true
+    with:
+      capture_users: SELECT user_id FROM user_masterdata_roles WHERE role != 'viewer'
+    queries:
+      - |
+        SELECT user_id || ':' || role AS id, user_id, role FROM user_masterdata_roles
+        WHERE user_id = auth.user_id()
           AND auth.user_id() IN capture_users
