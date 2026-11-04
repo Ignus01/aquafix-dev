@@ -1,5 +1,6 @@
 -- Tests for PowerSync: the sync window flags and sync_user_id copies
--- (20261102120000_powersync_sync_window), and that powersync_role and the
+-- (20261102120000_powersync_sync_window, windows from
+-- 20261104120000_powersync_window_decisions), and that powersync_role and the
 -- powersync publication cover the same tables, and only those.
 -- Run with: npx supabase test db
 begin;
@@ -30,7 +31,8 @@ insert into public.asset (id, name, code, asset_type_id, location_id) values
 insert into public.inspection (id, name, value_type, is_required, nr_of_images_required) values
   ('40000000-0000-0000-7e58-000000000001', 'PS Notes', 'TEXT', false, 0);
 
--- Due today (in the window) and due 30 days ago (outside it).
+-- Both open: due today, and 30 days overdue. Open instructions sync whatever
+-- their due date.
 insert into public.instruction (id, name, required_completed_date, account_id) values
   ('80000000-0000-0000-7e58-000000000001', 'PS today', public.app_today(), '10000000-0000-0000-7e58-000000000001'),
   ('80000000-0000-0000-7e58-000000000002', 'PS old', public.app_today() - 30, '10000000-0000-0000-7e58-000000000001');
@@ -44,25 +46,18 @@ insert into public.instruction_asset_allocation (id, instruction_id, asset_id) v
 -- ============================================================================
 select is(
   (select in_sync_window from public.instruction where id = '80000000-0000-0000-7e58-000000000001'),
-  true, 'An instruction due today is in the window');
+  true, 'An open instruction due today is in the window');
 select is(
   (select in_sync_window from public.instruction where id = '80000000-0000-0000-7e58-000000000002'),
-  false, 'An instruction due 30 days ago is outside the window');
+  true, 'An open instruction 30 days overdue is in the window');
 select is(
   (select count(*)::integer from public.instruction_asset_allocation
    where instruction_id = '80000000-0000-0000-7e58-000000000001'
      and sync_user_id = '10000000-0000-0000-7e58-000000000001'),
-  2, 'Allocations of an instruction in the window sync to its assignee');
+  2, 'Allocations of an open instruction sync to its assignee');
 select is(
   (select sync_user_id from public.instruction_asset_allocation where id = '81000000-0000-0000-7e58-000000000003'),
-  null, 'Allocations of an instruction outside the window sync to nobody');
-
--- Completing the instruction keeps it in the window (it's still due today).
-update public.instruction_asset_allocation set is_completed = true
-where instruction_id = '80000000-0000-0000-7e58-000000000001';
-select is(
-  (select (status, in_sync_window)::text from public.instruction where id = '80000000-0000-0000-7e58-000000000001'),
-  '(completed,t)', 'A completed instruction stays in the window until 14 days after its due date');
+  '10000000-0000-0000-7e58-000000000001'::uuid, 'Allocations of an overdue open instruction sync too');
 
 -- Reassigning moves the allocations to the new assignee. (now() is fixed
 -- within the test transaction, so give one allocation an old updated_at
@@ -81,18 +76,16 @@ select is(
   (select updated_at from public.instruction_asset_allocation where id = '81000000-0000-0000-7e58-000000000001'),
   '2000-01-01'::timestamptz, 'Changing only sync_user_id leaves an allocation''s updated_at alone');
 
--- Moving the due date back takes it out of the window.
-update public.instruction set required_completed_date = public.app_today() - 15
-where id = '80000000-0000-0000-7e58-000000000001';
+-- Completing every allocation completes the instruction and takes it off the phone.
+update public.instruction_asset_allocation set is_completed = true
+where instruction_id = '80000000-0000-0000-7e58-000000000001';
+select is(
+  (select (status, in_sync_window)::text from public.instruction where id = '80000000-0000-0000-7e58-000000000001'),
+  '(completed,f)', 'A completed instruction leaves the window');
 select is(
   (select count(*)::integer from public.instruction_asset_allocation
    where instruction_id = '80000000-0000-0000-7e58-000000000001' and sync_user_id is not null),
-  0, 'Allocations stop syncing when their instruction leaves the window');
-update public.instruction set required_completed_date = public.app_today() - 14
-where id = '80000000-0000-0000-7e58-000000000001';
-select is(
-  (select in_sync_window from public.instruction where id = '80000000-0000-0000-7e58-000000000001'),
-  true, 'Due exactly 14 days ago is still in the window');
+  0, 'Allocations stop syncing when their instruction is completed');
 
 -- ============================================================================
 -- Activities, values and photos, through the real save
@@ -128,11 +121,11 @@ select is(
   (select sync_user_id from public.inspection_image where inspection_value_id = '90000000-0000-0000-7e58-000000000001'),
   '10000000-0000-0000-7e58-000000000001'::uuid, 'Its photos sync to the inspector who captured it');
 
--- 15 days later (moved by hand): out of the window, values and photos too.
+-- The next day (moved by hand): out of the window, values and photos too.
 alter table public.inspection_value disable trigger user;
 update public.inspection_value set updated_at = '2000-01-01' where id = '90000000-0000-0000-7e58-000000000001';
 alter table public.inspection_value enable trigger user;
-update public.inspection_activity a set inspection_date = now() - interval '15 days'
+update public.inspection_activity a set inspection_date = now() - interval '1 day'
 from public.inspection_value v
 where v.inspection_activity_id = a.id and v.id = '90000000-0000-0000-7e58-000000000001';
 select is(
@@ -148,24 +141,24 @@ select is(
 -- ============================================================================
 -- The hourly refresh
 -- ============================================================================
--- A flag left stale (as if the day had turned since it was set).
+-- A flag left stale: an open instruction marked outside the window.
 alter table public.instruction disable trigger instruction_sync_window;
-update public.instruction set in_sync_window = true where id = '80000000-0000-0000-7e58-000000000002';
+update public.instruction set in_sync_window = false where id = '80000000-0000-0000-7e58-000000000002';
 alter table public.instruction enable trigger instruction_sync_window;
 select is(
   (select sync_user_id from public.instruction_asset_allocation where id = '81000000-0000-0000-7e58-000000000003'),
-  '10000000-0000-0000-7e58-000000000001'::uuid, 'Setup: the stale flag synced the allocation');
+  null, 'Setup: the stale flag unsynced the allocation');
 
 select lives_ok($$select public.refresh_powersync_sync_window()$$, 'The refresh runs');
 select is(
   (select in_sync_window from public.instruction where id = '80000000-0000-0000-7e58-000000000002'),
-  false, 'The refresh moves the window');
+  true, 'The refresh moves the window');
 select is(
   (select sync_user_id from public.instruction_asset_allocation where id = '81000000-0000-0000-7e58-000000000003'),
-  null, 'The refresh carries the change down to the allocations');
+  '10000000-0000-0000-7e58-000000000001'::uuid, 'The refresh carries the change down to the allocations');
 select is(
   (select count(*)::integer from public.instruction
-   where in_sync_window is distinct from public.powersync_instruction_in_window(required_completed_date)),
+   where in_sync_window is distinct from public.powersync_instruction_in_window(status)),
   0, 'No instruction is left with a stale flag');
 select is(
   (select count(*)::integer from public.inspection_activity
