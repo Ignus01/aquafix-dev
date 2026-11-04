@@ -60,6 +60,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     "@react-native-community/datetimepicker",
     "@sentry/react-native",
     "expo-image",
+    // Windows: keep native object paths under ninja's 260-character limit.
+    "./plugins/with-cmake-object-path-max",
   ],
   extra: {
     appEnv: APP_ENV,
