@@ -6,7 +6,8 @@
 # only thing deciding what each phone receives. Keep it in step with:
 #   supabase/migrations/20261102130000_powersync_role.sql        SELECT grants
 #   supabase/migrations/20261102140000_powersync_publication.sql replicated tables
-#     (both extended by 20261104150000_powersync_incidents_stock_services.sql)
+#     (both extended by 20261104150000_powersync_incidents_stock_services.sql
+#     and 20261104160000_mobile_app_config.sql)
 #   powersync/verify_streams.sql                                 expected rows per user
 #
 # Who: auth.user_id() is the `sub` of the user's Supabase JWT, signed by
@@ -46,7 +47,7 @@ streams:
   # app, so nothing here is narrower in RLS.
   #
   # Also: incident types (incident form), storage areas and items (stock
-  # documents) and every
+  # documents), mobile_app_config (one row: min_app_version) and every
   # user's name, for "created by" offline. profiles sends id and username
   # only, never the phone number. That is wider than the web app's RLS on
   # profiles (own row, or all for admins), where other users' names come
@@ -75,6 +76,7 @@ streams:
       - SELECT * FROM incident_type WHERE auth.user_id() IN capture_users
       - SELECT * FROM storage_area WHERE auth.user_id() IN capture_users
       - SELECT * FROM item WHERE auth.user_id() IN capture_users
+      - SELECT * FROM mobile_app_config WHERE auth.user_id() IN capture_users
       - SELECT id, username FROM profiles WHERE auth.user_id() IN capture_users
 
   # --------------------------------------------------------------------------

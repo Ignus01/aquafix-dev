@@ -48,6 +48,7 @@ synced as (
   union all select 'reference_data', 'incident_type', t.id::text from public.incident_type t, capture_user
   union all select 'reference_data', 'storage_area', t.id::text from public.storage_area t, capture_user
   union all select 'reference_data', 'item', t.id::text from public.item t, capture_user
+  union all select 'reference_data', 'mobile_app_config', t.id::text from public.mobile_app_config t, capture_user
   union all select 'reference_data', 'profiles', t.id::text from public.profiles t, capture_user
 
   -- my_instructions

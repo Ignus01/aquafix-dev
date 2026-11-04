@@ -1,8 +1,8 @@
 -- Tests for PowerSync: the sync window flags and sync_user_id copies
 -- (20261102120000_powersync_sync_window, windows from
 -- 20261104120000_powersync_window_decisions; incidents and stock from
--- 20261104150000_powersync_incidents_stock_services),
--- who may sync at all, and that powersync_role and the
+-- 20261104150000_powersync_incidents_stock_services), mobile_app_config
+-- (20261104160000), who may sync at all, and that powersync_role and the
 -- powersync publication cover the same tables, and only those.
 -- Run with: npx supabase test db
 begin;
@@ -442,6 +442,26 @@ select is(
   'capture_users holds a user, not a viewer or a user with no role, so those two receive nothing');
 
 -- ============================================================================
+-- mobile_app_config
+-- ============================================================================
+select is(
+  (select array_agg(min_app_version) from public.mobile_app_config),
+  array['0.0.0'], 'mobile_app_config starts with one row, min_app_version 0.0.0');
+select throws_ok(
+  $$insert into public.mobile_app_config (min_app_version) values ('1.0.0')$$,
+  '23505', null, 'mobile_app_config holds one row only');
+select throws_ok(
+  $$update public.mobile_app_config set min_app_version = '1.2'$$,
+  '23514', null, 'min_app_version must be major.minor.patch');
+select lives_ok(
+  $$update public.mobile_app_config set min_app_version = '1.12.0'$$, 'min_app_version can be raised');
+select ok(
+  not has_table_privilege('anon', 'public.mobile_app_config', 'SELECT')
+  and not has_table_privilege('authenticated', 'public.mobile_app_config', 'SELECT')
+  and not has_table_privilege('authenticated', 'public.mobile_app_config', 'UPDATE'),
+  'Web users can''t read or change mobile_app_config');
+
+-- ============================================================================
 -- powersync_role and the publication
 -- ============================================================================
 select is(
@@ -470,7 +490,8 @@ select set_eq(
     'incident', 'incident_note', 'incident_image', 'incident_type', 'profiles',
     'service', 'organisation', 'storage_area', 'item',
     'transfer_main', 'transfer_item', 'work_order', 'work_order_item',
-    'stock_take', 'stock_take_item', 'load'
+    'stock_take', 'stock_take_item', 'load',
+    'mobile_app_config'
   ],
   'The publication holds exactly the tables sync-config.yaml reads');
 select ok(
@@ -478,8 +499,9 @@ select ok(
   'powersync_role can''t read tables outside the sync config');
 select ok(
   has_table_privilege('powersync_role', 'public.incident', 'SELECT')
-  and has_table_privilege('powersync_role', 'public.profiles', 'SELECT'),
-  'powersync_role can read incidents and names');
+  and has_table_privilege('powersync_role', 'public.profiles', 'SELECT')
+  and has_table_privilege('powersync_role', 'public.mobile_app_config', 'SELECT'),
+  'powersync_role can read incidents, names and the app config');
 
 select * from finish();
 rollback;
