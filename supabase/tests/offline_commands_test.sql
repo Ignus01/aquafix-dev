@@ -416,6 +416,12 @@ reset role;
 select is((select count(*)::integer from public.incident_status_change
            where incident_id = 'd0000000-0000-0000-0ff1-000000000001'), 3,
   'status history: created, in progress, completed (nothing twice)');
+select is((select completed_at from public.incident where id = 'd0000000-0000-0000-0ff1-000000000001'),
+  now(), 'S3: Complete without captured_at sets completed_at = now()');
+select is((select array_agg(changed_at order by id) from public.incident_status_change
+           where incident_id = 'd0000000-0000-0000-0ff1-000000000001'),
+  array[now() - interval '1 hour', now(), now()],
+  'status history: the offline creation is dated at capture, taps without captured_at at now()');
 
 -- An admin moves it back to New; a late Complete is now below its target.
 select pg_temp.as_user(2);
@@ -428,6 +434,42 @@ select throws_ok(
 reset role;
 select is((select count(*)::integer from public.client_command where id = 'e0000000-0000-0000-0ff1-000000000026'), 0,
   'S5: a raised rejection is not stored');
+
+-- Status taps with captured_at: the time of the tap, not of the upload
+-- (I2, a PWA incident still at New).
+select is((select pg_get_function_identity_arguments(oid) from pg_proc where proname = 'advance_incident_status'),
+  'p_incident_id uuid, p_expected_status incident_status, p_command_id uuid, p_captured_at timestamp with time zone',
+  'advance_incident_status takes p_captured_at');
+create temp table i2 as select (result ->> 'id')::uuid as id from r where name = 'I2';
+grant select on i2 to authenticated;
+set local role authenticated;
+select is(public.advance_incident_status((select id from i2), 'new', 'e0000000-0000-0000-0ff1-000000000027',
+  now() - interval '50 minutes'), 'in_progress'::public.incident_status, 'C1: offline Start');
+select is(public.advance_incident_status((select id from i2), 'in_progress', 'e0000000-0000-0000-0ff1-000000000028',
+  now() - interval '30 minutes'), 'completed'::public.incident_status, 'C2: offline Complete');
+select is(current_setting('aquafix.captured_at', true), '', 'C2: aquafix.captured_at cleared after the update');
+select throws_ok(
+  $$select public.advance_incident_status('d0000000-0000-0000-0ff1-000000000001', 'new',
+    'e0000000-0000-0000-0ff1-000000000029', now() + interval '6 minutes')$$,
+  'P0001', 'The capture time is in the future. Check the phone''s clock.', 'C3: future captured_at refused');
+select throws_ok(
+  $$select public.advance_incident_status('d0000000-0000-0000-0ff1-000000000001', 'new',
+    'e0000000-0000-0000-0ff1-000000000029', now() - interval '7 days 1 minute')$$,
+  'P0001', 'This was captured more than 7 days ago and can''t be saved.', 'C3: captured_at > 7 days refused');
+select is(public.advance_incident_status((select id from i2), 'in_progress', 'e0000000-0000-0000-0ff1-000000000028',
+  now() - interval '8 days'), 'completed'::public.incident_status,
+  'C2 resent with an out-of-bounds captured_at: the stored result');
+reset role;
+select is((select completed_at from public.incident where id = (select id from i2)),
+  now() - interval '30 minutes', 'C2: completed_at = captured_at');
+select is((select array_agg(changed_at order by id) from public.incident_status_change
+           where incident_id = (select id from i2)),
+  array[now(), now() - interval '50 minutes', now() - interval '30 minutes'],
+  'C1/C2: history rows dated at the taps (the PWA creation at now())');
+select is((select status from public.incident where id = 'd0000000-0000-0000-0ff1-000000000001'),
+  'new'::public.incident_status, 'C3: refused taps changed nothing');
+select is((select count(*)::integer from public.client_command where id = 'e0000000-0000-0000-0ff1-000000000029'), 0,
+  'C3: refused taps are not stored');
 
 -- ============================================================================
 -- save_stock_document (SECURITY INVOKER: run as the authenticated role)
