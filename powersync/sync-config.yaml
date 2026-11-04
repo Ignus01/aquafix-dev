@@ -68,9 +68,9 @@ streams:
   # allocations.
   #
   # Matches the web app's rule for field users (RLS instruction_select:
-  # account_id = auth.uid()), limited to the sync window: instructions due
-  # 14 days ago or later, open or completed (instruction.in_sync_window).
-  # Open instructions overdue by more than 14 days are left out.
+  # account_id = auth.uid()), limited to the sync window: open instructions,
+  # whatever their due date (instruction.in_sync_window), as the PWA lists
+  # them. Completing an instruction takes it off the phone.
   #
   # instruction_asset_allocation.sync_user_id is the instruction's account_id
   # while the instruction is in the window, null otherwise, kept by trigger.
@@ -96,15 +96,14 @@ streams:
 
   # --------------------------------------------------------------------------
   # my_inspections: the inspections this user captured (inspection_activity.
-  # created_by) in the last 14 days, with their values and photos.
+  # created_by) today, with their values and photos.
   #
   # Narrower than the web app, where every role reads every activity: a phone
-  # gets only the user's own recent work. That covers editing today's
-  # inspections (only the inspector's own from today can be edited) and
-  # recent history.
+  # gets only the user's own work from today, which is all the PWA lists and
+  # all an inspector can edit.
   #
-  # inspection_activity.in_sync_window is true for 14 days after the
-  # inspection date. inspection_value.sync_user_id and
+  # inspection_activity.in_sync_window is true on the inspection date (app
+  # time zone); the hourly job clears it after midnight. inspection_value.sync_user_id and
   # inspection_image.sync_user_id are the activity's created_by while it is
   # in the window, null otherwise, kept by trigger. inspection_image rows are
   # metadata only; the photos stay in the private Storage bucket.
