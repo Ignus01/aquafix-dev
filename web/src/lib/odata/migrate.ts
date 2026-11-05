@@ -1,33 +1,47 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { fetchCollection, type ODataRow } from "./client";
+import { fetchCollection, fetchCount, fetchPage, fetchRow, type ODataRow } from "./client";
 
-// Create-or-update migration from the legacy OData services, in two groups:
-// "reference" (master data + inspection setup) and "transactions" (instructions,
-// inspections, incidents, services).
+// Create-or-update migration from the legacy OData services, in three groups:
+// "reference" (master data + inspection setup), "transactions" (instructions,
+// inspections, incidents, services) and "images" (the photos on incidents,
+// notes and inspection values, which need the transactions in place first).
 //
 // Safe to run repeatedly. Every migrated row stores the source object ID in
 // `odata_id`; a re-run updates rows that carry it and creates the rest. Rows
 // created in Supabase by hand are adopted (not duplicated) when they match a
 // source row on the table's natural key (name / code). Nothing is deleted.
+//
+// Images don't fit in one run: there are thousands and each is a separate
+// download. A run does as much as its time budget allows and returns `next`,
+// the cursor to call it with again. Migrated images are skipped, not updated,
+// so starting over only re-reads the list.
 
 export type MigrationEntityResult = {
   label: string;
   fetched: number;
   created: number;
   updated: number;
+  // Already migrated, or nothing to migrate (a source image with no file).
+  skipped: number;
   failed: number;
   errors: string[];
+  // Rows in the source; only set by groups that take several runs.
+  total?: number;
 };
+
+// Where the next image run starts: IMAGE_SPECS index + rows already read.
+export type ImageCursor = { source: number; skip: number };
 
 export type MigrationResult = {
   entities: MigrationEntityResult[];
   notes: string[];
   fatal: string | null;
+  next?: ImageCursor | null;
 };
 
-export type MigrationGroup = "reference" | "transactions";
+export type MigrationGroup = "reference" | "transactions" | "images";
 
 type Table =
   | "region"
@@ -61,7 +75,7 @@ type IdMaps = Record<Table, Map<string, string>> & {
 
 type Spec = {
   table: Table;
-  group: MigrationGroup;
+  group: Exclude<MigrationGroup, "images">;
   label: string;
   service: "masterdata" | "inspectionsetup" | "assetmanagement";
   collection: string;
@@ -300,9 +314,8 @@ const SPECS: Spec[] = [
   },
 
   // --- Transactions --------------------------------------------------------
-  // Images and files aren't exposed by the OData services, so they aren't
-  // migrated. Where a table's audit trigger stamps created_at itself
-  // (incidents, notes, services) the original creation time can't be kept.
+  // Where a table's audit trigger stamps created_at itself (incidents, notes,
+  // incident images, services) the original creation time can't be kept.
   {
     table: "instruction",
     group: "transactions",
@@ -460,6 +473,50 @@ const SPECS: Spec[] = [
   },
 ];
 
+type ImageTable = "incident_image" | "inspection_image";
+
+type ImageSpec = {
+  table: ImageTable;
+  label: string;
+  collection: string;
+  bucket: string;
+  // The feed's page rows, without Contents (base64, about 1.4 MB per image).
+  select: string;
+  // Tables whose source IDs `parent` needs.
+  parents: Table[];
+  // The row's link to its parent, or throws with the reason.
+  parent: (src: ODataRow, ids: IdMaps) => Row;
+};
+
+const IMAGE_SERVICE = "assetmanagement";
+
+const IMAGE_SPECS: ImageSpec[] = [
+  {
+    table: "incident_image",
+    label: "Incident images",
+    collection: "IncidentImages",
+    bucket: "incident-images",
+    select: "ID,HasContents,createdDate,owner,IncidentImage_Incident,IncidentImage_IncidentNote",
+    parents: ["incident", "incident_note"],
+    // On the incident or on one of its notes, never both (ICI-R02).
+    parent: (s, ids) => ({
+      incident_id: ref(ids, "incident", s.IncidentImage_Incident, "incident", false),
+      incident_note_id: ref(ids, "incident_note", s.IncidentImage_IncidentNote, "incident note", false),
+    }),
+  },
+  {
+    table: "inspection_image",
+    label: "Inspection images",
+    collection: "InspectionImages",
+    bucket: "inspection-images",
+    select: "ID,HasContents,createdDate,owner,InspectionImage_InspectionValue",
+    parents: ["inspection_value"],
+    parent: (s, ids) => ({
+      inspection_value_id: ref(ids, "inspection_value", s.InspectionImage_InspectionValue, "inspection value"),
+    }),
+  },
+];
+
 const PAGE = 1000; // PostgREST's default row cap per request
 const CHUNK = 500;
 const MAX_ERRORS = 10;
@@ -468,10 +525,16 @@ const MAX_ERRORS = 10;
 const MAX_FAILURES = 50;
 // Leave headroom under the route's maxDuration (300s).
 const TIME_BUDGET_MS = 270_000;
+// Short image runs, so progress shows often and a lost request costs little.
+const IMAGE_TIME_BUDGET_MS = 120_000;
+const IMAGE_REQUEST_TIMEOUT_MS = 45_000;
+// Simultaneous image copies; the legacy host starts dropping connections if
+// pushed much harder.
+const IMAGE_CONCURRENCY = 5;
 
 type Admin = ReturnType<typeof createAdminClient>;
 
-async function loadExisting(admin: Admin, table: Table, extra: string[]): Promise<Row[]> {
+async function loadExisting(admin: Admin, table: Table | ImageTable, extra: string[]): Promise<Row[]> {
   const columns = ["id", "odata_id", ...extra].join(", ");
   const out: Row[] = [];
   for (let from = 0; ; from += PAGE) {
@@ -577,6 +640,129 @@ class TimeoutError extends Error {
   }
 }
 
+// Same sizes and quality as browser uploads (lib/incidents/image-upload.ts), so
+// migrated photos behave like any other. `rotate` applies the EXIF orientation,
+// which re-encoding would otherwise lose.
+async function renderJpeg(input: Buffer, maxSide: number, quality: number): Promise<Buffer> {
+  // Imported here so a problem with the native module only affects this step,
+  // not every page that loads the settings actions.
+  const { default: sharp } = await import("sharp");
+  return sharp(input, { failOn: "error" })
+    .rotate()
+    .resize({ width: maxSide, height: maxSide, fit: "inside", withoutEnlargement: true })
+    .flatten({ background: "#ffffff" })
+    .jpeg({ quality })
+    .toBuffer();
+}
+
+// Files before the row, so a row never points at a missing file. The paths are
+// derived from the source ID and overwritten on retry, so a run that dies
+// between the two steps leaves nothing behind.
+async function copyImage(admin: Admin, spec: ImageSpec, src: ODataRow, parent: Row, ids: IdMaps): Promise<void> {
+  const sourceId = String(src.ID);
+  const { Contents: contents } = await fetchRow(
+    IMAGE_SERVICE,
+    spec.collection,
+    sourceId,
+    "Contents",
+    IMAGE_REQUEST_TIMEOUT_MS,
+  );
+  if (typeof contents !== "string" || !contents) throw new Error("the source returned no file");
+
+  const input = Buffer.from(contents, "base64");
+  const [full, thumb] = await Promise.all([renderJpeg(input, 1600, 82), renderJpeg(input, 400, 72)]);
+
+  const storagePath = `legacy/${sourceId}.jpg`;
+  const thumbnailPath = `legacy/${sourceId}_thumb.jpg`;
+  const storage = admin.storage.from(spec.bucket);
+  for (const [path, body] of [
+    [storagePath, full],
+    [thumbnailPath, thumb],
+  ] as const) {
+    const { error } = await storage.upload(path, body, { contentType: "image/jpeg", upsert: true });
+    if (error) throw new Error(`upload failed: ${error.message}`);
+  }
+
+  const { error } = await admin.from(spec.table).upsert(
+    {
+      ...base(src),
+      ...parent,
+      storage_path: storagePath,
+      thumbnail_path: thumbnailPath,
+      mime_type: "image/jpeg",
+      size_bytes: full.length,
+      created_by: user(ids, src.owner),
+    },
+    { onConflict: "odata_id" },
+  );
+  if (error) throw new Error(error.message);
+}
+
+// Copies images page by page from `skip` until the feed ends (returns null) or
+// time is up (returns the rows read so far, to resume from). Only the rows still
+// missing are downloaded, so re-reading migrated pages stays cheap.
+async function migrateImages(
+  admin: Admin,
+  spec: ImageSpec,
+  ids: IdMaps,
+  skip: number,
+  deadline: number,
+  result: MigrationEntityResult,
+): Promise<number | null> {
+  const fail = (sourceId: unknown, message: string) => {
+    result.failed++;
+    if (result.errors.length < MAX_ERRORS) result.errors.push(`#${sourceId}: ${message}`);
+  };
+
+  result.total = await fetchCount(IMAGE_SERVICE, spec.collection, IMAGE_REQUEST_TIMEOUT_MS);
+  const existing = new Set((await loadExisting(admin, spec.table, [])).map((r) => String(r.odata_id)));
+
+  // Counts failed copies only: a missing parent costs nothing to find, and is
+  // not a sign the rest of the run is doomed.
+  let copyFailures = 0;
+  for (let position = skip; Date.now() < deadline; ) {
+    const page = await fetchPage(IMAGE_SERVICE, spec.collection, spec.select, position, IMAGE_REQUEST_TIMEOUT_MS);
+    result.fetched += page.rows.length;
+
+    const queue: { src: ODataRow; parent: Row }[] = [];
+    for (const src of page.rows) {
+      if (existing.has(String(src.ID)) || !bool(src.HasContents)) {
+        result.skipped++;
+        continue;
+      }
+      try {
+        queue.push({ src, parent: spec.parent(src, ids) });
+      } catch (e) {
+        fail(src.ID, (e as Error).message);
+      }
+    }
+
+    let nextInQueue = 0;
+    await Promise.all(
+      Array.from({ length: IMAGE_CONCURRENCY }, async () => {
+        while (nextInQueue < queue.length) {
+          const { src, parent } = queue[nextInQueue++];
+          try {
+            await copyImage(admin, spec, src, parent, ids);
+            result.created++;
+          } catch (e) {
+            copyFailures++;
+            fail(src.ID, (e as Error).message);
+          }
+        }
+      }),
+    );
+    if (copyFailures >= MAX_FAILURES) {
+      throw new Error(`${spec.label}: stopped after ${copyFailures} failed copies. See the errors below.`);
+    }
+
+    if (page.done) return null;
+    position += page.rows.length;
+    if (Date.now() >= deadline) return position;
+  }
+  return skip;
+}
+
 // Source ID -> id for rows migrated earlier, for tables outside this run.
 async function preloadIds(admin: Admin, table: Table, ids: IdMaps) {
   for (const row of await loadExisting(admin, table, [])) {
@@ -621,14 +807,56 @@ async function loadAccounts(admin: Admin, ids: IdMaps, notes: string[]) {
   }
 }
 
-export async function runODataMigration(group: MigrationGroup): Promise<MigrationResult> {
-  const deadline = Date.now() + TIME_BUDGET_MS;
+// One image run, from `cursor` until the time budget runs out. `next` is null
+// once every source has been read to the end.
+export async function runODataImageMigration(cursor: ImageCursor): Promise<MigrationResult> {
+  const deadline = Date.now() + IMAGE_TIME_BUDGET_MS;
   const admin = createAdminClient();
-  const ids = {
+  const ids = newIdMaps();
+  const entities: MigrationEntityResult[] = [];
+  const notes: string[] = [];
+  try {
+    await loadAccounts(admin, ids, notes);
+    for (let source = cursor.source; source < IMAGE_SPECS.length; source++) {
+      const spec = IMAGE_SPECS[source];
+      for (const table of spec.parents) await preloadIds(admin, table, ids);
+      const result = emptyResult(spec.label);
+      entities.push(result);
+      const skip = source === cursor.source ? cursor.skip : 0;
+      const resume = await migrateImages(admin, spec, ids, skip, deadline, result);
+      if (resume !== null) return { entities, notes, fatal: null, next: { source, skip: resume } };
+      if (Date.now() >= deadline && source + 1 < IMAGE_SPECS.length) {
+        return { entities, notes, fatal: null, next: { source: source + 1, skip: 0 } };
+      }
+    }
+  } catch (e) {
+    return { entities, notes, fatal: (e as Error).message, next: null };
+  }
+  return { entities, notes, fatal: null, next: null };
+}
+
+const emptyResult = (label: string): MigrationEntityResult => ({
+  label,
+  fetched: 0,
+  created: 0,
+  updated: 0,
+  skipped: 0,
+  failed: 0,
+  errors: [],
+});
+
+function newIdMaps(): IdMaps {
+  return {
     ...Object.fromEntries(SPECS.map((s) => [s.table, new Map<string, string>()])),
     account: new Map(),
     timeZone: "UTC",
   } as IdMaps;
+}
+
+export async function runODataMigration(group: Exclude<MigrationGroup, "images">): Promise<MigrationResult> {
+  const deadline = Date.now() + TIME_BUDGET_MS;
+  const admin = createAdminClient();
+  const ids = newIdMaps();
   const entities: MigrationEntityResult[] = [];
   const notes: string[] = [];
   try {
@@ -639,7 +867,7 @@ export async function runODataMigration(group: MigrationGroup): Promise<Migratio
       await loadAccounts(admin, ids, notes);
     }
     for (const spec of SPECS.filter((s) => s.group === group)) {
-      const result = { label: spec.label, fetched: 0, created: 0, updated: 0, failed: 0, errors: [] };
+      const result = emptyResult(spec.label);
       entities.push(result);
       await migrateEntity(admin, spec, ids, deadline, result);
     }
