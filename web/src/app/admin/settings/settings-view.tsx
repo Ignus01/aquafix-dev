@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState, useTransition } from "react";
 import { formatDateTime } from "@/lib/incidents/format";
-import type { MigrationGroup, MigrationResult } from "@/lib/odata/migrate";
+import type { ImageCursor, MigrationGroup, MigrationResult } from "@/lib/odata/migrate";
 import type {
   BrevoKeyStatus,
   EmailLogRow,
@@ -614,27 +614,97 @@ function HydrusPasswordModal({ onClose, onSaved }: { onClose: () => void; onSave
 const MIGRATION_LABEL: Record<MigrationGroup, string> = {
   reference: "Reference data",
   transactions: "Transactions",
+  images: "Images",
 };
+
+const MIGRATION_CONFIRM: Record<MigrationGroup, string> = {
+  reference: "Migrate reference data from the legacy system? Existing migrated records are updated to match the source.",
+  transactions:
+    "Migrate transactions and their photos from the legacy system? Existing migrated records are updated to match the source. Copying the photos can take hours, and this page has to stay open.",
+  images:
+    "Copy photos from the legacy system? Photos already copied are skipped. This can take hours, and this page has to stay open.",
+};
+
+const IMAGE_RUN_RETRIES = 3;
+
+// Adds one image run to the running totals, entity by entity.
+function addRun(sofar: MigrationResult | null, run: MigrationResult): MigrationResult {
+  const entities = [...(sofar?.entities ?? [])];
+  for (const e of run.entities) {
+    const i = entities.findIndex((x) => x.label === e.label);
+    if (i < 0) {
+      entities.push(e);
+      continue;
+    }
+    const prev = entities[i];
+    entities[i] = {
+      ...e,
+      fetched: prev.fetched + e.fetched,
+      created: prev.created + e.created,
+      updated: prev.updated + e.updated,
+      skipped: prev.skipped + e.skipped,
+      failed: prev.failed + e.failed,
+      errors: [...prev.errors, ...e.errors].slice(0, 10),
+    };
+  }
+  return { ...run, entities, notes: [...new Set([...(sofar?.notes ?? []), ...run.notes])] };
+}
 
 // Pulls data from the legacy system's OData services. Create-or-update, so it
 // can be run repeatedly; nothing is ever deleted. Reference data first, since
-// transactions point at it.
+// transactions point at it, and images last, since they point at transactions.
 function DataMigration({ configured }: { configured: boolean }) {
   const [result, setResult] = useState<MigrationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [group, setGroup] = useState<MigrationGroup | null>(null);
+  const [copyingImages, setCopyingImages] = useState(false);
   const [isPending, startTransition] = useTransition();
 
+  // Images take many server calls, each picking up where the last stopped. A
+  // lost call (timeout, network blip) is retried from the same position.
+  async function copyImages(sofar: MigrationResult | null) {
+    setCopyingImages(true);
+    let totals = sofar;
+    let cursor: ImageCursor | null = { source: 0, skip: 0 };
+    let misses = 0;
+    while (cursor) {
+      let res: Awaited<ReturnType<typeof runDataMigration>>;
+      try {
+        res = await runDataMigration("images", cursor);
+        misses = 0;
+      } catch (e) {
+        if (++misses > IMAGE_RUN_RETRIES) throw e;
+        await new Promise((resolve) => setTimeout(resolve, 5_000));
+        continue;
+      }
+      if (res.result) {
+        totals = addRun(totals, res.result);
+        setResult(totals);
+      }
+      setError(res.error);
+      if (res.error) return;
+      cursor = res.result?.next ?? null;
+    }
+  }
+
   function run(target: MigrationGroup) {
-    if (!confirm(`Migrate ${MIGRATION_LABEL[target].toLowerCase()} from the legacy system? Existing migrated records are updated to match the source.`)) return;
+    if (!confirm(MIGRATION_CONFIRM[target])) return;
     setError(null);
     setResult(null);
     setGroup(target);
+    // Set out here: a state update at the start of the transition only shows
+    // once the whole transition ends, which for images is hours away.
+    setCopyingImages(target === "images");
     startTransition(async () => {
       try {
+        if (target === "images") {
+          await copyImages(null);
+          return;
+        }
         const res = await runDataMigration(target);
         setResult(res.result ?? null);
         setError(res.error);
+        if (target === "transactions" && !res.error) await copyImages(res.result ?? null);
       } catch {
         setError("The migration did not finish (the request may have timed out). Run it again — it picks up where it left off.");
       }
@@ -642,9 +712,17 @@ function DataMigration({ configured }: { configured: boolean }) {
   }
 
   const totals = result?.entities.reduce(
-    (t, e) => ({ created: t.created + e.created, updated: t.updated + e.updated, failed: t.failed + e.failed }),
-    { created: 0, updated: 0, failed: 0 },
+    (t, e) => ({
+      created: t.created + e.created,
+      updated: t.updated + e.updated,
+      skipped: t.skipped + e.skipped,
+      failed: t.failed + e.failed,
+    }),
+    { created: 0, updated: 0, skipped: 0, failed: 0 },
   );
+  const images = result?.entities.filter((e) => e.total !== undefined) ?? [];
+  const imagesChecked = images.reduce((n, e) => n + e.fetched, 0);
+  const imagesCopied = images.reduce((n, e) => n + e.created, 0);
 
   return (
     <section className="rounded-card border border-border bg-card">
@@ -653,7 +731,7 @@ function DataMigration({ configured }: { configured: boolean }) {
         <p className="mt-1 text-[13px] text-muted">
           Copies data from the legacy system. Records are matched on their legacy ID (or name / code for records
           created here), so you can run it as often as you like: existing records are updated, new ones are created,
-          nothing is deleted. Changes made here to migrated fields are overwritten by the legacy values.
+          nothing is deleted. Changes made here to migrated fields are overwritten by the legacy values. Photos are the exception: once copied they are left alone.
         </p>
         <ul className="mt-2 list-disc pl-5 text-[13px] text-muted">
           <li>
@@ -662,8 +740,12 @@ function DataMigration({ configured }: { configured: boolean }) {
           </li>
           <li>
             <span className="font-medium text-ink">Transactions</span> — instructions, inspection activities and values,
-            cumulative values, incidents and notes, services. Photos and files aren&apos;t available from the legacy
-            system and aren&apos;t copied.
+            cumulative values, incidents and notes, services, then the photos on incidents, notes and inspection
+            values. Run this after reference data.
+          </li>
+          <li>
+            <span className="font-medium text-ink">Photos only</span> — continues copying photos without migrating
+            the transactions again. Use it if the page was closed part-way, or to retry photos that failed.
           </li>
         </ul>
       </div>
@@ -674,15 +756,23 @@ function DataMigration({ configured }: { configured: boolean }) {
             The OData connection isn&apos;t configured. Set ODATA_BASE_URL, ODATA_USERNAME and ODATA_PASSWORD on the server.
           </p>
         )}
-        {isPending && group && (
+        {isPending && group && !copyingImages && (
           <NoticeLine notice={{ tone: "muted", text: `Migrating ${MIGRATION_LABEL[group].toLowerCase()}… this can take a few minutes.` }} />
         )}
+        {isPending && copyingImages && (
+          <NoticeLine
+            notice={{
+              tone: "muted",
+              text: `Copying photos… ${imagesChecked} of ${images.reduce((n, e) => n + (e.total ?? 0), 0) || "?"} checked, ${imagesCopied} copied so far. Keep this page open.`,
+            }}
+          />
+        )}
         {error && <NoticeLine notice={{ tone: "danger", text: error }} />}
-        {totals && group && (
+        {totals && group && !isPending && (
           <NoticeLine
             notice={{
               tone: totals.failed ? "danger" : "success",
-              text: `${MIGRATION_LABEL[group]}: ${totals.created} created, ${totals.updated} updated${totals.failed ? `, ${totals.failed} failed` : ""}.`,
+              text: `${MIGRATION_LABEL[group]}: ${totals.created} created, ${totals.updated} updated${totals.skipped ? `, ${totals.skipped} skipped` : ""}${totals.failed ? `, ${totals.failed} failed` : ""}.`,
             }}
           />
         )}
@@ -696,6 +786,7 @@ function DataMigration({ configured }: { configured: boolean }) {
                   <th className={tableHeadCellClass}>Found</th>
                   <th className={tableHeadCellClass}>Created</th>
                   <th className={tableHeadCellClass}>Updated</th>
+                  <th className={tableHeadCellClass}>Skipped</th>
                   <th className={tableHeadCellClass}>Failed</th>
                 </tr>
               </thead>
@@ -716,6 +807,7 @@ function DataMigration({ configured }: { configured: boolean }) {
                     <td className="px-3 py-2 font-mono text-[13px] text-muted">{e.fetched}</td>
                     <td className="px-3 py-2 font-mono text-[13px] text-muted">{e.created}</td>
                     <td className="px-3 py-2 font-mono text-[13px] text-muted">{e.updated}</td>
+                    <td className="px-3 py-2 font-mono text-[13px] text-muted">{e.skipped}</td>
                     <td className={`px-3 py-2 font-mono text-[13px] ${e.failed ? "text-danger" : "text-muted"}`}>{e.failed}</td>
                   </tr>
                 ))}
@@ -733,6 +825,14 @@ function DataMigration({ configured }: { configured: boolean }) {
           className={secondaryButtonClass}
         >
           {isPending && group === "reference" ? "Migrating…" : "Migrate reference data"}
+        </button>
+        <button
+          type="button"
+          disabled={isPending || !configured}
+          onClick={() => run("images")}
+          className={secondaryButtonClass}
+        >
+          {isPending && group === "images" ? "Copying…" : "Photos only"}
         </button>
         <button
           type="button"

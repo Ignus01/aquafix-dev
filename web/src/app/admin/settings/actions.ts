@@ -6,7 +6,13 @@ import { createClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth";
 import { friendlyError } from "@/lib/db-errors";
 import { odataConfigured } from "@/lib/odata/client";
-import { runODataMigration, type MigrationGroup, type MigrationResult } from "@/lib/odata/migrate";
+import {
+  runODataImageMigration,
+  runODataMigration,
+  type ImageCursor,
+  type MigrationGroup,
+  type MigrationResult,
+} from "@/lib/odata/migrate";
 import type {
   EmailLogRow,
   KeyCheckResult,
@@ -221,12 +227,26 @@ export async function sendTestEmail(): Promise<{ error: string | null; messageId
 // Legacy-system migration (Settings → Data migration). Create-or-update, so it
 // can be run as often as needed. Uses the service role: the legacy rows are
 // written on behalf of the system, not the signed-in user.
+//
+// Images take many calls: pass the `next` cursor of each result back in until
+// it is null. Only the first call for a group needs no cursor.
 export async function runDataMigration(
   group: MigrationGroup,
+  cursor?: ImageCursor,
 ): Promise<{ error: string | null; result?: MigrationResult }> {
   await requireSystemAdmin();
   if (!odataConfigured()) {
     return { error: "The OData connection isn't configured (ODATA_BASE_URL, ODATA_USERNAME, ODATA_PASSWORD)." };
+  }
+  if (group === "images") {
+    const source = Number(cursor?.source ?? 0);
+    const skip = Number(cursor?.skip ?? 0);
+    if (!Number.isInteger(source) || source < 0 || !Number.isInteger(skip) || skip < 0) {
+      return { error: "Invalid migration position." };
+    }
+    const result = await runODataImageMigration({ source, skip });
+    if (!result.next) revalidatePath("/admin", "layout");
+    return { error: result.fatal, result };
   }
   const result = await runODataMigration(group === "transactions" ? "transactions" : "reference");
   revalidatePath("/admin", "layout");
