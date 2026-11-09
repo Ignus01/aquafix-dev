@@ -38,8 +38,6 @@ type NavItem = {
 type NavSection = {
   label: string;
   items: NavItem[];
-  // Setup and Admin start folded: people open them far less than daily work.
-  defaultOpen: boolean;
   // Secondary sections sit at the bottom of the sidebar, under a divider.
   secondary?: boolean;
 };
@@ -63,7 +61,6 @@ function navSections(isSystemAdmin: boolean, canImportLabResults: boolean, canBi
   return [
     {
       label: "Work",
-      defaultOpen: true,
       items: [
         { href: "/admin/inspections", label: "Inspections", icon: ListChecksIcon },
         { href: "/admin/incidents", label: "Incidents", icon: AlertTriangleIcon },
@@ -72,7 +69,6 @@ function navSections(isSystemAdmin: boolean, canImportLabResults: boolean, canBi
     },
     {
       label: "Quality",
-      defaultOpen: true,
       items: [
         { href: QUALITY, label: "Lab Results", icon: FlaskIcon, isActive: isLabResults },
         ...(canImportLabResults
@@ -82,7 +78,6 @@ function navSections(isSystemAdmin: boolean, canImportLabResults: boolean, canBi
     },
     {
       label: "Stock",
-      defaultOpen: true,
       items: [
         { href: `${STOCK_MANAGER}?tab=purchase-orders`, label: "Orders", icon: ReceiptIcon, isActive: isOrders },
         {
@@ -98,14 +93,12 @@ function navSections(isSystemAdmin: boolean, canImportLabResults: boolean, canBi
       ? [
           {
             label: "Billing",
-            defaultOpen: true,
             items: [{ href: "/admin/billing", label: "Invoices", icon: ReceiptIcon }],
           },
         ]
       : []),
     {
       label: "Setup",
-      defaultOpen: false,
       secondary: true,
       items: [
         { href: "/admin/masterdata", label: "Master Files", icon: GridIcon },
@@ -118,7 +111,6 @@ function navSections(isSystemAdmin: boolean, canImportLabResults: boolean, canBi
       ? [
           {
             label: "Admin",
-            defaultOpen: false,
             secondary: true,
             items: [
               { href: "/admin/users", label: "User Management", icon: UsersIcon },
@@ -154,7 +146,8 @@ export function Sidebar({
   signOutAction: () => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
-  // Section label -> open/closed as the user last left it. Shared by the
+  // Section label -> open/closed as the user last left it; sections start
+  // folded, except the one holding the current page. Shared by the
   // desktop sidebar and the phone drawer, and kept in a cookie.
   const [groups, setGroups] = useState<NavGroupState>(initialGroups);
   const setGroup = (label: string, isOpen: boolean) =>
@@ -269,7 +262,7 @@ function SidebarContent({
 
   const renderSection = (section: NavSection) => {
     const hasActive = section.items.some(isActive);
-    const isOpen = hasActive ? foldedOn[section.label] !== pathname : (groups[section.label] ?? section.defaultOpen);
+    const isOpen = hasActive ? foldedOn[section.label] !== pathname : (groups[section.label] ?? false);
     const id = `nav-${section.label.replace(/\s+/g, "-").toLowerCase()}`;
     const toggle = () => {
       if (hasActive) {
