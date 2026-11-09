@@ -13,7 +13,11 @@ import type {
   Grading,
   Asset,
 } from "@/lib/masterdata/types";
-import { ASSET_CLASSIFICATION_OPTIONS, LOGGER_TYPE_OPTIONS } from "@/lib/masterdata/types";
+import {
+  ASSET_CLASSIFICATION_OPTIONS,
+  LOGGER_TYPE_OPTIONS,
+  assetClassificationLabel,
+} from "@/lib/masterdata/types";
 import { BandEditor, TargetInput } from "./target-bands";
 import type { Inspection } from "@/lib/inspection-setup/types";
 import { canInspectionSetup } from "@/lib/inspection-setup/permissions";
@@ -256,6 +260,7 @@ export function MasterdataTabs({
                     defaultValue: "OTHER",
                     options: ASSET_CLASSIFICATION_OPTIONS,
                     filter: true,
+                    render: (v) => assetClassificationLabel(v),
                   },
                   activeField,
                 ] satisfies FieldConfig[]
