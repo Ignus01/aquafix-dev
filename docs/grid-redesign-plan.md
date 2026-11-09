@@ -3,6 +3,20 @@
 Handoff brief for a Claude Code session. Read this whole file before writing code.
 Visual reference (wireframes, measurements): https://claude.ai/artifact/HWgzDNjoQais7XwQXvQR5N
 
+## Status (10 Nov 2026)
+
+Phases 0–2 are done on branch `claude/grid-redesign-impl-83bd8b` (not merged or pushed, no `db push`). Phases 3–4 are still open.
+Measured on the local stack (31,920 values, 11,147 activities, 3,623 instructions) in `next dev`, warm:
+every Inspections tab answers in 160–300 ms, with 110–140 KB of HTML for 50 rows (85 KB for 20).
+
+Where the implementation differs from the plan below:
+- The name function is `public.grid_user_name(uuid)`. `public.user_display_name` already exists for the services trigger, which relies on it returning null.
+- Counts are exact everywhere. With the RLS InitPlan fix, an exact count of all values takes about 7 ms, while PostgREST's estimate undercounts by half for every RLS-protected join (it showed 7,981 for 31,920 rows). `GridSpec.estimateCount` is kept for Logger readings (phase 3).
+- `inspection_value` has no `updated_by`, so Changed by on Values is the activity's last editor.
+- "New instruction" and "New schedule" are pages (`/instructions/new`, `/schedules/new`), so the grids no longer load every asset for the editor.
+- Activities keep their existing capture edit route (IAC-R06). The ID opens the activity page, which offers Edit when allowed.
+- 0.4 was checked locally with `explain analyze` under RLS (Values page 3 ms, filtered count 4 ms). It has not been run against production yet.
+
 ## Goal
 
 Every list in the back office (`web/src/app/admin/**`) uses **one** grid component that looks and behaves the same:
@@ -128,32 +142,32 @@ Each task is one commit. Check boxes as you go.
 
 ### Phase 0: database quick fixes (fixes both timeouts)
 
-- [ ] **0.1 Migration `…_grid_perf_indexes.sql`:** `inspection_value (created_at desc, id)`, `inspection_activity (inspection_date desc, id)`, and `(updated_at desc, id)` on instruction, inspection_activity, inspection_value, inspection_cumulative_value, scheduled_instruction, incident, service. (`logger_reading` has no `updated_at` and already has `(reading_at desc)`; its grid sorts by `reading_at`, and Changed/Changed by are omitted there as a recorded exception.)
-- [ ] **0.2 Migration `…_rls_initplan.sql`:** recreate the select (and other) policies that call a role function per row so they use `(select public.fn(...))`. Find them with `grep -n "using (public\." supabase/migrations/*.sql`; they are in inspections_rls, incidents_rls, services, stock_manager, lab_quality and logger_data. Keep the semantics identical; `supabase test db` must still pass.
-- [ ] **0.3 Logger readings count:** in `web/src/lib/logger-data/readings.ts`, use `estimated` when no asset or date filter is set, `exact` otherwise. Show "about N" in the pager.
+- [x] **0.1 Migration `…_grid_perf_indexes.sql`:** `inspection_value (created_at desc, id)`, `inspection_activity (inspection_date desc, id)`, and `(updated_at desc, id)` on instruction, inspection_activity, inspection_value, inspection_cumulative_value, scheduled_instruction, incident, service. (`logger_reading` has no `updated_at` and already has `(reading_at desc)`; its grid sorts by `reading_at`, and Changed/Changed by are omitted there as a recorded exception.)
+- [x] **0.2 Migration `…_rls_initplan.sql`:** recreate the select (and other) policies that call a role function per row so they use `(select public.fn(...))`. Find them with `grep -n "using (public\." supabase/migrations/*.sql`; they are in inspections_rls, incidents_rls, services, stock_manager, lab_quality and logger_data. Keep the semantics identical; `supabase test db` must still pass.
+- [x] **0.3 Logger readings count:** in `web/src/lib/logger-data/readings.ts`, use `estimated` when no asset or date filter is set, `exact` otherwise. Show "about N" in the pager.
 - [ ] **0.4 Verify:** `explain analyze` the Values query read-only against prod before and after (locally after migration). Values and Logger data must load without error locally against hosted data once the migration is applied. Report timings to the user; they decide on `db push`.
 
 ### Phase 1: grid foundations, with Instructions as the pilot
 
-- [ ] **1.1** `lib/grid/types.ts`, `params.ts` (+ unit-level sanity check through a tiny script or test), `client-filter.ts`.
-- [ ] **1.2** `lib/grid/query.ts` (`gridQuery`, count mode) and `registry.ts`.
-- [ ] **1.3** `admin/grid/use-grid-params.ts`, `filters.tsx` (text, choice popover, date range with Today / Last 7 days / This month / Last month / Overdue presets, number).
-- [ ] **1.4** `admin/grid/row-menu.tsx` + `confirm.tsx`: a button with `aria-haspopup="menu"`, arrow keys, Esc returns focus to the button, items hidden by role, Delete always last with a confirmation step. The menu is portalled or `position: fixed` so it isn't clipped by the scroll container or covered by sticky cells.
-- [ ] **1.5** `admin/grid/grid.tsx` + `columns.tsx`: toolbar (title · count, filter chips, Clear all, Columns menu, Export, one primary action), sticky header and first column, filter row, footer with range, total, size selector and pager. Loading, no-match and empty states as in the wireframe.
-- [ ] **1.6** SQL: `user_display_name()` and view `instruction_grid` (uid, name, comment, account_id, account_name, nr_completed, nr_of_allocations, status, required_completed_date, is_scheduled, changed_at, changed_by, changed_by_name). Add pgTAP checks that a viewer sees the same rows through the view as through the table.
-- [ ] **1.7** Switch Inspections → Instructions to `<Grid mode="server">`: `listInstructions` becomes `gridQuery`. Header button: keep a single primary "New instruction" (remove the duplicate). Row menu: View, Edit, Report, Copy link, Delete.
-- [ ] **1.8** Edit route `/admin/inspections/instructions/[uid]/edit`: split `instruction-editor.tsx` into a form component plus the existing drawer wrapper, and render the form on the page. The ID link goes to `/edit` for admins and to the view page otherwise.
-- [ ] **1.9** Export route working for `instructions`.
+- [x] **1.1** `lib/grid/types.ts`, `params.ts` (+ unit-level sanity check through a tiny script or test), `client-filter.ts`.
+- [x] **1.2** `lib/grid/query.ts` (`gridQuery`, count mode) and `registry.ts`.
+- [x] **1.3** `admin/grid/use-grid-params.ts`, `filters.tsx` (text, choice popover, date range with Today / Last 7 days / This month / Last month / Overdue presets, number).
+- [x] **1.4** `admin/grid/row-menu.tsx` + `confirm.tsx`: a button with `aria-haspopup="menu"`, arrow keys, Esc returns focus to the button, items hidden by role, Delete always last with a confirmation step. The menu is portalled or `position: fixed` so it isn't clipped by the scroll container or covered by sticky cells.
+- [x] **1.5** `admin/grid/grid.tsx` + `columns.tsx`: toolbar (title · count, filter chips, Clear all, Columns menu, Export, one primary action), sticky header and first column, filter row, footer with range, total, size selector and pager. Loading, no-match and empty states as in the wireframe.
+- [x] **1.6** SQL: `user_display_name()` and view `instruction_grid` (uid, name, comment, account_id, account_name, nr_completed, nr_of_allocations, status, required_completed_date, is_scheduled, changed_at, changed_by, changed_by_name). Add pgTAP checks that a viewer sees the same rows through the view as through the table.
+- [x] **1.7** Switch Inspections → Instructions to `<Grid mode="server">`: `listInstructions` becomes `gridQuery`. Header button: keep a single primary "New instruction" (remove the duplicate). Row menu: View, Edit, Report, Copy link, Delete.
+- [x] **1.8** Edit route `/admin/inspections/instructions/[uid]/edit`: split `instruction-editor.tsx` into a form component plus the existing drawer wrapper, and render the form on the page. The ID link goes to `/edit` for admins and to the view page otherwise.
+- [x] **1.9** Export route working for `instructions`.
 
 Phase 1 is done when Instructions loads in under 1 s on production data in `next dev` (baseline 4.6–8.4 s), sends less than 100 KB of HTML (baseline 1.27 MB), filters, sort and page survive refresh and Back, and the export matches the filtered row count.
 
 ### Phase 2: the rest of Inspections (server mode)
 
-- [ ] **2.1** Activities: view `inspection_activity_grid`, grid, row menu (View, Edit, Delete), and an edit route if only the drawer exists.
-- [ ] **2.2** Values: view `inspection_value_grid` (asset/type/location/inspection names, grading, image count as a subquery), grid, and an edit route replacing the edit drawer.
-- [ ] **2.3** Cumulative values: view, grid, and an edit route.
-- [ ] **2.4** Scheduled: view, grid, and an edit route for schedules. Keep the "schedule runs" panel as is.
-- [ ] **2.5** Remove the `selectAll` list loaders these tabs no longer use. Keep `selectAll` for pickers.
+- [x] **2.1** Activities: view `inspection_activity_grid`, grid, row menu (View, Edit, Delete), and an edit route if only the drawer exists.
+- [x] **2.2** Values: view `inspection_value_grid` (asset/type/location/inspection names, grading, image count as a subquery), grid, and an edit route replacing the edit drawer.
+- [x] **2.3** Cumulative values: view, grid, and an edit route.
+- [x] **2.4** Scheduled: view, grid, and an edit route for schedules. Keep the "schedule runs" panel as is.
+- [x] **2.5** Remove the `selectAll` list loaders these tabs no longer use. Keep `selectAll` for pickers.
 
 Phase 2 is done when every back-office Inspections tab loads in under 1 s and sends less than 100 KB. Values and Activities are the main proof.
 
