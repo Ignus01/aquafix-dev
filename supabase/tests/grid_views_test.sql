@@ -68,6 +68,62 @@ select pg_temp.act_as('10000000-0000-0000-9d1d-000000000004');
 select is((select count(*)::integer from public.instruction_grid), 0, 'a caller without a role sees nothing');
 select is(public.grid_user_name('10000000-0000-0000-9d1d-000000000002'), null, 'and no names');
 
+-- ============================================================================
+-- The other Inspections grids: same rows as their tables, for a viewer and
+-- for a caller without a role (nothing).
+-- ============================================================================
+reset role;
+insert into public.colour_container (id, name, hex_colour) values ('c0000000-0000-0000-9d1d-000000000001', 'G-Any', '#000');
+insert into public.grading (id, name, priority, colour_container_id)
+values ('a4000000-0000-0000-9d1d-000000000001', 'G-Good', 1, 'c0000000-0000-0000-9d1d-000000000001');
+insert into public.region (id, name) values ('a0000000-0000-0000-9d1d-000000000001', 'G-North');
+insert into public.organisation (id, name) values ('a1000000-0000-0000-9d1d-000000000001', 'G-ORG');
+insert into public.location (id, name, region_id, organisation_id)
+values ('a2000000-0000-0000-9d1d-000000000001', 'G-Plant', 'a0000000-0000-0000-9d1d-000000000001', 'a1000000-0000-0000-9d1d-000000000001');
+insert into public.asset_type (id, name) values ('a3000000-0000-0000-9d1d-000000000001', 'G-Pump');
+insert into public.asset (id, name, code, asset_type_id, location_id)
+values ('30000000-0000-0000-9d1d-000000000001', 'G-Pump 1', 'G-P1', 'a3000000-0000-0000-9d1d-000000000001', 'a2000000-0000-0000-9d1d-000000000001');
+insert into public.inspection (id, name, value_type, is_required, nr_of_images_required)
+values ('40000000-0000-0000-9d1d-000000000001', 'G-Meter', 'CUMULATIVE_VALUE', true, 0);
+insert into public.inspection_activity (id, asset_id, instruction_id, grading_id, created_by)
+values ('50000000-0000-0000-9d1d-000000000001', '30000000-0000-0000-9d1d-000000000001',
+        '20000000-0000-0000-9d1d-000000000001', 'a4000000-0000-0000-9d1d-000000000001', '10000000-0000-0000-9d1d-000000000001');
+insert into public.inspection_value (id, inspection_activity_id, inspection_id, decimal_value, display_value)
+values ('60000000-0000-0000-9d1d-000000000001', '50000000-0000-0000-9d1d-000000000001', '40000000-0000-0000-9d1d-000000000001', 7, '7');
+insert into public.inspection_cumulative_value (id, inspection_id, asset_id, latest_value)
+values ('70000000-0000-0000-9d1d-000000000001', '40000000-0000-0000-9d1d-000000000001', '30000000-0000-0000-9d1d-000000000001', 7);
+insert into public.scheduled_instruction (id, name, schedule_type, account_id)
+values ('80000000-0000-0000-9d1d-000000000001', 'G-Daily', 'daily', '10000000-0000-0000-9d1d-000000000001');
+
+set local role authenticated;
+select pg_temp.act_as('10000000-0000-0000-9d1d-000000000003');
+select set_eq('select id from public.inspection_activity_grid', 'select id from public.inspection_activity',
+  'activities: the view shows the table''s rows');
+select set_eq('select id from public.inspection_value_grid', 'select id from public.inspection_value',
+  'values: the view shows the table''s rows');
+select set_eq('select id from public.inspection_cumulative_value_grid', 'select id from public.inspection_cumulative_value',
+  'cumulative values: the view shows the table''s rows');
+select set_eq('select id from public.scheduled_instruction_grid', 'select id from public.scheduled_instruction',
+  'scheduled instructions: the view shows the table''s rows');
+select results_eq(
+  $$select asset_name, location_name, instruction_name, grading_name, inspected_by_name
+    from public.inspection_activity_grid where id = '50000000-0000-0000-9d1d-000000000001'$$,
+  $$values ('G-Pump 1', 'G-Plant', 'G-Field round', 'G-Good', 'g-field')$$,
+  'an activity row carries its names');
+select results_eq(
+  $$select activity_uid is not null, inspection_name, image_count from public.inspection_value_grid
+    where id = '60000000-0000-0000-9d1d-000000000001'$$,
+  $$values (true, 'G-Meter', 0)$$,
+  'a value row carries its activity, inspection and image count');
+select is((select asset_count from public.scheduled_instruction_grid where id = '80000000-0000-0000-9d1d-000000000001'),
+  0, 'a schedule row counts its assets');
+
+select pg_temp.act_as('10000000-0000-0000-9d1d-000000000004');
+select is((select count(*)::integer from public.inspection_activity_grid), 0, 'no role: no activities');
+select is((select count(*)::integer from public.inspection_value_grid), 0, 'no role: no values');
+select is((select count(*)::integer from public.inspection_cumulative_value_grid), 0, 'no role: no cumulative values');
+select is((select count(*)::integer from public.scheduled_instruction_grid), 0, 'no role: no schedules');
+
 reset role;
 
 select * from finish();
