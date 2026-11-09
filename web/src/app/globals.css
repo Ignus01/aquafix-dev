@@ -35,3 +35,85 @@ body {
   background: var(--color-page);
   color: var(--color-ink);
 }
+
+/* The grid's thin loading bar (admin/grid/grid.tsx). */
+@keyframes grid-progress {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(300%);
+  }
+}
+
+/* Grid body cells (admin/grid/grid.tsx). Styled here rather than with
+   utility classes on every cell: a 50-row page repeats them ~500 times. */
+.grid-table td {
+  border-bottom: 1px solid var(--color-border);
+  padding: 0.5rem 0.75rem;
+  white-space: nowrap;
+  color: var(--color-ink);
+  transition: background-color 0.15s;
+}
+.grid-table td.wrap {
+  white-space: normal;
+}
+.grid-table td.num {
+  text-align: right;
+}
+.grid-table tr:hover td {
+  background: var(--color-row-hover);
+}
+.grid-table td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--color-card);
+  padding-left: 1rem;
+  padding-right: 0.5rem;
+}
+.grid-table tr:hover td:first-child {
+  background: var(--color-row-hover);
+}
+.grid-id-cell {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+.grid-id {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-primary);
+}
+.grid-id:hover {
+  color: var(--color-primary-hover);
+}
+/* The ⋯ row menu button: on row hover, keyboard focus, and always on touch. */
+.grid-row-menu {
+  display: flex;
+  height: 1.5rem;
+  width: 1.5rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-control);
+  color: var(--color-muted);
+  opacity: 0;
+  transition: opacity 0.15s, background-color 0.15s;
+}
+.grid-table tr:hover .grid-row-menu,
+.grid-table tr:focus-within .grid-row-menu,
+.grid-row-menu[aria-expanded="true"] {
+  opacity: 1;
+}
+.grid-row-menu:hover,
+.grid-row-menu[aria-expanded="true"] {
+  background: rgb(0 0 0 / 0.06);
+  color: var(--color-ink);
+}
+@media (hover: none) {
+  .grid-row-menu {
+    opacity: 1;
+  }
+}
