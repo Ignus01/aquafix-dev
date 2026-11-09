@@ -53,7 +53,7 @@ const isLabResults = ({ pathname }: Loc) => pathname === QUALITY || under(pathna
 
 // Grouped as in the Mendix app's menu, so its users find things where they
 // expect them.
-function navSections(isSystemAdmin: boolean, canImportLabResults: boolean): NavSection[] {
+function navSections(isSystemAdmin: boolean, canImportLabResults: boolean, canBill: boolean): NavSection[] {
   return [
     {
       label: "Master Data",
@@ -92,6 +92,9 @@ function navSections(isSystemAdmin: boolean, canImportLabResults: boolean): NavS
         { href: `${STOCK_MANAGER}?tab=summary`, label: "Summary", icon: BarChartIcon, isActive: isSummary },
       ],
     },
+    ...(canBill
+      ? [{ label: "Billing", items: [{ href: "/admin/billing", label: "Invoices", icon: ReceiptIcon }] }]
+      : []),
     ...(isSystemAdmin
       ? [
           {
@@ -113,11 +116,13 @@ export function Sidebar({
   email,
   isSystemAdmin,
   canImportLabResults,
+  canBill,
   signOutAction,
 }: {
   email: string | null;
   isSystemAdmin: boolean;
   canImportLabResults: boolean;
+  canBill: boolean;
   signOutAction: () => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
@@ -141,6 +146,7 @@ export function Sidebar({
           email={email}
           isSystemAdmin={isSystemAdmin}
           canImportLabResults={canImportLabResults}
+          canBill={canBill}
           signOutAction={signOutAction}
         />
       </aside>
@@ -161,6 +167,7 @@ export function Sidebar({
               email={email}
               isSystemAdmin={isSystemAdmin}
               canImportLabResults={canImportLabResults}
+          canBill={canBill}
               signOutAction={signOutAction}
               onNavigate={() => setOpen(false)}
             />
@@ -200,12 +207,14 @@ function SidebarContent({
   email,
   isSystemAdmin,
   canImportLabResults,
+  canBill,
   signOutAction,
   onNavigate,
 }: {
   email: string | null;
   isSystemAdmin: boolean;
   canImportLabResults: boolean;
+  canBill: boolean;
   signOutAction: () => Promise<void>;
   onNavigate?: () => void;
 }) {
@@ -217,7 +226,7 @@ function SidebarContent({
   // a collapsed section opens it again, so the current page is never hidden.
   const [collapsed, setCollapsed] = useState<Record<string, string>>({});
 
-  const sections = navSections(isSystemAdmin, canImportLabResults);
+  const sections = navSections(isSystemAdmin, canImportLabResults, canBill);
 
   return (
     <>

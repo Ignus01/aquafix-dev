@@ -1,6 +1,6 @@
 import { addDays, formatDay } from "@/lib/dashboard/format";
-import type { Bucket, WaterMeter } from "@/lib/dashboard/types";
-import type { MeterType, TargetBand, TargetBandColour } from "@/lib/masterdata/types";
+import type { Bucket, MeterType, WaterMeter } from "@/lib/dashboard/types";
+import type { TargetBand, TargetBandColour } from "@/lib/masterdata/types";
 
 // Figures shared by the Water usage tab's cards, charts and table, and the
 // Location form's target bands.

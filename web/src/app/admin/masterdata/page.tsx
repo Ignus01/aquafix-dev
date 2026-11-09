@@ -10,10 +10,14 @@ import {
   listAssets,
 } from "./actions";
 import { listInspections } from "../inspection-setup/actions";
-import { MasterdataTabs } from "./tabs-client";
+import { MasterdataTabs, type TabKey } from "./tabs-client";
 
-export default async function MasterdataPage() {
+const TAB_KEYS: TabKey[] = ["asset", "asset_type", "location", "organisation", "region", "grading"];
+
+export default async function MasterdataPage(props: PageProps<"/admin/masterdata">) {
   const roles = await requireRole(["system_admin", "admin", "user", "viewer"]);
+  const { tab: tabParam } = await props.searchParams;
+  const initialTab = TAB_KEYS.find((t) => t === tabParam);
 
   const [
     regions,
@@ -48,6 +52,7 @@ export default async function MasterdataPage() {
         gradings={gradings}
         assets={assets}
         inspections={inspections}
+        initialTab={initialTab}
       />
     </div>
   );
