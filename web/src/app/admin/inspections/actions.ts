@@ -6,6 +6,9 @@ import { createClient } from "@/lib/supabase/server";
 import { selectAll } from "@/lib/supabase/select-all";
 import { getCurrentUser, requireRole } from "@/lib/auth";
 import { friendlyError } from "@/lib/db-errors";
+import { gridQuery } from "@/lib/grid/query";
+import { instructionsGrid, type InstructionGridRow } from "@/lib/grid/specs/instructions";
+import type { ChoiceOption, GridParams, GridResult } from "@/lib/grid/types";
 import type { IncidentImage } from "@/lib/incidents/types";
 import { startOfTodayIso, todayInZone } from "@/lib/inspections/dates";
 import {
@@ -184,15 +187,21 @@ async function withAccountNames(supabase: SupabaseClient, rows: RawInstruction[]
   return rows.map((r) => ({ ...r, account_name: r.account_id ? (names.get(r.account_id) ?? null) : null }));
 }
 
-// Inspection_Overview → Instructions → Instructions (newest first).
-export async function listInstructions(): Promise<InstructionListRow[]> {
+// Inspection_Overview → Instructions → Instructions: one page of
+// instruction_grid with the URL's filters and sort (was: every row).
+export async function listInstructionGrid(
+  params: GridParams,
+  timeZone: string,
+): Promise<GridResult<InstructionGridRow>> {
   await requireRole(INSPECTION_BACK_OFFICE);
   const supabase = await createClient();
-  const data = await selectAll(
-    () => supabase.from("instruction").select(INSTRUCTION_COLUMNS).order("legacy_uid", { ascending: false }).order("id"),
-    { parallel: PARALLEL_PAGES },
-  );
-  return withAccountNames(supabase, data as unknown as RawInstruction[]);
+  return gridQuery<InstructionGridRow>(supabase, instructionsGrid, params, { timeZone });
+}
+
+// The users, as choice-filter options (Assigned to, Changed by).
+export async function listUserOptions(): Promise<ChoiceOption[]> {
+  const accounts = await listAccounts();
+  return accounts.map((a) => ({ value: a.id, label: a.username }));
 }
 
 // INS-R07 Instruction_Overview: my open instructions, by due date.
