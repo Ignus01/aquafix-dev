@@ -16,7 +16,7 @@ export default async function ImportPage(props: PageProps<"/admin/quality/import
 
   return (
     <div className="flex flex-1 flex-col">
-      <PageHeader breadcrumb="Quality / Import" title="Import lab results" />
+      <PageHeader breadcrumb="Quality / Import Lab Results" title="Import lab results" />
       <ImportWizard
         // A fresh wizard per set of staged imports.
         key={importIds.join(",")}

@@ -12,7 +12,7 @@ export default async function NewIncidentPage() {
 
   return (
     <div className="flex flex-1 flex-col">
-      <PageHeader breadcrumb="Asset Management / Incidents" title="New incident" />
+      <PageHeader breadcrumb="Work / Incidents" title="New incident" />
       <IncidentForm incident={null} types={types} locations={locations} />
     </div>
   );

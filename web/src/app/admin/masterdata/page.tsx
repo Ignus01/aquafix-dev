@@ -41,7 +41,7 @@ export default async function MasterdataPage(props: PageProps<"/admin/masterdata
 
   return (
     <div className="flex flex-1 flex-col">
-      <PageHeader breadcrumb="Master Data / Master Files" title="Master Files" />
+      <PageHeader breadcrumb="Setup / Master Files" title="Master Files" />
       <MasterdataTabs
         roles={roles}
         regions={regions}

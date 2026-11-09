@@ -21,7 +21,7 @@ export default async function ParametersPage() {
 
   return (
     <div className="flex flex-1 flex-col">
-      <PageHeader breadcrumb="Quality / Parameters" title="Parameters" />
+      <PageHeader breadcrumb="Setup / Quality Parameters" title="Quality Parameters" />
       <ParametersTabs
         canEdit={isQualityAdmin(roles)}
         parameters={parameters}

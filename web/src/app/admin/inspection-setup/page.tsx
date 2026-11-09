@@ -28,7 +28,7 @@ export default async function InspectionSetupPage() {
 
   return (
     <div className="flex flex-1 flex-col">
-      <PageHeader breadcrumb="Master Data / Inspection Setup" title="Inspection Setup" />
+      <PageHeader breadcrumb="Setup / Inspection Setup" title="Inspection Setup" />
       <InspectionSetupTabs
         roles={roles}
         inspections={inspections}

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useState } from "react";
+import { NAV_COOKIE, type NavGroupState } from "./nav-state";
 import {
   ActivityIcon,
   AlertTriangleIcon,
@@ -34,14 +35,20 @@ type NavItem = {
   // Defaults to the href's page and everything under it.
   isActive?: (loc: Loc) => boolean;
 };
-type NavSection = { label: string; items: NavItem[] };
+type NavSection = {
+  label: string;
+  items: NavItem[];
+  // Setup and Admin start folded: people open them far less than daily work.
+  defaultOpen: boolean;
+  // Secondary sections sit at the bottom of the sidebar, under a divider.
+  secondary?: boolean;
+};
 
 const STOCK_MANAGER = "/admin/stock-manager";
 const under = (pathname: string, href: string) => pathname === href || pathname.startsWith(`${href}/`);
 
-// The Stock Manager is one page of tabs; the Stock group splits it the way
-// the Mendix menu did: Orders, Summary, and Movements for every other document
-// and the ledger.
+// The Stock Manager is one page of tabs; the Stock group splits it into
+// Orders, Stock Summary, and Movements for every other document and the ledger.
 const isOrders = ({ pathname, tab }: Loc) =>
   (pathname === STOCK_MANAGER && tab === "purchase-orders") || under(pathname, `${STOCK_MANAGER}/purchase-orders`);
 const isSummary = ({ pathname, tab }: Loc) => pathname === STOCK_MANAGER && (tab ?? "summary") === "summary";
@@ -51,20 +58,12 @@ const isSummary = ({ pathname, tab }: Loc) => pathname === STOCK_MANAGER && (tab
 const QUALITY = "/admin/quality";
 const isLabResults = ({ pathname }: Loc) => pathname === QUALITY || under(pathname, `${QUALITY}/samples`);
 
-// Grouped as in the Mendix app's menu, so its users find things where they
-// expect them.
+// Daily work first; configuration and administration folded at the bottom.
 function navSections(isSystemAdmin: boolean, canImportLabResults: boolean, canBill: boolean): NavSection[] {
   return [
     {
-      label: "Master Data",
-      items: [
-        { href: "/admin/masterdata", label: "Master Files", icon: GridIcon },
-        { href: "/admin/stock", label: "Stock Master Files", icon: PackageIcon },
-        { href: "/admin/inspection-setup", label: "Inspection Setup", icon: ClipboardCheckIcon },
-      ],
-    },
-    {
-      label: "Asset Management",
+      label: "Work",
+      defaultOpen: true,
       items: [
         { href: "/admin/inspections", label: "Inspections", icon: ListChecksIcon },
         { href: "/admin/incidents", label: "Incidents", icon: AlertTriangleIcon },
@@ -73,14 +72,17 @@ function navSections(isSystemAdmin: boolean, canImportLabResults: boolean, canBi
     },
     {
       label: "Quality",
+      defaultOpen: true,
       items: [
         { href: QUALITY, label: "Lab Results", icon: FlaskIcon, isActive: isLabResults },
-        ...(canImportLabResults ? [{ href: `${QUALITY}/import`, label: "Import", icon: UploadIcon }] : []),
-        { href: `${QUALITY}/parameters`, label: "Parameters", icon: SlidersIcon },
+        ...(canImportLabResults
+          ? [{ href: `${QUALITY}/import`, label: "Import Lab Results", icon: UploadIcon }]
+          : []),
       ],
     },
     {
       label: "Stock",
+      defaultOpen: true,
       items: [
         { href: `${STOCK_MANAGER}?tab=purchase-orders`, label: "Orders", icon: ReceiptIcon, isActive: isOrders },
         {
@@ -89,16 +91,35 @@ function navSections(isSystemAdmin: boolean, canImportLabResults: boolean, canBi
           icon: TransferIcon,
           isActive: (loc) => under(loc.pathname, STOCK_MANAGER) && !isOrders(loc) && !isSummary(loc),
         },
-        { href: `${STOCK_MANAGER}?tab=summary`, label: "Summary", icon: BarChartIcon, isActive: isSummary },
+        { href: `${STOCK_MANAGER}?tab=summary`, label: "Stock Summary", icon: BarChartIcon, isActive: isSummary },
       ],
     },
     ...(canBill
-      ? [{ label: "Billing", items: [{ href: "/admin/billing", label: "Invoices", icon: ReceiptIcon }] }]
+      ? [
+          {
+            label: "Billing",
+            defaultOpen: true,
+            items: [{ href: "/admin/billing", label: "Invoices", icon: ReceiptIcon }],
+          },
+        ]
       : []),
+    {
+      label: "Setup",
+      defaultOpen: false,
+      secondary: true,
+      items: [
+        { href: "/admin/masterdata", label: "Master Files", icon: GridIcon },
+        { href: "/admin/stock", label: "Stock Master Files", icon: PackageIcon },
+        { href: "/admin/inspection-setup", label: "Inspection Setup", icon: ClipboardCheckIcon },
+        { href: `${QUALITY}/parameters`, label: "Quality Parameters", icon: SlidersIcon },
+      ],
+    },
     ...(isSystemAdmin
       ? [
           {
             label: "Admin",
+            defaultOpen: false,
+            secondary: true,
             items: [
               { href: "/admin/users", label: "User Management", icon: UsersIcon },
               { href: "/admin/logger-data", label: "Logger Data", icon: ActivityIcon },
@@ -110,6 +131,11 @@ function navSections(isSystemAdmin: boolean, canImportLabResults: boolean, canBi
   ];
 }
 
+function saveGroups(groups: NavGroupState) {
+  // A year; read back by the admin layout so the server renders the same groups.
+  document.cookie = `${NAV_COOKIE}=${encodeURIComponent(JSON.stringify(groups))}; path=/; max-age=31536000; samesite=lax`;
+}
+
 // Desktop: a fixed sidebar. Phones (field users logging incidents): a top bar
 // with a menu button that slides the same sidebar in.
 export function Sidebar({
@@ -117,15 +143,36 @@ export function Sidebar({
   isSystemAdmin,
   canImportLabResults,
   canBill,
+  initialGroups,
   signOutAction,
 }: {
   email: string | null;
   isSystemAdmin: boolean;
   canImportLabResults: boolean;
   canBill: boolean;
+  initialGroups: NavGroupState;
   signOutAction: () => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
+  // Section label -> open/closed as the user last left it. Shared by the
+  // desktop sidebar and the phone drawer, and kept in a cookie.
+  const [groups, setGroups] = useState<NavGroupState>(initialGroups);
+  const setGroup = (label: string, isOpen: boolean) =>
+    setGroups((g) => {
+      const next = { ...g, [label]: isOpen };
+      saveGroups(next);
+      return next;
+    });
+
+  const content = {
+    email,
+    isSystemAdmin,
+    canImportLabResults,
+    canBill,
+    signOutAction,
+    groups,
+    setGroup,
+  };
 
   return (
     <>
@@ -142,13 +189,7 @@ export function Sidebar({
       </header>
 
       <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col bg-sidebar text-sidebar-text md:flex print:hidden">
-        <SidebarContent
-          email={email}
-          isSystemAdmin={isSystemAdmin}
-          canImportLabResults={canImportLabResults}
-          canBill={canBill}
-          signOutAction={signOutAction}
-        />
+        <SidebarContent {...content} />
       </aside>
 
       {open && (
@@ -163,14 +204,7 @@ export function Sidebar({
             >
               <XIcon className="h-4 w-4" />
             </button>
-            <SidebarContent
-              email={email}
-              isSystemAdmin={isSystemAdmin}
-              canImportLabResults={canImportLabResults}
-          canBill={canBill}
-              signOutAction={signOutAction}
-              onNavigate={() => setOpen(false)}
-            />
+            <SidebarContent {...content} onNavigate={() => setOpen(false)} />
           </aside>
         </div>
       )}
@@ -209,6 +243,8 @@ function SidebarContent({
   canImportLabResults,
   canBill,
   signOutAction,
+  groups,
+  setGroup,
   onNavigate,
 }: {
   email: string | null;
@@ -216,17 +252,65 @@ function SidebarContent({
   canImportLabResults: boolean;
   canBill: boolean;
   signOutAction: () => Promise<void>;
+  groups: NavGroupState;
+  setGroup: (label: string, isOpen: boolean) => void;
   onNavigate?: () => void;
 }) {
   const pathname = usePathname();
   const loc: Loc = { pathname, tab: useSearchParams().get("tab") };
   const isActive = (item: NavItem) => (item.isActive ? item.isActive(loc) : under(pathname, item.href));
 
-  // Section label -> the pathname it was collapsed on. Moving to a page inside
-  // a collapsed section opens it again, so the current page is never hidden.
-  const [collapsed, setCollapsed] = useState<Record<string, string>>({});
+  // Section label -> the pathname it was folded on while holding the current
+  // page. Moving to another page in that section opens it again, so the
+  // current page is never hidden for long.
+  const [foldedOn, setFoldedOn] = useState<Record<string, string>>({});
 
   const sections = navSections(isSystemAdmin, canImportLabResults, canBill);
+
+  const renderSection = (section: NavSection) => {
+    const hasActive = section.items.some(isActive);
+    const isOpen = hasActive ? foldedOn[section.label] !== pathname : (groups[section.label] ?? section.defaultOpen);
+    const id = `nav-${section.label.replace(/\s+/g, "-").toLowerCase()}`;
+    const toggle = () => {
+      if (hasActive) {
+        setFoldedOn((f) => {
+          const next = { ...f };
+          if (isOpen) next[section.label] = pathname;
+          else delete next[section.label];
+          return next;
+        });
+      }
+      setGroup(section.label, !isOpen);
+    };
+    return (
+      <div key={section.label} className="mb-3">
+        <button
+          type="button"
+          aria-expanded={isOpen}
+          aria-controls={id}
+          onClick={toggle}
+          className="group flex w-full items-center justify-between rounded-control px-3 py-1.5 text-[11px] font-semibold tracking-wider text-sidebar-text-muted uppercase transition-colors hover:text-white"
+        >
+          <span className="flex items-center gap-2">
+            {section.label}
+            {!isOpen && hasActive && (
+              <span className="h-1.5 w-1.5 rounded-full bg-white" aria-label="(current page)" />
+            )}
+          </span>
+          <ChevronRightIcon
+            className={`h-3.5 w-3.5 shrink-0 opacity-60 transition-transform group-hover:opacity-100 ${isOpen ? "rotate-90" : ""}`}
+          />
+        </button>
+        {isOpen && (
+          <div id={id} className="mt-1 flex flex-col gap-0.5">
+            {section.items.map((item) => (
+              <NavLink key={item.href} item={item} active={isActive(item)} onNavigate={onNavigate} />
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <>
@@ -234,7 +318,7 @@ function SidebarContent({
         <span className="text-sm font-semibold tracking-wide text-white">AquaFix</span>
       </div>
 
-      <nav className="flex-1 overflow-y-auto px-3 pb-4">
+      <nav className="flex flex-1 flex-col overflow-y-auto px-3 pb-4">
         <div className="mb-4">
           <NavLink
             item={{ href: "/admin", label: "Home", icon: HomeIcon }}
@@ -243,47 +327,11 @@ function SidebarContent({
           />
         </div>
 
-        {sections.map((section) => {
-          const hasActive = section.items.some(isActive);
-          const at = collapsed[section.label];
-          const isOpen = at === undefined || (hasActive && at !== pathname);
-          const id = `nav-${section.label.replace(/\s+/g, "-").toLowerCase()}`;
-          return (
-            <div key={section.label} className="mb-3">
-              <button
-                type="button"
-                aria-expanded={isOpen}
-                aria-controls={id}
-                onClick={() =>
-                  setCollapsed((c) => {
-                    const next = { ...c };
-                    if (isOpen) next[section.label] = pathname;
-                    else delete next[section.label];
-                    return next;
-                  })
-                }
-                className="group flex w-full items-center justify-between rounded-control px-3 py-1.5 text-[11px] font-semibold tracking-wider text-sidebar-text-muted uppercase transition-colors hover:text-white"
-              >
-                <span className="flex items-center gap-2">
-                  {section.label}
-                  {!isOpen && hasActive && (
-                    <span className="h-1.5 w-1.5 rounded-full bg-white" aria-label="(current page)" />
-                  )}
-                </span>
-                <ChevronRightIcon
-                  className={`h-3.5 w-3.5 shrink-0 opacity-60 transition-transform group-hover:opacity-100 ${isOpen ? "rotate-90" : ""}`}
-                />
-              </button>
-              {isOpen && (
-                <div id={id} className="mt-1 flex flex-col gap-0.5">
-                  {section.items.map((item) => (
-                    <NavLink key={item.href} item={item} active={isActive(item)} onNavigate={onNavigate} />
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
+        {sections.filter((s) => !s.secondary).map(renderSection)}
+
+        <div className="mt-auto border-t border-white/10 pt-3">
+          {sections.filter((s) => s.secondary).map(renderSection)}
+        </div>
       </nav>
 
       <div className="border-t border-white/10 px-4 py-4">

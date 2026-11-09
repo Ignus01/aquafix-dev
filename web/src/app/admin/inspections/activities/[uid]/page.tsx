@@ -30,7 +30,7 @@ export default async function ActivityPage(props: PageProps<"/admin/inspections/
   return (
     <div className="flex flex-1 flex-col">
       <PageHeader
-        breadcrumb="Asset Management / Inspections"
+        breadcrumb="Work / Inspections"
         title={`Inspection ${activity.legacy_uid}`}
         actions={
           <>
