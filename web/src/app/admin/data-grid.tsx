@@ -177,8 +177,15 @@ export function Pagination({
   total,
   start,
   setPage,
+  estimated = false,
+  pageSize = PAGE_SIZE,
   className = "",
-}: Omit<ReturnType<typeof usePagination>, "pageItems"> & { className?: string }) {
+}: Omit<ReturnType<typeof usePagination>, "pageItems"> & {
+  className?: string;
+  // The total is the planner's estimate (huge unfiltered tables): "about N".
+  estimated?: boolean;
+  pageSize?: number;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   if (total === 0) return null;
 
@@ -191,7 +198,7 @@ export function Pagination({
     }
   }
 
-  const end = Math.min(start + PAGE_SIZE, total);
+  const end = Math.min(start + pageSize, total);
 
   return (
     <div
@@ -202,10 +209,12 @@ export function Pagination({
         {pageCount > 1 ? (
           <>
             Showing <span className="font-medium text-ink tabular-nums">{start + 1}–{end}</span> of{" "}
+            {estimated && "about "}
             <span className="font-medium text-ink tabular-nums">{fmt(total)}</span>
           </>
         ) : (
           <>
+            {estimated && "About "}
             <span className="font-medium text-ink tabular-nums">{fmt(total)}</span>{" "}
             {total === 1 ? "row" : "rows"}
           </>

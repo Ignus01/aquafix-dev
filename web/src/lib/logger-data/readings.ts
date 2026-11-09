@@ -47,6 +47,14 @@ export function toReadingRows(data: unknown): LoggerReadingRow[] {
 
 // Newest reading first unless a column is sorted; id breaks ties so paging
 // is stable. Returns the unexecuted query, for the caller to add a range.
+//
+// An exact count over all of logger_reading is what timed the page out
+// (11.7 s in prod), so with no asset or date filter the count is the
+// planner's estimate and the pager says "about N".
+export function readingsCountIsEstimate(filter: ReadingFilter) {
+  return !filter.asset && !filter.from && !filter.to;
+}
+
 export function readingsQuery(
   supabase: Awaited<ReturnType<typeof createClient>>,
   filter: ReadingFilter,
@@ -55,7 +63,10 @@ export function readingsQuery(
 ) {
   let q = supabase
     .from("logger_reading")
-    .select(READING_SELECT, withCount ? { count: "exact" } : undefined);
+    .select(
+      READING_SELECT,
+      withCount ? { count: readingsCountIsEstimate(filter) ? "estimated" : "exact" } : undefined,
+    );
   if (filter.asset) q = q.eq("asset_id", filter.asset);
   if (filter.from) q = q.gte("reading_at", zonedInputToIso(filter.from, timeZone));
   if (filter.to) q = q.lte("reading_at", zonedInputToIso(filter.to, timeZone));

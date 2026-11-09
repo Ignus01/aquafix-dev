@@ -40,6 +40,7 @@ export function ReadingsView({
   filter,
   rows,
   total,
+  totalIsEstimate = false,
   page,
   chart,
   timeZone,
@@ -48,6 +49,7 @@ export function ReadingsView({
   filter: ReadingFilter;
   rows: LoggerReadingRow[];
   total: number;
+  totalIsEstimate?: boolean;
   page: number;
   chart: { points: ChartPoint[]; unit: string | null; truncated: boolean } | null;
   timeZone: string;
@@ -207,6 +209,8 @@ export function ReadingsView({
               page={page}
               pageCount={pageCount}
               total={total}
+              estimated={totalIsEstimate}
+              pageSize={READINGS_PAGE_SIZE}
               start={(page - 1) * READINGS_PAGE_SIZE}
               setPage={(p) => go(filter, p)}
               className="border-t border-border px-5 py-3"
