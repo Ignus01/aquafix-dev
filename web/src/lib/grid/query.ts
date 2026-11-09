@@ -62,7 +62,7 @@ export function applyGridFilters(q: AnyQuery, spec: GridSpec, params: GridParams
 // is kept for the same reason.
 export function applyGridSort(q: AnyQuery, spec: GridSpec, params: GridParams): AnyQuery {
   const field = spec.fields.find((f) => f.key === params.sort.key);
-  const column = field ? fieldOf(field) : "id";
+  const column = field ? (field.sortField ?? fieldOf(field)) : "id";
   q = q.order(column, { ascending: !params.sort.desc });
   return column === "id" ? q : q.order("id", { ascending: params.sort.desc });
 }

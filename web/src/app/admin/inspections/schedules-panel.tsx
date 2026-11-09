@@ -1,28 +1,26 @@
 "use client";
 
+import Link from "next/link";
 import { useState, useTransition } from "react";
 import { formatDateTime } from "@/lib/incidents/format";
+import { SYSTEM_OPTION } from "@/lib/grid/fields";
+import { scheduledGrid, type ScheduledGridRow } from "@/lib/grid/specs/inspections";
+import type { ChoiceOption, GridParams, GridResult } from "@/lib/grid/types";
 import { formatPlainDate } from "@/lib/inspections/dates";
-import {
-  SCHEDULE_TYPE_LABELS,
-  WEEK_DAYS,
-  type AccountOption,
-  type AssetOption,
-  type PublicHoliday,
-  type ScheduleRun,
-  type ScheduledInstructionRow,
-} from "@/lib/inspections/types";
+import { SCHEDULE_TYPE_LABELS, WEEK_DAYS, type PublicHoliday, type ScheduleRun } from "@/lib/inspections/types";
+import { ConfirmDialog } from "../grid/confirm";
+import { changedColumns, Dash, type GridColumn } from "../grid/columns";
+import { Grid } from "../grid/grid";
+import type { RowMenuItem } from "../grid/row-menu";
 import { PlusIcon } from "../icons";
 import { Modal } from "../modal";
 import { StatusBadge } from "../status-badge";
-import { dangerLinkButtonClass, inputClass, linkButtonClass, primaryButtonClass } from "../ui";
+import { dangerLinkButtonClass, inputClass, primaryButtonClass } from "../ui";
 import { createPublicHoliday, deletePublicHoliday, deleteScheduledInstruction, runSchedule } from "./actions";
 import { YesNo } from "./badges";
-import { DataTable, type Column } from "./data-table";
 import { addButtonClass } from "./instructions-panel";
-import { ScheduleEditor } from "./schedule-editor";
 
-function describeSchedule(s: ScheduledInstructionRow) {
+function describeSchedule(s: ScheduledGridRow) {
   if (s.schedule_type === "weekly") {
     return WEEK_DAYS.filter((d) => s.week_days.includes(d.value))
       .map((d) => d.short)
@@ -34,40 +32,33 @@ function describeSchedule(s: ScheduledInstructionRow) {
     .join(", ");
 }
 
-// Inspection_Overview → Instructions → Scheduled Instructions, with the
-// "Run Schedule" button (SCH-R10), the issuing log and the public-holiday
-// calendar the Daily schedules use.
+// Inspection_Overview → Instructions → Scheduled Instructions (one page at
+// a time from scheduled_instruction_grid), with the "Run Schedule" button
+// (SCH-R10), the issuing log and the public-holiday calendar the Daily
+// schedules use. Each schedule opens on its own page.
 export function SchedulesPanel({
-  schedules,
+  result,
+  params,
+  userOptions,
   runs,
   holidays,
-  assets,
-  accounts,
   canEdit,
   timeZone,
 }: {
-  schedules: ScheduledInstructionRow[];
+  result: GridResult<ScheduledGridRow>;
+  params: GridParams;
+  userOptions: ChoiceOption[];
   runs: ScheduleRun[];
   holidays: PublicHoliday[];
-  assets: AssetOption[];
-  accounts: AccountOption[];
   canEdit: boolean;
   timeZone: string;
 }) {
-  const [editor, setEditor] = useState<null | { schedule: ScheduledInstructionRow | null }>(null);
   const [holidaysOpen, setHolidaysOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
-  function remove(row: ScheduledInstructionRow) {
-    if (!confirm(`Delete scheduled instruction ${row.legacy_uid}? Instructions it already issued are kept.`)) return;
-    setError(null);
-    startTransition(async () => {
-      const res = await deleteScheduledInstruction(row.id);
-      if (res.error) setError(res.error);
-    });
-  }
+  const pageHref = (r: ScheduledGridRow) => `/admin/inspections/schedules/${r.uid}`;
 
   function run() {
     setError(null);
@@ -86,50 +77,23 @@ export function SchedulesPanel({
     });
   }
 
-  const columns: Column<ScheduledInstructionRow>[] = [
-    {
-      key: "uid",
-      label: "UID",
-      filter: "number",
-      text: (r) => r.legacy_uid,
-      render: (r) => (
-        <button
-          type="button"
-          onClick={() => setEditor({ schedule: r })}
-          className="font-mono text-[13px] font-semibold text-primary hover:text-primary-hover"
-        >
-          {r.legacy_uid}
-        </button>
-      ),
-    },
-    { key: "name", label: "Name", filter: "text", text: (r) => r.name, render: (r) => r.name },
+  const columns: GridColumn<ScheduledGridRow>[] = [
+    { key: "uid", render: (r) => r.uid },
+    { key: "name", render: (r) => r.name },
     {
       key: "comment",
-      label: "Comment",
-      filter: "text",
-      text: (r) => r.comment,
-      className: "",
       render: (r) =>
         r.comment ? (
           <span className="line-clamp-1 max-w-[200px] text-muted" title={r.comment}>
             {r.comment}
           </span>
         ) : (
-          <span className="text-muted">—</span>
+          <Dash />
         ),
     },
-    {
-      key: "account",
-      label: "Assigned to",
-      filter: "select",
-      text: (r) => r.account_name,
-      render: (r) => r.account_name ?? "—",
-    },
+    { key: "account", render: (r) => r.account_name ?? <Dash /> },
     {
       key: "type",
-      label: "Schedule",
-      filter: "text",
-      text: (r) => `${SCHEDULE_TYPE_LABELS[r.schedule_type]} ${describeSchedule(r)}`,
       render: (r) => (
         <span>
           {SCHEDULE_TYPE_LABELS[r.schedule_type]}
@@ -137,37 +101,34 @@ export function SchedulesPanel({
         </span>
       ),
     },
-    {
-      key: "weekends",
-      label: "Weekends",
-      filter: "select",
-      text: (r) => (r.include_weekends ? "Yes" : "No"),
-      render: (r) => <YesNo value={r.include_weekends} />,
-    },
-    {
-      key: "holidays",
-      label: "Public holidays",
-      filter: "select",
-      text: (r) => (r.include_public_holidays ? "Yes" : "No"),
-      render: (r) => <YesNo value={r.include_public_holidays} />,
-    },
-    {
-      key: "day",
-      label: "Day of month",
-      filter: "number",
-      text: (r) => r.day_of_month,
-      render: (r) => r.day_of_month ?? <span className="text-muted">—</span>,
-    },
-    { key: "days", label: "Days to complete", filter: "number", text: (r) => r.days_to_complete, render: (r) => r.days_to_complete },
-    { key: "assets", label: "Assets", filter: "number", text: (r) => r.asset_ids.length, render: (r) => r.asset_ids.length },
-    {
-      key: "active",
-      label: "Active",
-      filter: "select",
-      text: (r) => (r.active ? "Active" : "Inactive"),
-      render: (r) => <StatusBadge active={r.active} />,
-    },
+    { key: "weekends", render: (r) => <YesNo value={r.include_weekends} /> },
+    { key: "holidays", render: (r) => <YesNo value={r.include_public_holidays} /> },
+    { key: "day", render: (r) => r.day_of_month ?? <Dash /> },
+    { key: "days", align: "right", render: (r) => r.days_to_complete },
+    { key: "assets", align: "right", render: (r) => r.asset_count },
+    { key: "active", render: (r) => <StatusBadge active={r.active} /> },
+    ...changedColumns<ScheduledGridRow>(timeZone),
   ];
+
+  function menu(r: ScheduledGridRow): RowMenuItem[] {
+    const items: RowMenuItem[] = [
+      { label: canEdit ? "Edit" : "View", href: pageHref(r) },
+      { label: "Copy link", onSelect: () => navigator.clipboard?.writeText(`${window.location.origin}${pageHref(r)}`) },
+    ];
+    if (canEdit) {
+      items.push({
+        label: "Delete",
+        danger: true,
+        confirm: `Scheduled instruction ${r.uid} will be deleted. Instructions it already issued are kept.`,
+        onSelect: async () => {
+          setError(null);
+          const res = await deleteScheduledInstruction(r.id);
+          if (res.error) setError(res.error);
+        },
+      });
+    }
+    return items;
+  }
 
   const lastRun = runs[0];
 
@@ -176,14 +137,21 @@ export function SchedulesPanel({
       {error && <p className="mb-4 border-l-2 border-danger py-1 pl-3 text-[13px] text-danger">{error}</p>}
       {notice && <p className="mb-4 border-l-2 border-success py-1 pl-3 text-[13px] text-success">{notice}</p>}
 
-      <DataTable
-        rows={schedules}
+      <Grid
+        mode="server"
+        spec={scheduledGrid}
+        result={result}
+        params={params}
         columns={columns}
         getKey={(r) => r.id}
+        title="Scheduled instructions"
+        timeZone={timeZone}
+        rowHref={pageHref}
+        rowLabel={(r) => `scheduled instruction ${r.uid}`}
+        rowMenu={menu}
+        options={{ account: userOptions, changed_by: [...userOptions, SYSTEM_OPTION] }}
         emptyLabel="No scheduled instructions yet."
-        rowLimit={null}
-        exportName="scheduled-instructions"
-        toolbar={
+        primaryAction={
           <>
             <button
               type="button"
@@ -203,26 +171,14 @@ export function SchedulesPanel({
                 >
                   {isPending ? "Running…" : "Run schedule"}
                 </button>
-                <button type="button" className={addButtonClass} onClick={() => setEditor({ schedule: null })}>
+                <Link href="/admin/inspections/schedules/new" className={addButtonClass}>
                   <PlusIcon className="h-4 w-4" />
-                  Add new
-                </button>
+                  New schedule
+                </Link>
               </>
             )}
           </>
         }
-        actions={(r) => (
-          <span className="flex justify-end gap-3">
-            <button type="button" className={linkButtonClass} onClick={() => setEditor({ schedule: r })}>
-              {canEdit ? "Edit" : "View"}
-            </button>
-            {canEdit && (
-              <button type="button" className={dangerLinkButtonClass} disabled={isPending} onClick={() => remove(r)}>
-                Delete
-              </button>
-            )}
-          </span>
-        )}
       />
 
       {runs.length > 0 && (
@@ -248,17 +204,6 @@ export function SchedulesPanel({
             ))}
           </ul>
         </details>
-      )}
-
-      {editor && (
-        <ScheduleEditor
-          key={editor.schedule?.id ?? "new"}
-          schedule={editor.schedule}
-          assets={assets}
-          accounts={accounts}
-          readOnly={!canEdit}
-          onClose={() => setEditor(null)}
-        />
       )}
 
       {holidaysOpen && (
@@ -302,8 +247,10 @@ function PublicHolidays({
     });
   }
 
+  const [removing, setRemoving] = useState<PublicHoliday | null>(null);
+
   function remove(h: PublicHoliday) {
-    if (!confirm(`Remove ${h.name}?`)) return;
+    setRemoving(null);
     startTransition(async () => {
       const res = await deletePublicHoliday(h.id);
       if (res.error) setError(res.error);
@@ -346,7 +293,7 @@ function PublicHolidays({
               <span className="w-28 text-ink tabular-nums">{formatPlainDate(h.holiday_date)}</span>
               <span className="flex-1 text-ink">{h.name}</span>
               {canEdit && (
-                <button type="button" className={dangerLinkButtonClass} disabled={isPending} onClick={() => remove(h)}>
+                <button type="button" className={dangerLinkButtonClass} disabled={isPending} onClick={() => setRemoving(h)}>
                   Remove
                 </button>
               )}
@@ -354,6 +301,14 @@ function PublicHolidays({
           ))}
         </ul>
       </div>
+      <ConfirmDialog
+        open={removing !== null}
+        title={`Remove ${removing?.name ?? ""}?`}
+        message="Daily schedules will issue instructions on this date again."
+        confirmLabel="Remove"
+        onConfirm={() => removing && remove(removing)}
+        onCancel={() => setRemoving(null)}
+      />
     </Modal>
   );
 }

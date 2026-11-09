@@ -34,6 +34,9 @@ export type GridField = {
   // Choice values that must be uuids (lookup ids), so a hand-edited URL
   // can't make the query fail.
   uuidValues?: boolean;
+  // View column to sort on when it differs from `field` (a lookup filtered
+  // by id but sorted by name).
+  sortField?: string;
   // Default true when the column has a field to sort on.
   sortable?: boolean;
   hideable?: boolean;

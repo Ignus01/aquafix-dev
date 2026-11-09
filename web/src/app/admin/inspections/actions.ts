@@ -8,7 +8,17 @@ import { getCurrentUser, requireRole } from "@/lib/auth";
 import { friendlyError } from "@/lib/db-errors";
 import { gridQuery } from "@/lib/grid/query";
 import { instructionsGrid, type InstructionGridRow } from "@/lib/grid/specs/instructions";
-import type { ChoiceOption, GridParams, GridResult } from "@/lib/grid/types";
+import {
+  activitiesGrid,
+  cumulativeGrid,
+  scheduledGrid,
+  valuesGrid,
+  type ActivityGridRow,
+  type CumulativeGridRow,
+  type ScheduledGridRow,
+  type ValueGridRow,
+} from "@/lib/grid/specs/inspections";
+import type { ChoiceOption, GridParams, GridResult, GridSpec } from "@/lib/grid/types";
 import type { IncidentImage } from "@/lib/incidents/types";
 import { startOfTodayIso, todayInZone } from "@/lib/inspections/dates";
 import {
@@ -25,7 +35,6 @@ import type {
   CaptureContext,
   CaptureInspection,
   CaptureValue,
-  CumulativeRow,
   GradingBadgeData,
   InstructionAllocation,
   InstructionDetail,
@@ -39,7 +48,6 @@ import type {
   ScheduledInstructionRow,
   UpdateValuePayload,
   ValueEditContext,
-  ValueListRow,
 } from "@/lib/inspections/types";
 
 // Same model as the other sections: every call runs with the caller's own
@@ -47,8 +55,6 @@ import type {
 
 const BUCKET = "inspection-images";
 const SIGNED_URL_TTL = 60 * 60;
-// Pages requested at a time when a grid loads a whole table (selectAll).
-const PARALLEL_PAGES = 6;
 
 type ActionResult = { error: string | null };
 
@@ -204,6 +210,67 @@ export async function listUserOptions(): Promise<ChoiceOption[]> {
   return accounts.map((a) => ({ value: a.id, label: a.username }));
 }
 
+// The other back-office tabs: one page of their *_grid view each.
+async function backOfficeGrid<T>(spec: GridSpec, params: GridParams, timeZone: string): Promise<GridResult<T>> {
+  await requireRole(INSPECTION_BACK_OFFICE);
+  const supabase = await createClient();
+  return gridQuery<T>(supabase, spec, params, { timeZone });
+}
+
+export async function listActivityGrid(params: GridParams, timeZone: string) {
+  return backOfficeGrid<ActivityGridRow>(activitiesGrid, params, timeZone);
+}
+
+export async function listValueGrid(params: GridParams, timeZone: string) {
+  return backOfficeGrid<ValueGridRow>(valuesGrid, params, timeZone);
+}
+
+export async function listCumulativeGrid(params: GridParams, timeZone: string) {
+  return backOfficeGrid<CumulativeGridRow>(cumulativeGrid, params, timeZone);
+}
+
+export async function listScheduledGrid(params: GridParams, timeZone: string) {
+  return backOfficeGrid<ScheduledGridRow>(scheduledGrid, params, timeZone);
+}
+
+// Choice-filter options for the lookup columns (small tables).
+export async function listInspectionLookups(): Promise<Record<"location" | "type" | "inspection" | "grading", ChoiceOption[]>> {
+  await requireRole(INSPECTION_BACK_OFFICE);
+  const supabase = await createClient();
+  const [locations, types, inspections, gradings] = await Promise.all([
+    supabase.from("location").select("id, name").order("name"),
+    supabase.from("asset_type").select("id, name").order("name"),
+    supabase.from("inspection").select("id, name").order("name"),
+    supabase.from("grading").select("id, name").order("priority"),
+  ]);
+  const opts = (r: { data: { id: string; name: string }[] | null; error: unknown }) => {
+    if (r.error) throw r.error;
+    return (r.data ?? []).map((x) => ({ value: x.id, label: x.name }));
+  };
+  return { location: opts(locations), type: opts(types), inspection: opts(inspections), grading: opts(gradings) };
+}
+
+// The edit pages open a record by its UID.
+export async function getValueIdByUid(uid: number): Promise<string | null> {
+  await requireRole(INSPECTION_ADMINS);
+  const supabase = await createClient();
+  const { data, error } = await supabase.from("inspection_value").select("id").eq("legacy_uid", uid).maybeSingle();
+  if (error) throw error;
+  return data?.id ?? null;
+}
+
+export async function getCumulativeValue(uid: number): Promise<CumulativeGridRow | null> {
+  await requireRole(INSPECTION_BACK_OFFICE);
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("inspection_cumulative_value_grid")
+    .select(cumulativeGrid.select!)
+    .eq("uid", uid)
+    .maybeSingle();
+  if (error) throw error;
+  return (data as unknown as CumulativeGridRow | null) ?? null;
+}
+
 // INS-R07 Instruction_Overview: my open instructions, by due date.
 export async function listMyOpenInstructions(): Promise<InstructionListRow[]> {
   await requireRole(INSPECTION_WRITERS);
@@ -337,31 +404,29 @@ export async function deleteInstructionAllocation(
   return { error: null, instructionDeleted: (data as { instruction_deleted: boolean }).instruction_deleted };
 }
 
-// ============================================================================
-// Scheduled instructions
-// ============================================================================
-export async function listScheduledInstructions(): Promise<ScheduledInstructionRow[]> {
+// One scheduled instruction with its asset list, for its page.
+export async function getScheduledInstruction(uid: number): Promise<ScheduledInstructionRow | null> {
   await requireRole(INSPECTION_BACK_OFFICE);
   const supabase = await createClient();
-  const data = await selectAll(() =>
-    supabase
-      .from("scheduled_instruction")
-      .select(
-        "id, legacy_uid, name, comment, schedule_type, include_weekends, include_public_holidays, " +
-          "day_of_month, week_days, days_to_complete, active, account_id, assets:scheduled_instruction_asset(asset_id)",
-      )
-      .order("legacy_uid")
-      .order("id"),
-  );
-  const rows = data as unknown as (Omit<ScheduledInstructionRow, "account_name" | "asset_ids"> & {
+  const { data, error } = await supabase
+    .from("scheduled_instruction")
+    .select(
+      "id, legacy_uid, name, comment, schedule_type, include_weekends, include_public_holidays, " +
+        "day_of_month, week_days, days_to_complete, active, account_id, assets:scheduled_instruction_asset(asset_id)",
+    )
+    .eq("legacy_uid", uid)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  const { assets, ...r } = data as unknown as Omit<ScheduledInstructionRow, "account_name" | "asset_ids"> & {
     assets: { asset_id: string }[];
-  })[];
-  const names = await userNames(supabase, rows.map((r) => r.account_id));
-  return rows.map(({ assets, ...r }) => ({
+  };
+  const names = await userNames(supabase, [r.account_id]);
+  return {
     ...r,
     account_name: r.account_id ? (names.get(r.account_id) ?? null) : null,
     asset_ids: assets.map((a) => a.asset_id),
-  }));
+  };
 }
 
 // ScheduledInstruction_Validate field checks (save_scheduled_instruction
@@ -493,55 +558,6 @@ export async function listMyActivitiesToday(): Promise<ActivityListRow[]> {
     .order("inspection_date", { ascending: false });
   if (error) throw error;
   return toActivityRows(supabase, data as unknown as RawActivity[]);
-}
-
-// Inspection_Overview → Inspection Activities (newest first).
-export async function listActivities(): Promise<ActivityListRow[]> {
-  await requireRole(INSPECTION_BACK_OFFICE);
-  const supabase = await createClient();
-  const data = await selectAll(
-    () => supabase.from("inspection_activity").select(ACTIVITY_COLUMNS).order("inspection_date", { ascending: false }).order("id"),
-    { parallel: PARALLEL_PAGES },
-  );
-  return toActivityRows(supabase, data as unknown as RawActivity[]);
-}
-
-// Inspection_Overview → Inspection Values (superseded attempts included).
-export async function listValues(): Promise<ValueListRow[]> {
-  await requireRole(INSPECTION_BACK_OFFICE);
-  const supabase = await createClient();
-  // Tens of thousands of rows: only the names the grid shows.
-  const data = await selectAll(
-    () =>
-      supabase
-        .from("inspection_value")
-        .select(
-          `id, display_value, is_current, sort_order, images:inspection_image(count), inspection:inspection_id(id, name), ` +
-            `grading:grading_id(${GRADING_COLUMNS}), ` +
-            `activity:inspection_activity_id(id, legacy_uid, inspection_date, ` +
-            `asset:asset_id(name, asset_type:asset_type_id(name), location:location_id(name)))`,
-        )
-        .order("created_at", { ascending: false })
-        .order("id"),
-    { parallel: PARALLEL_PAGES },
-  );
-  type Raw = Omit<ValueListRow, "image_count" | "grading"> & {
-    sort_order: number;
-    images: { count: number }[];
-    grading: RawGrading;
-  };
-  // Newest activity first; each activity's values in page order.
-  return (data as unknown as Raw[])
-    .sort(
-      (a, b) =>
-        b.activity.inspection_date.localeCompare(a.activity.inspection_date) ||
-        b.activity.legacy_uid - a.activity.legacy_uid ||
-        a.sort_order - b.sort_order,
-    )
-    .map(({ images, grading, sort_order: _sortOrder, ...v }) => {
-      void _sortOrder;
-      return { ...v, grading: toGrading(grading), image_count: images[0]?.count ?? 0 };
-    });
 }
 
 // Inspection Values → Edit (admins): the value and its inspection's options.
@@ -690,24 +706,6 @@ export async function getInspectionImageDownloadUrl(
     .createSignedUrl(row.storage_path, 60, { download: name });
   if (signError || !signed) return { error: "Could not prepare the download." };
   return { error: null, url: signed.signedUrl };
-}
-
-// ============================================================================
-// Cumulative values
-// ============================================================================
-export async function listCumulativeValues(): Promise<CumulativeRow[]> {
-  await requireRole(INSPECTION_BACK_OFFICE);
-  const supabase = await createClient();
-  const data = await selectAll(
-    () =>
-      supabase
-        .from("inspection_cumulative_value")
-        .select(`id, legacy_uid, latest_value, updated_at, inspection:inspection_id(id, name), asset:asset_id(${ASSET_COLUMNS})`)
-        .order("updated_at", { ascending: false })
-        .order("id"),
-    { parallel: PARALLEL_PAGES },
-  );
-  return data as unknown as CumulativeRow[];
 }
 
 // InspectionCumulativeValue_Edit (admins). Audited by trigger.

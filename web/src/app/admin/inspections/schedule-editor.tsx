@@ -10,7 +10,6 @@ import {
   type ScheduleType,
   type ScheduledInstructionRow,
 } from "@/lib/inspections/types";
-import { Drawer } from "../drawer";
 import { Switch } from "../switch";
 import { inputClass, primaryButtonClass, secondaryButtonClass } from "../ui";
 import { saveScheduledInstruction } from "./actions";
@@ -20,19 +19,22 @@ import { Field } from "./instruction-editor";
 // ScheduledInstruction_NewEdit (admins). The fields shown follow the
 // schedule type: Daily → weekends / public holidays, Weekly → days,
 // Monthly → day of month. New schedules take 1 day to complete (SCH-R07).
-export function ScheduleEditor({
+// Rendered on the schedule's own page (/admin/inspections/schedules/…).
+export function ScheduleForm({
   schedule,
   assets,
   accounts,
   readOnly,
-  onClose,
+  onDone,
 }: {
   schedule: ScheduledInstructionRow | null;
   assets: AssetOption[];
   accounts: AccountOption[];
   readOnly: boolean;
-  onClose: () => void;
+  // After a save (true), Cancel or Close (false).
+  onDone: (saved: boolean) => void;
 }) {
+  const onClose = () => onDone(false);
   const [name, setName] = useState(schedule?.name ?? "");
   const [comment, setComment] = useState(schedule?.comment ?? "");
   const [type, setType] = useState<ScheduleType | "">(schedule?.schedule_type ?? "");
@@ -73,33 +75,27 @@ export function ScheduleEditor({
       });
       if (res.fieldErrors) setFieldErrors(res.fieldErrors);
       if (res.error) setError(res.error);
-      if (!res.error && !res.fieldErrors) onClose();
+      if (!res.error && !res.fieldErrors) onDone(true);
     });
   }
 
+  const footer = readOnly ? (
+    <button type="button" className={secondaryButtonClass} onClick={onClose}>
+      Close
+    </button>
+  ) : (
+    <>
+      <button type="button" className={secondaryButtonClass} disabled={isPending} onClick={onClose}>
+        Cancel
+      </button>
+      <button type="button" className={primaryButtonClass} disabled={isPending} onClick={save}>
+        {isPending ? "Saving…" : "Save"}
+      </button>
+    </>
+  );
+
   return (
-    <Drawer
-      open
-      width={760}
-      title={schedule ? `Scheduled instruction ${schedule.legacy_uid}` : "New scheduled instruction"}
-      onClose={onClose}
-      footer={
-        readOnly ? (
-          <button type="button" className={secondaryButtonClass} onClick={onClose}>
-            Close
-          </button>
-        ) : (
-          <>
-            <button type="button" className={secondaryButtonClass} disabled={isPending} onClick={onClose}>
-              Cancel
-            </button>
-            <button type="button" className={primaryButtonClass} disabled={isPending} onClick={save}>
-              {isPending ? "Saving…" : "Save"}
-            </button>
-          </>
-        )
-      }
-    >
+    <>
       <fieldset disabled={readOnly} className="flex flex-col gap-5">
         {error && <p className="border-l-2 border-danger py-1 pl-3 text-[13px] text-danger">{error}</p>}
 
@@ -215,6 +211,7 @@ export function ScheduleEditor({
           }}
         />
       </fieldset>
+      <div className="mt-5 flex justify-end gap-2 border-t border-border pt-4">{footer}</div>
 
       {pickerOpen && (
         <AssetPicker
@@ -228,6 +225,6 @@ export function ScheduleEditor({
           }}
         />
       )}
-    </Drawer>
+    </>
   );
 }
