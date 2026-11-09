@@ -59,7 +59,7 @@ const QUALITY = "/admin/quality";
 const isLabResults = ({ pathname }: Loc) => pathname === QUALITY || under(pathname, `${QUALITY}/samples`);
 
 // Daily work first; configuration and administration folded at the bottom.
-function navSections(isSystemAdmin: boolean, canImportLabResults: boolean): NavSection[] {
+function navSections(isSystemAdmin: boolean, canImportLabResults: boolean, canBill: boolean): NavSection[] {
   return [
     {
       label: "Work",
@@ -94,6 +94,15 @@ function navSections(isSystemAdmin: boolean, canImportLabResults: boolean): NavS
         { href: `${STOCK_MANAGER}?tab=summary`, label: "Stock Summary", icon: BarChartIcon, isActive: isSummary },
       ],
     },
+    ...(canBill
+      ? [
+          {
+            label: "Billing",
+            defaultOpen: true,
+            items: [{ href: "/admin/billing", label: "Invoices", icon: ReceiptIcon }],
+          },
+        ]
+      : []),
     {
       label: "Setup",
       defaultOpen: false,
@@ -133,12 +142,14 @@ export function Sidebar({
   email,
   isSystemAdmin,
   canImportLabResults,
+  canBill,
   initialGroups,
   signOutAction,
 }: {
   email: string | null;
   isSystemAdmin: boolean;
   canImportLabResults: boolean;
+  canBill: boolean;
   initialGroups: NavGroupState;
   signOutAction: () => Promise<void>;
 }) {
@@ -157,6 +168,7 @@ export function Sidebar({
     email,
     isSystemAdmin,
     canImportLabResults,
+    canBill,
     signOutAction,
     groups,
     setGroup,
@@ -229,6 +241,7 @@ function SidebarContent({
   email,
   isSystemAdmin,
   canImportLabResults,
+  canBill,
   signOutAction,
   groups,
   setGroup,
@@ -237,6 +250,7 @@ function SidebarContent({
   email: string | null;
   isSystemAdmin: boolean;
   canImportLabResults: boolean;
+  canBill: boolean;
   signOutAction: () => Promise<void>;
   groups: NavGroupState;
   setGroup: (label: string, isOpen: boolean) => void;
@@ -251,7 +265,7 @@ function SidebarContent({
   // current page is never hidden for long.
   const [foldedOn, setFoldedOn] = useState<Record<string, string>>({});
 
-  const sections = navSections(isSystemAdmin, canImportLabResults);
+  const sections = navSections(isSystemAdmin, canImportLabResults, canBill);
 
   const renderSection = (section: NavSection) => {
     const hasActive = section.items.some(isActive);

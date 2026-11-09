@@ -14,7 +14,6 @@ import type {
   Grading,
   Asset,
   LoggerType,
-  MeterType,
   TargetBand,
 } from "@/lib/masterdata/types";
 import { parseBands, sortBands, targetBandsError } from "../dashboard/water-format";
@@ -446,7 +445,7 @@ export async function listAssets(): Promise<Asset[]> {
     supabase
       .from("asset")
       .select(
-        "id, legacy_uid, name, code, logger_code, logger_type, meter_type, usage_limit, purchase_date, active, has_service_plan, service_interval, asset_type_id, location_id, asset_type:asset_type_id(name), location:location_id(name)",
+        "id, legacy_uid, name, code, logger_code, logger_type, usage_limit, purchase_date, active, has_service_plan, service_interval, asset_type_id, location_id, asset_type:asset_type_id(name), location:location_id(name)",
       )
       .order("name")
       .order("id"),
@@ -465,13 +464,21 @@ function loggerColumns(
   return { logger_code: code, logger_type: type };
 }
 
-const METER_TYPES: MeterType[] = ["treated", "borehole", "other"];
-const meterType = (values: Record<string, string>): MeterType | null =>
-  METER_TYPES.find((t) => t === values.meter_type) ?? null;
+type Supabase = Awaited<ReturnType<typeof createClient>>;
 
-// Kept only on Borehole Meters; cleared for any other type.
-function usageLimit(values: Record<string, string>): number | null | { error: string } {
-  if (meterType(values) !== "borehole") return null;
+// Kept only when the asset type is a borehole meter; cleared for any other
+// type. The database checks the same (asset_check_usage_limit).
+async function usageLimit(
+  supabase: Supabase,
+  values: Record<string, string>,
+): Promise<number | null | { error: string }> {
+  if (!values.asset_type_id) return null;
+  const { data } = await supabase
+    .from("asset_type")
+    .select("classification")
+    .eq("id", values.asset_type_id)
+    .maybeSingle();
+  if (data?.classification !== "BOREHOLE_METER") return null;
   const raw = values.usage_limit?.trim();
   if (!raw) return null;
   const n = Number(raw);
@@ -485,14 +492,13 @@ export async function createAsset(
   await requireAnyMasterdataRole();
   const logger = loggerColumns(values);
   if ("error" in logger) return logger;
-  const limit = usageLimit(values);
-  if (typeof limit === "object" && limit !== null) return limit;
   const supabase = await createClient();
+  const limit = await usageLimit(supabase, values);
+  if (typeof limit === "object" && limit !== null) return limit;
   const { error } = await supabase.from("asset").insert({
     name: values.name?.trim(),
     code: values.code?.trim(),
     ...logger,
-    meter_type: meterType(values),
     usage_limit: limit,
     purchase_date: values.purchase_date || null,
     active: values.active === "true",
@@ -513,16 +519,15 @@ export async function updateAsset(
   await requireAnyMasterdataRole();
   const logger = loggerColumns(values);
   if ("error" in logger) return logger;
-  const limit = usageLimit(values);
-  if (typeof limit === "object" && limit !== null) return limit;
   const supabase = await createClient();
+  const limit = await usageLimit(supabase, values);
+  if (typeof limit === "object" && limit !== null) return limit;
   const { error } = await supabase
     .from("asset")
     .update({
       name: values.name?.trim(),
       code: values.code?.trim(),
       ...logger,
-      meter_type: meterType(values),
       usage_limit: limit,
       purchase_date: values.purchase_date || null,
       active: values.active === "true",

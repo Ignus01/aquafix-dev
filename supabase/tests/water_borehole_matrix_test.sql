@@ -1,6 +1,7 @@
--- Tests for the borehole usage limit: the asset_usage_limit_check constraint
--- and water_borehole_matrix() (sums of borehole meters and their limits, day
--- status, access).
+-- Tests for water_borehole_matrix() (sums of borehole meters and their
+-- limits, day status, access). Meters are borehole meters by their asset
+-- type's classification; the usage-limit triggers are tested in
+-- asset_classification_test.sql.
 -- Run with: npx supabase test db
 begin;
 create extension if not exists pgtap with schema extensions;
@@ -43,19 +44,24 @@ insert into public.location (id, name, region_id, organisation_id, active) value
   ('a2000000-0000-0000-1094-00000000000c', 'WBM-C', 'a0000000-0000-0000-1094-000000000001', 'a1000000-0000-0000-1094-000000000001', false),
   ('a2000000-0000-0000-1094-00000000000d', 'WBM-D', 'a0000000-0000-0000-1094-000000000001', 'a1000000-0000-0000-1094-000000000001', true),
   ('a2000000-0000-0000-1094-00000000000e', 'WBM-E', 'a0000000-0000-0000-1094-000000000002', 'a1000000-0000-0000-1094-000000000001', true);
-insert into public.asset_type (id, name) values ('a3000000-0000-0000-1094-000000000001', 'WBM-Meter');
+insert into public.asset_type (id, name, classification) values
+  ('a3000000-0000-0000-1094-000000000001', 'WBM-Borehole', 'BOREHOLE_METER'),
+  ('a3000000-0000-0000-1094-000000000002', 'WBM-Treated', 'TREATED_METER'),
+  ('a3000000-0000-0000-1094-000000000003', 'WBM-Plain', 'OTHER');
 
-insert into public.asset (id, name, code, asset_type_id, location_id, active, meter_type, usage_limit) values
-  ('30000000-0000-0000-1094-0000000000a1', 'WBM BH1', 'WBM-BH1', 'a3000000-0000-0000-1094-000000000001', 'a2000000-0000-0000-1094-00000000000a', true, 'borehole', 100),
-  ('30000000-0000-0000-1094-0000000000a2', 'WBM BH2', 'WBM-BH2', 'a3000000-0000-0000-1094-000000000001', 'a2000000-0000-0000-1094-00000000000a', true, 'borehole', 50),
-  ('30000000-0000-0000-1094-0000000000a3', 'WBM BHI', 'WBM-BHI', 'a3000000-0000-0000-1094-000000000001', 'a2000000-0000-0000-1094-00000000000a', false, 'borehole', 10),
-  ('30000000-0000-0000-1094-0000000000a4', 'WBM Treated', 'WBM-T', 'a3000000-0000-0000-1094-000000000001', 'a2000000-0000-0000-1094-00000000000a', true, 'treated', null),
-  ('30000000-0000-0000-1094-0000000000a5', 'WBM Untyped', 'WBM-NT', 'a3000000-0000-0000-1094-000000000001', 'a2000000-0000-0000-1094-00000000000a', true, null, null),
-  ('30000000-0000-0000-1094-0000000000b1', 'WBM BH3', 'WBM-BH3', 'a3000000-0000-0000-1094-000000000001', 'a2000000-0000-0000-1094-00000000000b', true, 'borehole', 40),
-  ('30000000-0000-0000-1094-0000000000b2', 'WBM BH4', 'WBM-BH4', 'a3000000-0000-0000-1094-000000000001', 'a2000000-0000-0000-1094-00000000000b', true, 'borehole', null),
-  ('30000000-0000-0000-1094-0000000000c1', 'WBM BH6', 'WBM-BH6', 'a3000000-0000-0000-1094-000000000001', 'a2000000-0000-0000-1094-00000000000c', true, 'borehole', 99),
-  ('30000000-0000-0000-1094-0000000000d1', 'WBM D Treated', 'WBM-DT', 'a3000000-0000-0000-1094-000000000001', 'a2000000-0000-0000-1094-00000000000d', true, 'treated', null),
-  ('30000000-0000-0000-1094-0000000000e1', 'WBM BH5', 'WBM-BH5', 'a3000000-0000-0000-1094-000000000001', 'a2000000-0000-0000-1094-00000000000e', true, 'borehole', 80);
+insert into public.asset (id, name, code, asset_type_id, location_id, active, usage_limit) values
+  ('30000000-0000-0000-1094-0000000000a1', 'WBM BH1', 'WBM-BH1', 'a3000000-0000-0000-1094-000000000001', 'a2000000-0000-0000-1094-00000000000a', true, 100),
+  ('30000000-0000-0000-1094-0000000000a2', 'WBM BH2', 'WBM-BH2', 'a3000000-0000-0000-1094-000000000001', 'a2000000-0000-0000-1094-00000000000a', true, 50),
+  ('30000000-0000-0000-1094-0000000000a3', 'WBM BHI', 'WBM-BHI', 'a3000000-0000-0000-1094-000000000001', 'a2000000-0000-0000-1094-00000000000a', false, 10),
+  ('30000000-0000-0000-1094-0000000000a4', 'WBM Treated', 'WBM-T', 'a3000000-0000-0000-1094-000000000002', 'a2000000-0000-0000-1094-00000000000a', true, null),
+  ('30000000-0000-0000-1094-0000000000a5', 'WBM Untyped', 'WBM-NT', 'a3000000-0000-0000-1094-000000000003', 'a2000000-0000-0000-1094-00000000000a', true, null),
+  ('30000000-0000-0000-1094-0000000000b1', 'WBM BH3', 'WBM-BH3', 'a3000000-0000-0000-1094-000000000001', 'a2000000-0000-0000-1094-00000000000b', true, 40),
+  ('30000000-0000-0000-1094-0000000000b2', 'WBM BH4', 'WBM-BH4', 'a3000000-0000-0000-1094-000000000001', 'a2000000-0000-0000-1094-00000000000b', true, null),
+  ('30000000-0000-0000-1094-0000000000c1', 'WBM BH6', 'WBM-BH6', 'a3000000-0000-0000-1094-000000000001', 'a2000000-0000-0000-1094-00000000000c', true, 99),
+  ('30000000-0000-0000-1094-0000000000d1', 'WBM D Treated', 'WBM-DT', 'a3000000-0000-0000-1094-000000000002', 'a2000000-0000-0000-1094-00000000000d', true, null),
+  ('30000000-0000-0000-1094-0000000000e1', 'WBM BH5', 'WBM-BH5', 'a3000000-0000-0000-1094-000000000001', 'a2000000-0000-0000-1094-00000000000e', true, 80),
+  -- Read by hand: no logger and no usage, so never counted.
+  ('30000000-0000-0000-1094-0000000000a6', 'WBM BH Manual', 'WBM-BHM', 'a3000000-0000-0000-1094-000000000001', 'a2000000-0000-0000-1094-00000000000a', true, 500);
 
 -- Daily usage, 1–4 Jan 2026.
 insert into public.logger_daily_usage (asset_id, day, usage, status)
@@ -129,7 +135,7 @@ select is(
 select is(
   (select l -> 'meter_ids' from locs where l ->> 'name' = 'WBM-A'),
   '["30000000-0000-0000-1094-0000000000a1", "30000000-0000-0000-1094-0000000000a2", "30000000-0000-0000-1094-0000000000a3"]'::jsonb,
-  'A: its borehole meters, by name');
+  'A: its borehole meters with a logger or usage, by name; the meter read by hand is left out');
 select is(
   (select array[l -> 'limit', l -> 'unlimited'] from locs where l ->> 'name' = 'WBM-A'),
   array['160.00'::jsonb, '0'::jsonb],
@@ -205,28 +211,6 @@ select throws_ok(
   $$ select public.water_borehole_matrix('2026-01-01', '2026-01-04') $$,
   '42501', 'Only system admins and admins can see water usage.', 'a viewer is refused');
 reset role;
-
--- ============================================================================
--- asset_usage_limit_check
--- ============================================================================
-select throws_ok(
-  $$ update public.asset set usage_limit = 10 where id = '30000000-0000-0000-1094-0000000000a4' $$,
-  '23514', null, 'a treated meter can''t have a limit');
-select throws_ok(
-  $$ update public.asset set usage_limit = 10 where id = '30000000-0000-0000-1094-0000000000a5' $$,
-  '23514', null, 'nor can a meter without a type');
-select throws_ok(
-  $$ update public.asset set usage_limit = 0 where id = '30000000-0000-0000-1094-0000000000a1' $$,
-  '23514', null, 'a limit of 0 is refused');
-select throws_ok(
-  $$ update public.asset set usage_limit = -5 where id = '30000000-0000-0000-1094-0000000000a1' $$,
-  '23514', null, 'a negative limit is refused');
-select throws_ok(
-  $$ update public.asset set meter_type = 'treated' where id = '30000000-0000-0000-1094-0000000000a1' $$,
-  '23514', null, 'a borehole can''t become a treated meter and keep its limit');
-select lives_ok(
-  $$ update public.asset set meter_type = 'treated', usage_limit = null where id = '30000000-0000-0000-1094-0000000000a1' $$,
-  'it can once the limit is cleared');
 
 select * from finish();
 rollback;

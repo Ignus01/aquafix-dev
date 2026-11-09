@@ -13,7 +13,11 @@ import type {
   Grading,
   Asset,
 } from "@/lib/masterdata/types";
-import { LOGGER_TYPE_OPTIONS, METER_TYPE_OPTIONS } from "@/lib/masterdata/types";
+import {
+  ASSET_CLASSIFICATION_OPTIONS,
+  LOGGER_TYPE_OPTIONS,
+  assetClassificationLabel,
+} from "@/lib/masterdata/types";
 import { BandEditor, TargetInput } from "./target-bands";
 import type { Inspection } from "@/lib/inspection-setup/types";
 import { canInspectionSetup } from "@/lib/inspection-setup/permissions";
@@ -31,7 +35,7 @@ function makeTabs(counts: Record<string, number>) {
   ] as const;
 }
 
-type TabKey = ReturnType<typeof makeTabs>[number]["key"];
+export type TabKey = ReturnType<typeof makeTabs>[number]["key"];
 
 function Permissioned({
   roles,
@@ -82,6 +86,7 @@ export function MasterdataTabs({
   gradings,
   assets,
   inspections,
+  initialTab = "asset",
 }: {
   roles: MasterdataRole[];
   regions: Region[];
@@ -92,8 +97,10 @@ export function MasterdataTabs({
   gradings: Grading[];
   assets: Asset[];
   inspections: Inspection[];
+  // From ?tab=, e.g. Billing's meters dialog links to Asset Types.
+  initialTab?: TabKey;
 }) {
-  const [tab, setTab] = useState<TabKey>("asset");
+  const [tab, setTab] = useState<TabKey>(initialTab);
 
   const tabs = makeTabs({
     asset: assets.length,
@@ -111,8 +118,12 @@ export function MasterdataTabs({
     .filter((o) => o.active)
     .map((o) => ({ value: o.id, label: o.name }));
   const assetTypeOptionsForAsset = assetTypes
-    .filter((t) => t.active && t.classification === "OTHER")
+    .filter((t) => t.active)
     .map((t) => ({ value: t.id, label: t.name }));
+  // Usage limits belong to borehole meters only.
+  const boreholeTypeIds = new Set(
+    assetTypes.filter((t) => t.classification === "BOREHOLE_METER").map((t) => t.id),
+  );
   const locationOptionsForAsset = locations
     .filter((l) => l.active && l.is_asset_manager)
     .map((l) => ({ value: l.id, label: l.name }));
@@ -173,19 +184,11 @@ export function MasterdataTabs({
                     options: LOGGER_TYPE_OPTIONS,
                   },
                   {
-                    key: "meter_type",
-                    label: "Meter type",
-                    type: "select",
-                    options: METER_TYPE_OPTIONS,
-                    filter: true,
-                    render: (v) => METER_TYPE_OPTIONS.find((o) => o.value === v)?.label ?? "—",
-                  },
-                  {
                     key: "usage_limit",
                     label: "Usage limit (m³/day)",
                     type: "number",
                     step: "0.01",
-                    showIf: (values) => values.meter_type === "borehole",
+                    showIf: (values) => boreholeTypeIds.has(values.asset_type_id),
                     hideInTable: true,
                   },
                   {
@@ -255,10 +258,9 @@ export function MasterdataTabs({
                     type: "select",
                     required: true,
                     defaultValue: "OTHER",
-                    options: [
-                      { value: "FLEET", label: "FLEET" },
-                      { value: "OTHER", label: "OTHER" },
-                    ],
+                    options: ASSET_CLASSIFICATION_OPTIONS,
+                    filter: true,
+                    render: (v) => assetClassificationLabel(v),
                   },
                   activeField,
                 ] satisfies FieldConfig[]

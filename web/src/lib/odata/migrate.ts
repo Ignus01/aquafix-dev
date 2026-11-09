@@ -83,6 +83,9 @@ type Spec = {
   keyColumns?: string[];
   // Natural key shared by an existing row and a mapped source row.
   key?: (row: Row) => string | null;
+  // Columns written only when the row is created: on an existing row Supabase
+  // owns them, so a re-run doesn't undo changes made there.
+  createOnly?: string[];
   // Maps a source record to a table row (without id), or throws with the reason.
   map: (src: ODataRow, ids: IdMaps) => Row;
 };
@@ -173,7 +176,10 @@ const SPECS: Spec[] = [
     keyColumns: ["name"],
     key: (r) => lower(r.name),
     // `classification` isn't exposed by the source: new rows get the default,
-    // existing rows keep whatever was set in Supabase.
+    // existing rows keep whatever was set in Supabase. So does the name: the
+    // meter types were split and renamed in Supabase
+    // (20261109120000_asset_classification.sql), e.g. Water Meter → Other Meter.
+    createOnly: ["name"],
     map: (s) => ({ ...base(s), name: str(s.Name), active: bool(s.Active) }),
   },
   {
@@ -218,6 +224,10 @@ const SPECS: Spec[] = [
     collection: "Assets",
     keyColumns: ["code"],
     key: (r) => lower(r.code),
+    // Meters were moved onto new asset types in Supabase
+    // (20261109120000_asset_classification.sql); the source still has them
+    // all on Water Meter.
+    createOnly: ["asset_type_id"],
     map: (s, ids) => ({
       ...base(s),
       name: str(s.Name),
@@ -594,11 +604,18 @@ async function migrateEntity(
           unclaimedByKey.delete(k!);
         }
       }
-      pending.push({ src, row: { ...mapped, id: id ?? randomUUID() }, label, isNew: !id });
+      const row: Row = { ...mapped, id: id ?? randomUUID() };
+      if (id) for (const column of spec.createOnly ?? []) delete row[column];
+      pending.push({ src, row, label, isNew: !id });
     } catch (e) {
       fail(`${label}: ${(e as Error).message}`);
     }
   }
+
+  // A batch upsert sends the union of its rows' columns and nulls the ones a
+  // row lacks, so rows missing createOnly columns (existing ones) go in their
+  // own batches.
+  if (spec.createOnly?.length) pending.sort((a, b) => Number(a.isNew) - Number(b.isNew));
 
   const succeeded = (p: Pending) => {
     if (p.isNew) result.created++;
@@ -606,9 +623,16 @@ async function migrateEntity(
     ids[spec.table].set(String(p.src.ID), String(p.row.id));
   };
 
-  for (let i = 0; i < pending.length; i += CHUNK) {
+  let size = 0;
+  for (let i = 0; i < pending.length; i += size) {
     if (Date.now() > deadline) throw new TimeoutError();
-    const chunk = pending.slice(i, i + CHUNK);
+    let chunk = pending.slice(i, i + CHUNK);
+    // Never mix existing and new rows in one batch (see the sort above).
+    if (spec.createOnly?.length) {
+      const cut = chunk.findIndex((p) => p.isNew !== chunk[0].isNew);
+      if (cut > 0) chunk = chunk.slice(0, cut);
+    }
+    size = chunk.length;
     const { error } = await admin.from(spec.table).upsert(
       chunk.map((p) => p.row),
       { onConflict: "id" },
