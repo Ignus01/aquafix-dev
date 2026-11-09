@@ -30,7 +30,7 @@ export default async function ServicePage(props: PageProps<"/admin/services/[ref
   return (
     <div className="flex flex-1 flex-col">
       <PageHeader
-        breadcrumb="Asset Management / Services"
+        breadcrumb="Work / Services"
         title={completing ? `Complete service ${service.reference}` : `Service ${service.reference}`}
       />
       <ServiceForm
