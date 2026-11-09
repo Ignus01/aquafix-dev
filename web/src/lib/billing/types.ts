@@ -1,4 +1,6 @@
-// Billing (supabase/migrations/20261108120000_billing.sql).
+// Billing (supabase/migrations/20261109140000_billing.sql).
+
+import type { AssetClassification } from "@/lib/masterdata/types";
 
 export type BillingMeter = "treated" | "borehole" | "electrical";
 export type InvoiceStatus = "draft" | "approved" | "void";
@@ -90,14 +92,21 @@ export type NearbyReading = {
   image_path: string | null;
 };
 
+// A meter at a location, as billing sees it. What it is billed as comes from
+// its asset type's classification (public.billing_meter_of); municipal and
+// unclassified meters are not billed.
 export type SetupMeter = {
   id: string;
   name: string;
   code: string;
-  active: boolean;
   asset_type: string;
+  classification: AssetClassification;
   billing_meter: BillingMeter | null;
 };
+
+// public.billing_meter_of(): the classifications that go on an invoice.
+export const billingMeterOf = (c: AssetClassification): BillingMeter | null =>
+  c === "TREATED_METER" ? "treated" : c === "BOREHOLE_METER" ? "borehole" : c === "ELECTRICAL_METER" ? "electrical" : null;
 
 export type SetupTariff = { id: string; rate: number; effective_from: string };
 

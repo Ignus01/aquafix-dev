@@ -6,8 +6,10 @@
 -- invoice for period month P runs from the billing day in the month before P
 -- to the billing day in P.
 --
--- Meters are assets with a billing meter type (borehole, treated or
--- electrical). A meter's reading is the "Meter Reading" inspection value
+-- Meters are the location's active assets whose asset type is classified as
+-- a treated, borehole or electrical meter (20261109120000_asset_
+-- classification.sql); municipal meters are not billed. Which kind a meter
+-- is gets set on its asset type under Master Data. A meter's reading is the "Meter Reading" inspection value
 -- (value type CUMULATIVE_VALUE) of an inspection activity on it. For each end
 -- of the period the reading on the billing day (±1 day in the app time zone)
 -- is used; with none in that window the closest reading in time is used and
@@ -30,12 +32,10 @@
 -- ============================================================================
 -- Types and columns
 -- ============================================================================
+-- The kind of meter on an invoice line, kept with the line so a later change
+-- of asset type doesn't change an approved invoice.
 create type public.billing_meter as enum ('borehole', 'treated', 'electrical');
 create type public.invoice_status as enum ('draft', 'approved', 'void');
-
--- What the asset meters for billing; null = not billed. Separate from
--- meter_type, which drives the logger-based water dashboards.
-alter table public.asset add column billing_meter public.billing_meter;
 
 -- Day of the month the location's meter readings are taken; null = not billed.
 alter table public.location add column billing_day smallint
@@ -183,6 +183,19 @@ as $$
     extract(month from p_month)::int,
     least(p_billing_day, extract(day from (date_trunc('month', p_month) + interval '1 month - 1 day'))::int)
   );
+$$;
+
+-- The billing meter kind of an asset type classification; null = not billed.
+create function public.billing_meter_of(p_classification public.asset_classification)
+returns public.billing_meter
+language sql
+immutable
+as $$
+  select case p_classification
+    when 'TREATED_METER' then 'treated'
+    when 'BOREHOLE_METER' then 'borehole'
+    when 'ELECTRICAL_METER' then 'electrical'
+  end::public.billing_meter;
 $$;
 
 -- Meter readings of an asset ordered by closeness to a day: by calendar day
@@ -405,14 +418,16 @@ begin
 
     v_sort := 0;
     for m in
-      select a.id, a.name, a.code, a.billing_meter
+      select a.id, a.name, a.code, public.billing_meter_of(t.classification) as meter
       from public.asset a
-      where a.location_id = loc.id and a.active and a.billing_meter is not null
-      order by array_position(array['treated', 'borehole', 'electrical']::public.billing_meter[], a.billing_meter), a.name
+      join public.asset_type t on t.id = a.asset_type_id
+      where a.location_id = loc.id and a.active and public.billing_meter_of(t.classification) is not null
+      order by array_position(array['treated', 'borehole', 'electrical']::public.billing_meter[],
+                              public.billing_meter_of(t.classification)), a.name
     loop
       v_sort := v_sort + 1;
       insert into public.invoice_line (invoice_id, asset_id, asset_name, asset_code, meter, sort_order)
-      values (v_invoice, m.id, m.name, m.code, m.billing_meter, v_sort)
+      values (v_invoice, m.id, m.name, m.code, m.meter, v_sort)
       returning id into v_line;
 
       -- Opening reading.
@@ -648,7 +663,7 @@ end;
 $$;
 
 -- ============================================================================
--- Setup: billing day, tariffs and billing meters
+-- Setup: billing day and tariffs
 -- ============================================================================
 create function public.billing_set_location(p_location_id uuid, p_billing_day integer)
 returns void
@@ -691,42 +706,6 @@ begin
 end;
 $$;
 
-create function public.billing_set_meter(p_asset_id uuid, p_meter public.billing_meter)
-returns void
-language plpgsql
-security definer
-set search_path = public
-as $$
-begin
-  perform public.require_billing_admin();
-  update public.asset set billing_meter = p_meter, updated_at = now(), updated_by = auth.uid()
-  where id = p_asset_id;
-end;
-$$;
-
--- ============================================================================
--- Backfill: billing meter from the meter's name / asset type, for assets that
--- take meter readings.
--- ============================================================================
-update public.asset a
-set billing_meter = case
-    when a.name ~* 'treated' then 'treated'
-    when a.name ~* 'borehole' then 'borehole'
-    when a.name ~* 'electric' or at.name ~* 'electric' then 'electrical'
-  end::public.billing_meter
-from public.asset_type at
-where at.id = a.asset_type_id
-  and (exists (
-         select 1 from public.inspection_allocation ial
-         join public.inspection i on i.id = ial.inspection_id
-         where ial.asset_type_id = a.asset_type_id and i.value_type = 'CUMULATIVE_VALUE')
-       or exists (
-         select 1 from public.inspection_activity ia
-         join public.inspection_value v on v.inspection_activity_id = ia.id
-         join public.inspection i on i.id = v.inspection_id
-         where ia.asset_id = a.id and i.value_type = 'CUMULATIVE_VALUE'))
-  and (a.name ~* 'treated|borehole|electric' or at.name ~* 'electric');
-
 -- ============================================================================
 -- RLS: system admins and admins read; all writes go through the functions.
 -- ============================================================================
@@ -758,4 +737,3 @@ revoke execute on function public.billing_void(uuid, text) from public, anon;
 revoke execute on function public.billing_set_location(uuid, integer) from public, anon;
 revoke execute on function public.billing_set_tariff(uuid, numeric, date) from public, anon;
 revoke execute on function public.billing_delete_tariff(uuid) from public, anon;
-revoke execute on function public.billing_set_meter(uuid, public.billing_meter) from public, anon;

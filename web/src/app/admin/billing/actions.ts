@@ -18,6 +18,8 @@ import type {
   SetupLocation,
   SetupMeter,
 } from "@/lib/billing/types";
+import { billingMeterOf } from "@/lib/billing/types";
+import type { AssetClassification } from "@/lib/masterdata/types";
 
 // Admin → Billing. Reads use the caller's session (RLS: system admins and
 // admins); every write goes through a billing_* function, which checks the
@@ -260,7 +262,7 @@ export async function getSetup(): Promise<SetupLocation[]> {
   await requireRole(BILLING_ADMINS);
   const supabase = await createClient();
 
-  const [locations, tariffs, assets, allocations] = await Promise.all([
+  const [locations, tariffs, assets] = await Promise.all([
     selectAll(() =>
       supabase
         .from("location")
@@ -275,38 +277,42 @@ export async function getSetup(): Promise<SetupLocation[]> {
     selectAll(() =>
       supabase
         .from("asset")
-        .select("id, name, code, active, location_id, billing_meter, asset_type_id, asset_type:asset_type_id(name)")
+        .select("id, name, code, location_id, asset_type:asset_type_id(name, classification)")
+        .eq("active", true)
         .order("name")
         .order("id"),
     ),
-    supabase.from("inspection_allocation").select("asset_type_id, inspection:inspection_id(value_type)"),
   ]);
 
-  // Meter candidates: billed already, a "meter" asset type, or a type that
-  // takes meter readings.
-  const readingTypes = new Set(
-    ((allocations.data ?? []) as unknown as { asset_type_id: string; inspection: { value_type: string } | null }[])
-      .filter((a) => a.inspection?.value_type === "CUMULATIVE_VALUE")
-      .map((a) => a.asset_type_id),
-  );
+  // The location's active meters: assets whose type is classified as a meter,
+  // or whose type name says meter (an unclassified one shows as not billed,
+  // so it can be fixed in master data). Billed meters first, as on the invoice.
   type AssetRec = {
     id: string;
     name: string;
     code: string;
-    active: boolean;
     location_id: string;
-    billing_meter: BillingMeter | null;
-    asset_type_id: string;
-    asset_type: { name: string } | null;
+    asset_type: { name: string; classification: AssetClassification } | null;
   };
+  const order: (BillingMeter | null)[] = ["treated", "borehole", "electrical", null];
   const meters = new Map<string, SetupMeter[]>();
   for (const a of assets as unknown as AssetRec[]) {
+    const classification = a.asset_type?.classification ?? "OTHER";
     const typeName = a.asset_type?.name ?? "";
-    const isMeter = a.billing_meter !== null || readingTypes.has(a.asset_type_id) || /meter/i.test(typeName);
-    if (!isMeter || (!a.active && a.billing_meter === null)) continue;
+    if (classification === "OTHER" && !/meter/i.test(typeName)) continue;
     const list = meters.get(a.location_id) ?? [];
-    list.push({ id: a.id, name: a.name, code: a.code, active: a.active, asset_type: typeName, billing_meter: a.billing_meter });
+    list.push({
+      id: a.id,
+      name: a.name,
+      code: a.code,
+      asset_type: typeName,
+      classification,
+      billing_meter: billingMeterOf(classification),
+    });
     meters.set(a.location_id, list);
+  }
+  for (const list of meters.values()) {
+    list.sort((x, y) => order.indexOf(x.billing_meter) - order.indexOf(y.billing_meter));
   }
 
   type LocRec = {
@@ -356,15 +362,6 @@ export async function deleteTariff(id: string): Promise<ActionResult> {
   await requireRole(BILLING_ADMINS);
   const supabase = await createClient();
   const { error } = await supabase.rpc("billing_delete_tariff", { p_tariff_id: id });
-  if (error) return { error: errorText(error) };
-  revalidate();
-  return { error: null };
-}
-
-export async function setMeter(assetId: string, meter: BillingMeter | null): Promise<ActionResult> {
-  await requireRole(BILLING_ADMINS);
-  const supabase = await createClient();
-  const { error } = await supabase.rpc("billing_set_meter", { p_asset_id: assetId, p_meter: meter });
   if (error) return { error: errorText(error) };
   revalidate();
   return { error: null };

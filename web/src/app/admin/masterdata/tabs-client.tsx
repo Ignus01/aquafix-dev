@@ -31,7 +31,7 @@ function makeTabs(counts: Record<string, number>) {
   ] as const;
 }
 
-type TabKey = ReturnType<typeof makeTabs>[number]["key"];
+export type TabKey = ReturnType<typeof makeTabs>[number]["key"];
 
 function Permissioned({
   roles,
@@ -82,6 +82,7 @@ export function MasterdataTabs({
   gradings,
   assets,
   inspections,
+  initialTab = "asset",
 }: {
   roles: MasterdataRole[];
   regions: Region[];
@@ -92,8 +93,10 @@ export function MasterdataTabs({
   gradings: Grading[];
   assets: Asset[];
   inspections: Inspection[];
+  // From ?tab=, e.g. Billing's meters dialog links to Asset Types.
+  initialTab?: TabKey;
 }) {
-  const [tab, setTab] = useState<TabKey>("asset");
+  const [tab, setTab] = useState<TabKey>(initialTab);
 
   const tabs = makeTabs({
     asset: assets.length,
