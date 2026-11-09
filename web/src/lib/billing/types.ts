@@ -2,7 +2,7 @@
 
 import type { AssetClassification } from "@/lib/masterdata/types";
 
-export type BillingMeter = "treated" | "borehole" | "electrical";
+export type BillingMeter = "treated" | "borehole" | "municipal" | "electrical";
 export type InvoiceStatus = "draft" | "approved" | "void";
 export type ReadingSource = "window" | "closest" | "previous_invoice" | "selected" | "manual" | "none";
 export type ReadingSide = "prev" | "curr";
@@ -10,6 +10,7 @@ export type ReadingSide = "prev" | "curr";
 export const BILLING_METER_OPTIONS: { value: BillingMeter; label: string }[] = [
   { value: "treated", label: "Treated water" },
   { value: "borehole", label: "Borehole" },
+  { value: "municipal", label: "Municipal" },
   { value: "electrical", label: "Electrical" },
 ];
 
@@ -20,6 +21,7 @@ export const billingMeterLabel = (m: BillingMeter | null) =>
 export const METER_UNIT: Record<BillingMeter, string> = {
   treated: "kL",
   borehole: "kL",
+  municipal: "kL",
   electrical: "kWh",
 };
 
@@ -106,7 +108,15 @@ export type SetupMeter = {
 
 // public.billing_meter_of(): the classifications that go on an invoice.
 export const billingMeterOf = (c: AssetClassification): BillingMeter | null =>
-  c === "TREATED_METER" ? "treated" : c === "BOREHOLE_METER" ? "borehole" : c === "ELECTRICAL_METER" ? "electrical" : null;
+  c === "TREATED_METER"
+    ? "treated"
+    : c === "BOREHOLE_METER"
+      ? "borehole"
+      : c === "MUNICIPAL_METER"
+        ? "municipal"
+        : c === "ELECTRICAL_METER"
+          ? "electrical"
+          : null;
 
 export type SetupTariff = { id: string; rate: number; effective_from: string };
 

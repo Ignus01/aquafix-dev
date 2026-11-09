@@ -7,9 +7,9 @@
 -- to the billing day in P.
 --
 -- Meters are the location's active assets whose asset type is classified as
--- a treated, borehole or electrical meter (20261109120000_asset_
--- classification.sql); municipal meters are not billed. Which kind a meter
--- is gets set on its asset type under Master Data. A meter's reading is the "Meter Reading" inspection value
+-- a treated, borehole, municipal or electrical meter (20261109120000_asset_
+-- classification.sql). Which kind a meter is gets set on its asset type
+-- under Master Data. A meter's reading is the "Meter Reading" inspection value
 -- (value type CUMULATIVE_VALUE) of an inspection activity on it. For each end
 -- of the period the reading on the billing day (±1 day in the app time zone)
 -- is used; with none in that window the closest reading in time is used and
@@ -19,7 +19,7 @@
 --
 -- Invoiced amount = treated usage (sum over treated meters, closing −
 -- opening) × the location's tariff rate in effect on the period end.
--- Borehole and electrical meters are shown only.
+-- Borehole, municipal and electrical meters are shown for information only.
 --
 -- Flow: billing_generate() makes draft invoices for a month (rebuilding
 -- drafts, leaving approved invoices alone); a reviewer checks each one and
@@ -34,7 +34,7 @@
 -- ============================================================================
 -- The kind of meter on an invoice line, kept with the line so a later change
 -- of asset type doesn't change an approved invoice.
-create type public.billing_meter as enum ('borehole', 'treated', 'electrical');
+create type public.billing_meter as enum ('borehole', 'treated', 'electrical', 'municipal');
 create type public.invoice_status as enum ('draft', 'approved', 'void');
 
 -- Day of the month the location's meter readings are taken; null = not billed.
@@ -195,6 +195,7 @@ as $$
     when 'TREATED_METER' then 'treated'
     when 'BOREHOLE_METER' then 'borehole'
     when 'ELECTRICAL_METER' then 'electrical'
+    when 'MUNICIPAL_METER' then 'municipal'
   end::public.billing_meter;
 $$;
 
@@ -422,7 +423,7 @@ begin
       from public.asset a
       join public.asset_type t on t.id = a.asset_type_id
       where a.location_id = loc.id and a.active and public.billing_meter_of(t.classification) is not null
-      order by array_position(array['treated', 'borehole', 'electrical']::public.billing_meter[],
+      order by array_position(array['treated', 'borehole', 'municipal', 'electrical']::public.billing_meter[],
                               public.billing_meter_of(t.classification)), a.name
     loop
       v_sort := v_sort + 1;

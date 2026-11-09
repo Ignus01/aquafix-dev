@@ -257,8 +257,8 @@ function MetersModal({ location, onClose }: { location: SetupLocation; onClose: 
       <div className="flex flex-col gap-4 px-6 py-5">
         <p className="text-[13px] text-muted">
           Each meter&apos;s &quot;Meter Reading&quot; inspection is read on the billing date. Meters go on the invoice by
-          their asset type: treated meters are invoiced; borehole and electrical meters are shown for information;
-          municipal meters are left off. To change what a meter is billed as, change its asset type (Assets tab) or
+          their asset type: treated meters are invoiced; borehole, municipal and electrical meters are shown for
+          information. To change what a meter is billed as, change its asset type (Assets tab) or
           the type&apos;s classification (Asset Types tab) in{" "}
           <Link href="/admin/masterdata?tab=asset_type" className={linkButtonClass}>
             Master Data

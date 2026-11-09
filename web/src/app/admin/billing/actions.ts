@@ -294,7 +294,7 @@ export async function getSetup(): Promise<SetupLocation[]> {
     location_id: string;
     asset_type: { name: string; classification: AssetClassification } | null;
   };
-  const order: (BillingMeter | null)[] = ["treated", "borehole", "electrical", null];
+  const order: (BillingMeter | null)[] = ["treated", "borehole", "municipal", "electrical", null];
   const meters = new Map<string, SetupMeter[]>();
   for (const a of assets as unknown as AssetRec[]) {
     const classification = a.asset_type?.classification ?? "OTHER";

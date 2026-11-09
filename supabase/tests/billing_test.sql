@@ -120,8 +120,11 @@ select is(
 
 select is(
   (select array_agg(asset_name || '=' || meter order by sort_order) from lines),
-  array['A Treated=treated', 'A Borehole=borehole', 'A Electrical=electrical'],
-  'treated, borehole and electrical meters by classification; municipal, inactive and non-meter assets left off');
+  array['A Treated=treated', 'A Borehole=borehole', 'A Municipal=municipal', 'A Electrical=electrical'],
+  'treated, borehole, municipal and electrical meters by classification; inactive and non-meter assets left off');
+select is(
+  (select array[prev_value, curr_value, usage] from lines where asset_name = 'A Municipal'),
+  array[70, 90, 20]::numeric[], 'the municipal meter is read like the others');
 
 select is(
   (select array[prev_value, curr_value, usage] from lines where asset_name = 'A Treated'),
@@ -134,7 +137,7 @@ select is(
   array['650', 'window'], 'a reading a day early is inside the window');
 select is(
   (select array[tariff_rate, treated_usage, amount] from inv where location_name = 'BIL-A'),
-  array[10, 300, 3000]::numeric[], 'amount = treated usage × the tariff in effect on the billing day');
+  array[10, 300, 3000]::numeric[], 'amount = treated usage × the tariff in effect on the billing day; municipal usage is not invoiced');
 select is(
   (select public.billing_blocking_issues(issues) from inv where location_name = 'BIL-A'),
   '{}'::text[], 'A has no blocking issue (missing photos are warnings)');
@@ -254,7 +257,7 @@ select public.billing_generate('2026-02-01', array['a2000000-0000-0000-1096-0000
 reset role;
 select is(
   (select treated_usage from inv where location_name = 'BIL-A' and period_start = '2026-01-25' and status = 'draft'),
-  320::numeric, 'reclassifying a type as treated puts its meters on the invoice (300 + 20)');
+  320::numeric, 'reclassifying the municipal type as treated makes its meter count in the amount (300 + 20)');
 
 -- ============================================================================
 -- Access
