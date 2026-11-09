@@ -526,7 +526,7 @@ function DataQuality({ report: d, days, timeZone }: { report: Report; days: stri
       items.push({
         key: `${m.id}-type`,
         title,
-        text: "Meter type not set, so it isn’t counted in Treated water vs target. Set it on the asset under Master Data.",
+        text: "Its asset type isn’t a meter type, so it isn’t counted in Treated water vs target or Borehole usage vs limit. Change the asset type, or the type’s classification, under Master Data.",
       });
     }
     for (const i of issuesBy.get(m.id) ?? []) {

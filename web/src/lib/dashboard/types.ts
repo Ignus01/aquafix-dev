@@ -1,4 +1,8 @@
-import type { MeterType, TargetBand } from "@/lib/masterdata/types";
+import type { TargetBand } from "@/lib/masterdata/types";
+
+// The meter_type key of water_usage_report(), from the asset type's
+// classification: treated, borehole, or other (municipal and electrical).
+export type MeterType = "treated" | "borehole" | "other";
 
 // Shape of public.home_dashboard() (supabase/migrations/20261004120000_home_dashboard.sql).
 
@@ -180,7 +184,8 @@ export type WaterMeter = {
   code: string;
   logger_code: string | null;
   active: boolean;
-  // Null = not set: the meter is left out of Treated water vs target.
+  // From the asset type's classification. Null = the type isn't a meter
+  // type, so the meter is left out of the target and borehole views.
   meter_type: MeterType | null;
   location_id: string;
   location: string;

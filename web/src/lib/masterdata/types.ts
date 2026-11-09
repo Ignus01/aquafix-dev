@@ -14,11 +14,32 @@ export type Organisation = {
   is_service_supplier: boolean;
 };
 
+// public.asset_classification: what an asset type is. Meter types drive the
+// water dashboards (treated, borehole), the usage limit (borehole) and
+// billing (treated, borehole, electrical).
+export type AssetClassification =
+  | "TREATED_METER"
+  | "BOREHOLE_METER"
+  | "MUNICIPAL_METER"
+  | "ELECTRICAL_METER"
+  | "OTHER";
+
+export const ASSET_CLASSIFICATION_OPTIONS: { value: AssetClassification; label: string }[] = [
+  { value: "TREATED_METER", label: "Treated meter" },
+  { value: "BOREHOLE_METER", label: "Borehole meter" },
+  { value: "MUNICIPAL_METER", label: "Municipal meter" },
+  { value: "ELECTRICAL_METER", label: "Electrical meter" },
+  { value: "OTHER", label: "Other" },
+];
+
+export const assetClassificationLabel = (c: string | null | undefined) =>
+  ASSET_CLASSIFICATION_OPTIONS.find((o) => o.value === c)?.label ?? "—";
+
 export type AssetType = {
   id: string;
   legacy_uid: number;
   name: string;
-  classification: "FLEET" | "OTHER";
+  classification: AssetClassification;
   active: boolean;
 };
 
@@ -76,15 +97,6 @@ export const LOGGER_TYPE_OPTIONS: { value: LoggerType; label: string }[] = [
   { value: "DATAV8", label: "Datav8" },
 ];
 
-// public.meter_type: what an asset's volume meter measures.
-export type MeterType = "treated" | "borehole" | "other";
-
-export const METER_TYPE_OPTIONS: { value: MeterType; label: string }[] = [
-  { value: "treated", label: "Treated Meter" },
-  { value: "borehole", label: "Borehole Meter" },
-  { value: "other", label: "Other" },
-];
-
 export type Asset = {
   id: string;
   legacy_uid: number;
@@ -92,9 +104,7 @@ export type Asset = {
   code: string;
   logger_code: string | null;
   logger_type: LoggerType | null;
-  // Null = not a meter.
-  meter_type: MeterType | null;
-  // m³ per day; Borehole Meters only. Null = no limit.
+  // m³ per day; only when the asset type is a borehole meter. Null = no limit.
   usage_limit: number | null;
   purchase_date: string | null;
   active: boolean;
