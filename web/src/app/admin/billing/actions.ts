@@ -12,6 +12,7 @@ import type {
   BillingRunRow,
   InvoiceLine,
   InvoiceLineView,
+  InvoiceListRow,
   InvoiceRow,
   NearbyReading,
   ReadingSide,
@@ -90,12 +91,15 @@ export async function listRuns(): Promise<BillingRunRow[]> {
   const supabase = await createClient();
   const { data: runs, error } = await supabase
     .from("billing_run")
-    .select("id, period, generated_at")
+    .select("id, period, generated_at, generated_by")
     .order("period", { ascending: false });
   if (error) throw error;
   const invoices = await selectAll(() =>
     supabase.from("invoice").select("id, billing_run_id, status, amount").order("id"),
   );
+  // A run isn't edited after it's generated (regenerating rebuilds its
+  // invoices), so Changed / Changed by are when and by whom it was generated.
+  const names = await userNames(supabase, (runs ?? []).map((r) => r.generated_by));
   return (runs ?? []).map((run) => {
     const mine = invoices.filter((i) => i.billing_run_id === run.id);
     const sum = (status: string) =>
@@ -109,6 +113,9 @@ export async function listRuns(): Promise<BillingRunRow[]> {
       void: mine.filter((i) => i.status === "void").length,
       amount_approved: sum("approved"),
       amount_draft: sum("draft"),
+      changed_at: run.generated_at,
+      changed_by: run.generated_by,
+      changed_by_name: run.generated_by ? (names.get(run.generated_by) ?? null) : null,
     };
   });
 }
@@ -121,13 +128,40 @@ export async function getRun(id: string): Promise<{ id: string; period: string; 
   return data;
 }
 
-export async function listRunInvoices(runId: string): Promise<InvoiceRow[]> {
+// Changed / Changed by: an invoice's last step, whichever of generated,
+// approved or voided came last, and who did it.
+export async function listRunInvoices(runId: string): Promise<InvoiceListRow[]> {
   await requireRole(BILLING_ADMINS);
   const supabase = await createClient();
   const rows = await selectAll(() =>
-    supabase.from("invoice").select(INVOICE_COLUMNS).eq("billing_run_id", runId).order("location_name").order("id"),
+    supabase
+      .from("invoice")
+      .select(`${INVOICE_COLUMNS}, generated_by, voided_by`)
+      .eq("billing_run_id", runId)
+      .order("location_name")
+      .order("id"),
   );
-  return (rows as unknown as Record<string, unknown>[]).map(toInvoice);
+  const records = rows as unknown as (Record<string, unknown> & {
+    generated_by: string | null;
+    voided_by: string | null;
+  })[];
+  const steps = records.map((r) => {
+    const inv = toInvoice(r);
+    const all = [
+      { at: inv.generated_at, by: r.generated_by },
+      { at: inv.approved_at, by: inv.approved_by },
+      { at: inv.voided_at, by: r.voided_by },
+    ].filter((s): s is { at: string; by: string | null } => Boolean(s.at));
+    const last = all.reduce((a, b) => (Date.parse(b.at) > Date.parse(a.at) ? b : a));
+    return { inv, last };
+  });
+  const names = await userNames(supabase, steps.map((s) => s.last.by));
+  return steps.map(({ inv, last }) => ({
+    ...inv,
+    changed_at: last.at,
+    changed_by: last.by,
+    changed_by_name: last.by ? (names.get(last.by) ?? null) : null,
+  }));
 }
 
 export async function generateRun(
@@ -266,7 +300,7 @@ export async function getSetup(): Promise<SetupLocation[]> {
     selectAll(() =>
       supabase
         .from("location")
-        .select("id, name, billing_day, organisation:organisation_id(name), region:region_id(name)")
+        .select("id, name, billing_day, updated_at, updated_by, organisation:organisation_id(name), region:region_id(name)")
         .eq("active", true)
         .order("name")
         .order("id"),
@@ -319,9 +353,12 @@ export async function getSetup(): Promise<SetupLocation[]> {
     id: string;
     name: string;
     billing_day: number | null;
+    updated_at: string;
+    updated_by: string | null;
     organisation: { name: string } | null;
     region: { name: string } | null;
   };
+  const names = await userNames(supabase, (locations as unknown as LocRec[]).map((l) => l.updated_by));
   return (locations as unknown as LocRec[]).map((l) => ({
     id: l.id,
     name: l.name,
@@ -332,6 +369,10 @@ export async function getSetup(): Promise<SetupLocation[]> {
       .filter((t) => t.location_id === l.id)
       .map((t) => ({ id: t.id, rate: Number(t.rate), effective_from: t.effective_from })),
     meters: meters.get(l.id) ?? [],
+    // The location row: its billing day (a new tariff doesn't touch it).
+    changed_at: l.updated_at,
+    changed_by: l.updated_by,
+    changed_by_name: l.updated_by ? (names.get(l.updated_by) ?? null) : null,
   }));
 }
 

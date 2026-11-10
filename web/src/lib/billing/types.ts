@@ -35,7 +35,10 @@ export type BillingRunRow = {
   void: number;
   amount_approved: number;
   amount_draft: number;
-};
+} & ChangedFields;
+
+// The grids' Changed / Changed by (docs/grid-redesign-plan.md).
+export type ChangedFields = { changed_at: string | null; changed_by: string | null; changed_by_name: string | null };
 
 export type InvoiceRow = {
   id: string;
@@ -128,4 +131,7 @@ export type SetupLocation = {
   billing_day: number | null;
   tariffs: SetupTariff[];
   meters: SetupMeter[];
-};
+} & ChangedFields;
+
+// A run's invoice list row.
+export type InvoiceListRow = InvoiceRow & ChangedFields;

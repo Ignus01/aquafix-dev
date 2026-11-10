@@ -8,6 +8,8 @@ import { Popover } from "./popover";
 export type RowMenuItem = {
   label: string;
   href?: string;
+  // href is a file download (a route handler), so it's a plain <a>.
+  download?: boolean;
   // May be async (a server action); the menu waits before closing the
   // confirmation.
   onSelect?: () => unknown;
@@ -81,6 +83,14 @@ export function RowMenu({ label, items }: { label: string; items: RowMenuItem[] 
         {item.shortcut && <span className="text-xs text-muted">{item.shortcut}</span>}
       </>
     );
+    // A file (PDF, CSV) from a route handler: a plain link, not a page.
+    if (item.href && item.download) {
+      return (
+        <a key={item.label} href={item.href} role="menuitem" tabIndex={-1} className={cls} onClick={() => setOpen(false)}>
+          {body}
+        </a>
+      );
+    }
     return item.href && !item.confirm ? (
       <Link key={item.label} href={item.href} role="menuitem" tabIndex={-1} className={cls} onClick={() => setOpen(false)}>
         {body}
