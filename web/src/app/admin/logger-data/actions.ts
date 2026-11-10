@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth";
 import { friendlyError } from "@/lib/db-errors";
 import { zonedInputToIso } from "@/lib/inspections/dates";
-import { readingsQuery, toReadingRows } from "@/lib/logger-data/readings";
+import { readingsCountIsEstimate, readingsQuery, toReadingRows } from "@/lib/logger-data/readings";
 import {
   READINGS_PAGE_SIZE,
   type ChartPoint,
@@ -44,7 +44,7 @@ export async function listReadings(
   filter: ReadingFilter,
   page: number,
   timeZone: string,
-): Promise<{ rows: LoggerReadingRow[]; total: number }> {
+): Promise<{ rows: LoggerReadingRow[]; total: number; estimated: boolean }> {
   await requireSystemAdmin();
   const supabase = await createClient();
   const start = (page - 1) * READINGS_PAGE_SIZE;
@@ -54,7 +54,7 @@ export async function listReadings(
   );
   // Asking for a page past the end (e.g. after narrowing a filter) is not an error.
   if (error && error.code !== "PGRST103") throw error;
-  return { rows: toReadingRows(data), total: count ?? 0 };
+  return { rows: toReadingRows(data), total: count ?? 0, estimated: readingsCountIsEstimate(filter) };
 }
 
 // One asset's readings over the filter's range, oldest first.

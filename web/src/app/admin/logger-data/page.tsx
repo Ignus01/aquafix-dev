@@ -38,13 +38,14 @@ export default async function LoggerDataPage(props: PageProps<"/admin/logger-dat
     // A page past the end (the data shrank, or a stale link) shows the last one.
     const lastPage = Math.max(1, Math.ceil(firstTry.total / READINGS_PAGE_SIZE));
     const page = Math.min(requested, lastPage);
-    const { rows, total } = page === requested ? firstTry : await listReadings(filter, page, timeZone);
+    const { rows, total, estimated } = page === requested ? firstTry : await listReadings(filter, page, timeZone);
     content = (
       <ReadingsView
         assets={assets}
         filter={filter}
         rows={rows}
         total={total}
+        totalIsEstimate={estimated}
         page={page}
         chart={chart}
         timeZone={timeZone}

@@ -1,93 +1,48 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useTransition } from "react";
-import { formatDateTime } from "@/lib/incidents/format";
-import { formatPlainDate, zonedDay } from "@/lib/inspections/dates";
-import {
-  INSTRUCTION_STATUS_LABELS,
-  type AccountOption,
-  type AssetOption,
-  type InstructionDetail,
-  type InstructionListRow,
-} from "@/lib/inspections/types";
-import { Drawer } from "../drawer";
+import { useState } from "react";
+import { formatPlainDate } from "@/lib/inspections/dates";
+import { SYSTEM_OPTION } from "@/lib/grid/fields";
+import { instructionsGrid, type InstructionGridRow } from "@/lib/grid/specs/instructions";
+import type { ChoiceOption, GridParams, GridResult } from "@/lib/grid/types";
+import { changedColumns, Dash, type GridColumn } from "../grid/columns";
+import { Grid } from "../grid/grid";
+import type { RowMenuItem } from "../grid/row-menu";
 import { PlusIcon } from "../icons";
-import { dangerLinkButtonClass, linkButtonClass } from "../ui";
-import { deleteInstruction, getInstructionDetail } from "./actions";
+import { deleteInstruction } from "./actions";
 import { InstructionStatusBadge, Progress, YesNo } from "./badges";
-import { DataTable, type Column } from "./data-table";
-import { InstructionEditor } from "./instruction-editor";
 
 export const addButtonClass =
   "flex h-[38px] items-center gap-2 rounded-control bg-primary px-4 text-sm font-semibold text-white transition-colors hover:bg-primary-hover disabled:opacity-60";
 
-// Inspection_Overview → Instructions → Instructions. (No 'AdHoc' filter:
-// ad-hoc inspections no longer create instructions.)
+// Inspection_Overview → Instructions → Instructions, one page at a time from
+// instruction_grid. (No 'AdHoc' filter: ad-hoc inspections no longer create
+// instructions.)
 export function InstructionsPanel({
-  instructions,
-  assets,
-  accounts,
+  result,
+  params,
+  userOptions,
   canEdit,
   today,
   timeZone,
 }: {
-  instructions: InstructionListRow[];
-  assets: AssetOption[];
-  accounts: AccountOption[];
+  result: GridResult<InstructionGridRow>;
+  params: GridParams;
+  userOptions: ChoiceOption[];
   canEdit: boolean;
   today: string;
   timeZone: string;
 }) {
-  const [editor, setEditor] = useState<null | "loading" | { detail: InstructionDetail | null }>(null);
   const [error, setError] = useState<string | null>(null);
-  const [isPending, startTransition] = useTransition();
 
-  function openEditor(row: InstructionListRow) {
-    setError(null);
-    setEditor("loading");
-    startTransition(async () => {
-      const detail = await getInstructionDetail(row.legacy_uid);
-      if (!detail) {
-        setEditor(null);
-        setError("That instruction no longer exists.");
-      } else {
-        setEditor({ detail });
-      }
-    });
-  }
+  const viewHref = (r: InstructionGridRow) => `/admin/inspections/instructions/${r.uid}`;
 
-  function remove(row: InstructionListRow) {
-    if (!confirm(`Delete instruction ${row.legacy_uid}? Its asset list is deleted too.`)) return;
-    setError(null);
-    startTransition(async () => {
-      const res = await deleteInstruction(row.id);
-      if (res.error) setError(res.error);
-    });
-  }
-
-  const day = zonedDay(timeZone);
-  const columns: Column<InstructionListRow>[] = [
-    {
-      key: "uid",
-      label: "UID",
-      filter: "number",
-      text: (r) => r.legacy_uid,
-      render: (r) => (
-        <Link
-          href={`/admin/inspections/instructions/${r.legacy_uid}`}
-          className="font-mono text-[13px] font-semibold text-primary hover:text-primary-hover"
-        >
-          {r.legacy_uid}
-        </Link>
-      ),
-    },
-    { key: "name", label: "Name", filter: "text", text: (r) => r.name, render: (r) => r.name },
+  const columns: GridColumn<InstructionGridRow>[] = [
+    { key: "uid", render: (r) => r.uid },
+    { key: "name", render: (r) => r.name },
     {
       key: "comment",
-      label: "Comment",
-      filter: "text",
-      text: (r) => r.comment,
       className: "",
       render: (r) =>
         r.comment ? (
@@ -95,111 +50,75 @@ export function InstructionsPanel({
             {r.comment}
           </span>
         ) : (
-          <span className="text-muted">—</span>
+          <Dash />
         ),
     },
-    {
-      key: "account",
-      label: "Assigned to",
-      filter: "select",
-      text: (r) => r.account_name,
-      render: (r) => r.account_name ?? "—",
-    },
-    {
-      key: "progress",
-      label: "Progress",
-      text: (r) => `${r.nr_completed} / ${r.nr_of_allocations}`,
-      sortValue: (r) => (r.nr_of_allocations ? r.nr_completed / r.nr_of_allocations : null),
-      render: (r) => <Progress done={r.nr_completed} total={r.nr_of_allocations} />,
-    },
-    {
-      key: "status",
-      label: "Status",
-      filter: "select",
-      text: (r) => INSTRUCTION_STATUS_LABELS[r.status],
-      render: (r) => <InstructionStatusBadge status={r.status} />,
-    },
+    { key: "account", render: (r) => r.account_name ?? <Dash /> },
+    { key: "progress", render: (r) => <Progress done={r.nr_completed} total={r.nr_of_allocations} /> },
+    { key: "status", render: (r) => <InstructionStatusBadge status={r.status} /> },
     {
       key: "due",
-      label: "Required completed",
-      filter: "date",
-      text: (r) => r.required_completed_date,
       render: (r) => (
         <span className={r.status !== "completed" && r.required_completed_date < today ? "font-semibold text-danger" : ""}>
           {formatPlainDate(r.required_completed_date)}
         </span>
       ),
     },
-    {
-      key: "scheduled",
-      label: "Scheduled",
-      filter: "select",
-      text: (r) => (r.is_scheduled ? "Yes" : "No"),
-      render: (r) => <YesNo value={r.is_scheduled} />,
-    },
-    {
-      key: "changed",
-      label: "Changed",
-      filter: "date",
-      filterValue: (r) => day(r.updated_at),
-      text: (r) => formatDateTime(r.updated_at, timeZone),
-      sortValue: (r) => r.updated_at,
-      render: (r) => <span className="text-muted">{formatDateTime(r.updated_at, timeZone)}</span>,
-    },
+    { key: "scheduled", render: (r) => <YesNo value={r.is_scheduled} /> },
+    ...changedColumns<InstructionGridRow>(timeZone),
   ];
+
+  function menu(r: InstructionGridRow): RowMenuItem[] {
+    const items: RowMenuItem[] = [
+      { label: "View", href: viewHref(r) },
+      ...(canEdit ? [{ label: "Edit", href: `${viewHref(r)}/edit` }] : []),
+      { label: "Report", href: `${viewHref(r)}/report` },
+      {
+        label: "Copy link",
+        onSelect: () => navigator.clipboard?.writeText(`${window.location.origin}${viewHref(r)}`),
+      },
+    ];
+    if (canEdit) {
+      items.push({
+        label: "Delete",
+        danger: true,
+        confirm: `Instruction ${r.uid} and its asset list will be deleted. This can't be undone.`,
+        onSelect: async () => {
+          setError(null);
+          const res = await deleteInstruction(r.id);
+          if (res.error) setError(res.error);
+        },
+      });
+    }
+    return items;
+  }
 
   return (
     <>
       {error && <p className="mb-4 border-l-2 border-danger py-1 pl-3 text-[13px] text-danger">{error}</p>}
-      <DataTable
-        rows={instructions}
+      <Grid
+        mode="server"
+        spec={instructionsGrid}
+        result={result}
+        params={params}
         columns={columns}
         getKey={(r) => r.id}
+        title="Instructions"
+        timeZone={timeZone}
+        rowHref={(r) => (canEdit ? `${viewHref(r)}/edit` : viewHref(r))}
+        rowLabel={(r) => `instruction ${r.uid}`}
+        rowMenu={menu}
+        options={{ account: userOptions, changed_by: [...userOptions, SYSTEM_OPTION] }}
         emptyLabel="No instructions yet."
-        rowLimit={null}
-        exportName="instructions"
-        toolbar={
+        primaryAction={
           canEdit && (
-            <button type="button" className={addButtonClass} onClick={() => setEditor({ detail: null })}>
+            <Link href="/admin/inspections/instructions/new" className={addButtonClass}>
               <PlusIcon className="h-4 w-4" />
-              Add new
-            </button>
+              New instruction
+            </Link>
           )
         }
-        actions={(r) => (
-          <span className="flex justify-end gap-3">
-            <Link href={`/admin/inspections/instructions/${r.legacy_uid}/report`} className={linkButtonClass}>
-              Report
-            </Link>
-            {canEdit && (
-              <>
-                <button type="button" className={linkButtonClass} disabled={isPending} onClick={() => openEditor(r)}>
-                  Edit
-                </button>
-                <button type="button" className={dangerLinkButtonClass} disabled={isPending} onClick={() => remove(r)}>
-                  Delete
-                </button>
-              </>
-            )}
-          </span>
-        )}
       />
-
-      {editor === "loading" && (
-        <Drawer open width={760} title="Instruction" onClose={() => setEditor(null)}>
-          <p className="py-10 text-center text-sm text-muted">Loading…</p>
-        </Drawer>
-      )}
-      {editor && editor !== "loading" && (
-        <InstructionEditor
-          key={editor.detail?.id ?? "new"}
-          instruction={editor.detail}
-          assets={assets}
-          accounts={accounts}
-          today={today}
-          onClose={() => setEditor(null)}
-        />
-      )}
     </>
   );
 }
