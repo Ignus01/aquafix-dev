@@ -23,6 +23,7 @@ import type { Inspection } from "@/lib/inspection-setup/types";
 import { canInspectionSetup } from "@/lib/inspection-setup/permissions";
 import * as actions from "./actions";
 import { AssetTypeInspections } from "../inspection-setup/asset-type-inspections";
+import { replaceTab } from "../grid/use-grid-params";
 
 function makeTabs(counts: Record<string, number>) {
   return [
@@ -87,6 +88,7 @@ export function MasterdataTabs({
   assets,
   inspections,
   initialTab = "asset",
+  timeZone,
 }: {
   roles: MasterdataRole[];
   regions: Region[];
@@ -99,6 +101,7 @@ export function MasterdataTabs({
   inspections: Inspection[];
   // From ?tab=, e.g. Billing's meters dialog links to Asset Types.
   initialTab?: TabKey;
+  timeZone: string;
 }) {
   const [tab, setTab] = useState<TabKey>(initialTab);
 
@@ -138,7 +141,10 @@ export function MasterdataTabs({
         {tabs.map((t) => (
           <button
             key={t.key}
-            onClick={() => setTab(t.key)}
+            onClick={() => {
+              setTab(t.key);
+              replaceTab(t.key);
+            }}
             className={`flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-semibold transition-colors ${
               tab === t.key
                 ? "border-primary text-primary"
@@ -164,6 +170,8 @@ export function MasterdataTabs({
           {(perms) => (
             <EntityCrudTable
               rows={assets}
+              gridId="masterdata-assets"
+              timeZone={timeZone}
               getId={(r) => r.id as string}
               {...perms}
               itemLabel="Asset"
@@ -234,6 +242,8 @@ export function MasterdataTabs({
           {(perms) => (
             <EntityCrudTable
               rows={assetTypes}
+              gridId="masterdata-asset-types"
+              timeZone={timeZone}
               getId={(r) => r.id as string}
               {...perms}
               itemLabel="Asset Type"
@@ -259,7 +269,6 @@ export function MasterdataTabs({
                     required: true,
                     defaultValue: "OTHER",
                     options: ASSET_CLASSIFICATION_OPTIONS,
-                    filter: true,
                     render: (v) => assetClassificationLabel(v),
                   },
                   activeField,
@@ -275,6 +284,8 @@ export function MasterdataTabs({
           {(perms) => (
             <EntityCrudTable
               rows={locations}
+              gridId="masterdata-locations"
+              timeZone={timeZone}
               getId={(r) => r.id as string}
               {...perms}
               itemLabel="Location"
@@ -357,6 +368,8 @@ export function MasterdataTabs({
           {(perms) => (
             <EntityCrudTable
               rows={organisations}
+              gridId="masterdata-organisations"
+              timeZone={timeZone}
               getId={(r) => r.id as string}
               {...perms}
               itemLabel="Organisation"
@@ -387,6 +400,8 @@ export function MasterdataTabs({
           {(perms) => (
             <EntityCrudTable
               rows={regions}
+              gridId="masterdata-regions"
+              timeZone={timeZone}
               getId={(r) => r.id as string}
               {...perms}
               itemLabel="Region"
@@ -410,70 +425,67 @@ export function MasterdataTabs({
         <div className="flex flex-col gap-8">
           <Permissioned roles={roles} entity="colour_container">
             {(perms) => (
-              <div className="rounded-card border border-border bg-card p-5">
-                <h3 className="mb-4 text-[11px] font-semibold tracking-wider text-muted uppercase">
-                  Colours (used by Grading)
-                </h3>
-                <EntityCrudTable
-                  rows={colourContainers}
-                  getId={(r) => r.id as string}
-                  {...perms}
-                  itemLabel="Colour"
-                  emptyLabel="No colours yet — add one before creating a Grading."
-                  onCreate={actions.createColourContainer}
-                  onUpdate={async () => ({ error: "Not editable — delete and re-create." })}
-                  onDelete={actions.deleteColourContainer}
-                  fields={
-                    [
-                      { key: "name", label: "Name", type: "text", required: true },
-                      { key: "hex_colour", label: "Hex colour", type: "text" },
-                      { key: "class_name", label: "CSS class", type: "text", mono: true },
-                    ] satisfies FieldConfig[]
-                  }
-                />
-              </div>
+              <EntityCrudTable
+                rows={colourContainers}
+                gridId="masterdata-colours"
+                prefix="c."
+                changedBy={false}
+                timeZone={timeZone}
+                getId={(r) => r.id as string}
+                {...perms}
+                itemLabel="Colour"
+                title="Colours (used by Grading)"
+                emptyLabel="No colours yet — add one before creating a Grading."
+                onCreate={actions.createColourContainer}
+                onUpdate={async () => ({ error: "Not editable — delete and re-create." })}
+                onDelete={actions.deleteColourContainer}
+                fields={
+                  [
+                    { key: "name", label: "Name", type: "text", required: true },
+                    { key: "hex_colour", label: "Hex colour", type: "text" },
+                    { key: "class_name", label: "CSS class", type: "text", mono: true },
+                  ] satisfies FieldConfig[]
+                }
+              />
             )}
           </Permissioned>
 
           <Permissioned roles={roles} entity="grading">
             {(perms) => (
-              <div className="rounded-card border border-border bg-card p-5">
-                <h3 className="mb-4 text-[11px] font-semibold tracking-wider text-muted uppercase">
-                  Gradings
-                </h3>
-                <EntityCrudTable
-                  rows={gradings}
-                  getId={(r) => r.id as string}
-                  {...perms}
-                  itemLabel="Grading"
-                  emptyLabel="No gradings yet."
-                  onCreate={actions.createGrading}
-                  onUpdate={actions.updateGrading}
-                  onDelete={actions.deleteGrading}
-                  fields={
-                    [
-                      legacyUidField,
-                      { key: "name", label: "Name", type: "text", required: true },
-                      {
-                        key: "priority",
-                        label: "Priority",
-                        type: "number",
-                        editOnly: true,
-                      },
-                      {
-                        key: "colour_container_id",
-                        label: "Colour",
-                        type: "select",
-                        required: true,
-                        options: colourContainerOptions,
-                        render: (_v, row) =>
-                          (row.colour_container as { name: string } | null)?.name ?? "—",
-                      },
-                      { key: "class_name", label: "CSS class (derived)", type: "text", hideInForm: true, mono: true },
-                    ] satisfies FieldConfig[]
-                  }
-                />
-              </div>
+              <EntityCrudTable
+                rows={gradings}
+                gridId="masterdata-gradings"
+                timeZone={timeZone}
+                getId={(r) => r.id as string}
+                {...perms}
+                itemLabel="Grading"
+                emptyLabel="No gradings yet."
+                onCreate={actions.createGrading}
+                onUpdate={actions.updateGrading}
+                onDelete={actions.deleteGrading}
+                fields={
+                  [
+                    legacyUidField,
+                    { key: "name", label: "Name", type: "text", required: true },
+                    {
+                      key: "priority",
+                      label: "Priority",
+                      type: "number",
+                      editOnly: true,
+                    },
+                    {
+                      key: "colour_container_id",
+                      label: "Colour",
+                      type: "select",
+                      required: true,
+                      options: colourContainerOptions,
+                      render: (_v, row) =>
+                        (row.colour_container as { name: string } | null)?.name ?? "—",
+                    },
+                    { key: "class_name", label: "CSS class (derived)", type: "text", hideInForm: true, mono: true },
+                  ] satisfies FieldConfig[]
+                }
+              />
             )}
           </Permissioned>
         </div>

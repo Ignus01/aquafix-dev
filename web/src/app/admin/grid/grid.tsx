@@ -37,7 +37,17 @@ type CommonProps<T> = {
   title: string;
   timeZone: string;
   // The ID link: the edit page for editors, the view page otherwise.
-  rowHref: (row: T) => string;
+  rowHref?: (row: T) => string;
+  // Instead of rowHref: the ID opens the record in place (a drawer or
+  // dialog), for small lookup tables that keep one (D1).
+  onRowOpen?: (row: T) => void;
+  // Checkboxes in the ID column (bulk actions, e.g. approving invoices). The
+  // header box selects every selectable row the filters leave.
+  selection?: {
+    selected: ReadonlySet<string>;
+    onChange: (next: Set<string>) => void;
+    isSelectable: (row: T) => boolean;
+  };
   // How the row is named in its menu's label ("instruction 6012").
   rowLabel: (row: T) => string;
   rowMenu?: (row: T) => RowMenuItem[];
@@ -131,6 +141,8 @@ export function Grid<T>(props: GridProps<T>) {
     title,
     timeZone,
     rowHref,
+    onRowOpen,
+    selection,
     rowLabel,
     rowMenu,
     options = {},
@@ -171,7 +183,17 @@ export function Grid<T>(props: GridProps<T>) {
   const clientResult = useMemo(
     () =>
       rows
-        ? clientGrid(rows, spec, params, (row, key) => byKey.get(key)?.value?.(row), timeZone)
+        ? clientGrid(
+            rows,
+            spec,
+            params,
+            (row, key) => byKey.get(key)?.value?.(row),
+            timeZone,
+            (row, key) => {
+              const col = byKey.get(key);
+              return (col?.sortValue ?? col?.value)?.(row);
+            },
+          )
         : null,
     [rows, spec, params, byKey, timeZone],
   );
@@ -262,6 +284,27 @@ export function Grid<T>(props: GridProps<T>) {
     a.download = `${spec.id}-${today}.csv`;
     a.click();
     URL.revokeObjectURL(url);
+  }
+
+  // Selection covers every row the filters leave (client mode), or the page.
+  const candidates = clientResult ? clientResult.filtered : result.rows;
+  const selectable = selection ? candidates.filter(selection.isSelectable) : [];
+  const allSelected = selectable.length > 0 && selectable.every((r) => selection!.selected.has(getKey(r)));
+  function toggleAll() {
+    if (!selection) return;
+    const next = new Set(selection.selected);
+    for (const r of selectable) {
+      if (allSelected) next.delete(getKey(r));
+      else next.add(getKey(r));
+    }
+    selection.onChange(next);
+  }
+  function toggleOne(key: string) {
+    if (!selection) return;
+    const next = new Set(selection.selected);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    selection.onChange(next);
   }
 
   const countLabel = `${result.countIsEstimate ? "about " : ""}${fmt(result.total)}`;
@@ -384,6 +427,16 @@ export function Grid<T>(props: GridProps<T>) {
                         aria-sort={sorted ? (params.sort.desc ? "descending" : "ascending") : undefined}
                         className={`${tableHeadCellClass} bg-table-head ${sticky} ${byKey.get(f.key)?.align === "right" ? "text-right" : ""}`}
                       >
+                        {i === 0 && selection && (
+                          <input
+                            type="checkbox"
+                            aria-label="Select all rows shown"
+                            checked={allSelected}
+                            disabled={selectable.length === 0}
+                            onChange={toggleAll}
+                            className="mr-2.5 h-3.5 w-3.5 align-middle accent-[var(--color-primary)]"
+                          />
+                        )}
                         {isSortable(f) ? (
                           <button
                             type="button"
@@ -461,9 +514,29 @@ export function Grid<T>(props: GridProps<T>) {
                         return (
                           <td key={f.key} className={cls}>
                             <span className="grid-id-cell">
-                              <Link href={rowHref(row)} className="grid-id">
-                                {col.render(row)}
-                              </Link>
+                              {selection && (
+                                <input
+                                  type="checkbox"
+                                  aria-label={`Select ${rowLabel(row)}`}
+                                  checked={selection.selected.has(getKey(row))}
+                                  disabled={!selection.isSelectable(row)}
+                                  onChange={() => toggleOne(getKey(row))}
+                                  className={`mr-1 h-3.5 w-3.5 accent-[var(--color-primary)] ${
+                                    selection.isSelectable(row) ? "" : "invisible"
+                                  }`}
+                                />
+                              )}
+                              {rowHref ? (
+                                <Link href={rowHref(row)} className="grid-id">
+                                  {col.render(row)}
+                                </Link>
+                              ) : onRowOpen ? (
+                                <button type="button" onClick={() => onRowOpen(row)} className="grid-id text-left">
+                                  {col.render(row)}
+                                </button>
+                              ) : (
+                                <span className="font-semibold text-ink">{col.render(row)}</span>
+                              )}
                               {rowMenu && <RowMenu label={rowLabel(row)} items={rowMenu(row)} />}
                             </span>
                           </td>

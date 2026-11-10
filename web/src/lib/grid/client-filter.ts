@@ -65,6 +65,9 @@ export function clientGrid<T>(
   params: GridParams,
   value: (row: T, key: string) => CellValue,
   timeZone: string,
+  // A column may sort on something other than what it filters on (a lookup
+  // filtered by id, sorted by name).
+  sortValue: (row: T, key: string) => CellValue = value,
 ): GridResult<T> & { filtered: T[] } {
   const day = zonedDay(timeZone);
   const active = Object.entries(params.filters);
@@ -75,7 +78,7 @@ export function clientGrid<T>(
   const { key, desc } = params.sort;
   if (spec.fields.some((f) => f.key === key)) {
     filtered = filtered
-      .map((row, i) => ({ row, i, v: value(row, key) }))
+      .map((row, i) => ({ row, i, v: sortValue(row, key) }))
       .sort((a, b) => {
         const blank = isBlank(a.v) || isBlank(b.v);
         const c = compareValues(a.v, b.v);

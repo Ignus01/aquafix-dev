@@ -27,7 +27,7 @@ export async function listParameters(): Promise<QualityParameter[]> {
     supabase
       .from("quality_parameter")
       .select(
-        "id, name, short_name, unit, min_acceptable, max_acceptable, can_be_negative, decimals, standard, sort_order, active",
+        "id, name, short_name, unit, min_acceptable, max_acceptable, can_be_negative, decimals, standard, sort_order, active, updated_at, updated_by",
       )
       .order("sort_order")
       .order("name")
@@ -43,7 +43,7 @@ export async function listParameters(): Promise<QualityParameter[]> {
 export async function listLabs(): Promise<Lab[]> {
   await requireRole(QUALITY_READERS);
   const supabase = await createClient();
-  const { data, error } = await supabase.from("lab").select("id, name, active").order("name");
+  const { data, error } = await supabase.from("lab").select("id, name, active, updated_at, updated_by").order("name");
   if (error) throw error;
   return data;
 }
@@ -54,7 +54,7 @@ export async function listParameterMaps(): Promise<LabParameterMap[]> {
   const rows = await selectAll(() =>
     supabase
       .from("lab_parameter_map")
-      .select("id, lab_id, lab_parameter, lab_unit, parameter_id, factor")
+      .select("id, lab_id, lab_parameter, lab_unit, parameter_id, factor, updated_at, updated_by")
       .order("lab_parameter")
       .order("id"),
   );
@@ -67,7 +67,7 @@ export async function listLocationMaps(): Promise<LabLocationMap[]> {
   return (await selectAll(() =>
     supabase
       .from("lab_location_map")
-      .select("id, lab_id, lab_locality, location_id")
+      .select("id, lab_id, lab_locality, location_id, updated_at, updated_by")
       .order("lab_locality")
       .order("id"),
   )) as unknown as LabLocationMap[];
@@ -135,7 +135,7 @@ export async function createParameter(
     .from("quality_parameter")
     .insert(columns)
     .select(
-      "id, name, short_name, unit, min_acceptable, max_acceptable, can_be_negative, decimals, standard, sort_order, active",
+      "id, name, short_name, unit, min_acceptable, max_acceptable, can_be_negative, decimals, standard, sort_order, active, updated_at, updated_by",
     )
     .single();
   if (error) return { error: error.code === "23505" ? PARAMETER_UNIQUE : friendlyError(error) };

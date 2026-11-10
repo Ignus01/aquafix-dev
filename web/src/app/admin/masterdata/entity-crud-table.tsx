@@ -1,21 +1,18 @@
 "use client";
 
-import { useMemo, useState, useTransition, type ReactNode } from "react";
+import { useState, useTransition, type ReactNode } from "react";
+import type { CellValue } from "@/lib/grid/client-filter";
+import { changedFields, YES_NO } from "@/lib/grid/fields";
+import { BLANK, type ChoiceOption, type GridField, type GridSpec } from "@/lib/grid/types";
 import { Drawer } from "../drawer";
 import { Switch } from "../switch";
 import { StatusBadge } from "../status-badge";
 import { PlusIcon } from "../icons";
 import { inputClass } from "../ui";
 import { YesNo } from "../inspections/badges";
-import {
-  Pagination,
-  SearchInput,
-  SortableTh,
-  sortRows,
-  usePagination,
-  useSort,
-  type SortValue,
-} from "../data-grid";
+import { changedByOptions, changedColumns, Dash, type Changed, type GridColumn } from "../grid/columns";
+import { Grid } from "../grid/grid";
+import type { RowMenuItem } from "../grid/row-menu";
 
 export type FieldType = "text" | "number" | "boolean" | "select" | "date";
 
@@ -52,13 +49,24 @@ export interface FieldConfig {
   }) => ReactNode;
   // Shown in the form only while this returns true.
   showIf?: (values: Record<string, string>) => boolean;
-  // A form-only field: no table column, not searched.
+  // A form-only field: no grid column.
   hideInTable?: boolean;
-  // Select fields: a dropdown above the table to filter on the column.
-  filter?: boolean;
 }
 
+// A lookup table's list: the shared <Grid> in client mode (every column
+// filterable, the first column opens the record), with the add/edit drawer
+// these small tables keep (D1). Rows carry changed_at / changed_by /
+// changed_by_name from withChanged() (lib/grid/changed.ts).
 export interface EntityCrudTableProps {
+  // The grid's id (column choice and page size are remembered under it).
+  gridId: string;
+  // Only when a page shows two of these at once.
+  prefix?: string;
+  timeZone: string;
+  // false when the table has updated_at but no updated_by: Changed only.
+  changedBy?: boolean;
+  // The grid's heading; defaults to the plural of itemLabel.
+  title?: string;
   fields: FieldConfig[];
   rows: Record<string, unknown>[];
   getId: (row: Record<string, unknown>) => string;
@@ -210,24 +218,37 @@ function FormFields({
   );
 }
 
-// "" = all rows; FILTER_NONE = rows where the column is blank.
-const FILTER_NONE = "\u0000none";
+const ACTIVE_OPTIONS: ChoiceOption[] = [
+  { value: "true", label: "Active" },
+  { value: "false", label: "Inactive" },
+];
+
+const isBlank = (v: unknown) => v === undefined || v === null || v === "";
 
 // What the user sees for a select is the option's label, not the stored id,
-// so search and sort by that.
+// so sort by that.
 function displayValue(f: FieldConfig, row: Record<string, unknown>): string {
   const raw = row[f.key];
   if (f.type === "select") {
     const label = f.options?.find((o) => o.value === raw)?.label;
     if (label !== undefined) return label;
   }
-  return raw === undefined || raw === null ? "" : String(raw);
+  return isBlank(raw) ? "" : typeof raw === "object" ? JSON.stringify(raw) : String(raw);
 }
 
-function sortValue(f: FieldConfig, row: Record<string, unknown>): SortValue {
+// The filtered (and exported) value: a select's id and a boolean's
+// "true"/"false" match the choice filter's options.
+function filterValue(f: FieldConfig, row: Record<string, unknown>): CellValue {
   const raw = row[f.key];
-  if (f.type === "boolean") return Boolean(raw);
-  if (f.type === "number") return raw === undefined || raw === null || raw === "" ? null : Number(raw);
+  if (f.type === "boolean") return String(Boolean(raw));
+  if (f.type === "number") return isBlank(raw) ? null : Number(raw);
+  if (f.type === "select") return isBlank(raw) ? null : String(raw);
+  return displayValue(f, row);
+}
+
+function sortValue(f: FieldConfig, row: Record<string, unknown>): CellValue {
+  if (f.type === "boolean") return Boolean(row[f.key]);
+  if (f.type === "number") return filterValue(f, row);
   return displayValue(f, row);
 }
 
@@ -238,14 +259,45 @@ function renderCell(f: FieldConfig, row: Record<string, unknown>) {
     if (f.statusBadge) return <StatusBadge active={Boolean(raw)} />;
     return <YesNo value={Boolean(raw)} />;
   }
-  const text = raw === undefined || raw === null || raw === "" ? "—" : String(raw);
-  if (f.mono) {
-    return <span className="font-mono text-[13px] text-muted">{text}</span>;
+  if (f.type === "select") {
+    const text = displayValue(f, row);
+    return text || <Dash />;
   }
-  return text;
+  if (isBlank(raw)) return <Dash />;
+  if (f.mono) {
+    return <span className="font-mono text-[13px] text-muted">{String(raw)}</span>;
+  }
+  return String(raw);
 }
 
+function gridField(f: FieldConfig, first: boolean): GridField {
+  const label = f.columnLabel ?? f.label;
+  const base = { key: f.key, label, hideable: !first };
+  switch (f.type) {
+    case "text":
+      return { ...base, filter: "text" };
+    case "number":
+      return { ...base, filter: "number" };
+    case "date":
+      return { ...base, filter: "date" };
+    case "boolean":
+      return { ...base, filter: "choice", options: f.statusBadge ? ACTIVE_OPTIONS : YES_NO };
+    case "select":
+      return {
+        ...base,
+        filter: "choice",
+        options: [...(f.options ?? []), ...(f.required ? [] : [{ value: BLANK, label: "Not set" }])],
+      };
+  }
+}
+
+type Row = Record<string, unknown> & Partial<Changed>;
+
 export function EntityCrudTable({
+  gridId,
+  prefix,
+  timeZone,
+  changedBy = true,
   fields,
   rows,
   getId,
@@ -258,19 +310,13 @@ export function EntityCrudTable({
   onDelete,
   emptyLabel,
   itemLabel,
+  title,
   customEditor,
   renderDrawerExtra,
 }: EntityCrudTableProps) {
   const addFields = fields.filter((f) => !f.hideInForm && !f.editOnly);
   const editFields = fields.filter((f) => !f.hideInForm);
-  const columns = useMemo(() => fields.filter((f) => !f.hideInTable), [fields]);
-  const filterFields = columns.filter((f) => f.filter && f.type === "select");
-  const hasActiveField = fields.some((f) => f.key === "active" && f.statusBadge);
-
-  const [query, setQuery] = useState("");
-  const [activeOnly, setActiveOnly] = useState(false);
-  const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
-  const [sort, toggleSort] = useSort();
+  const tableFields = fields.filter((f) => !f.hideInTable);
 
   const [drawer, setDrawer] = useState<
     | { mode: "add"; values: Record<string, string> }
@@ -280,32 +326,33 @@ export function EntityCrudTable({
   const [error, setError] = useState<string | null>(null);
   const [tableError, setTableError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
-  const showActions = canUpdate || canDelete || canView || customEditor !== undefined;
+  const canOpen = canUpdate || canView || customEditor !== undefined;
 
-  const filteredRows = useMemo(() => {
-    let list = rows;
-    if (activeOnly) list = list.filter((r) => Boolean(r.active));
-    for (const [key, want] of Object.entries(columnFilters)) {
-      if (!want) continue;
-      list = list.filter((r) => {
-        const v = r[key] === null || r[key] === undefined ? "" : String(r[key]);
-        return want === FILTER_NONE ? v === "" : v === want;
-      });
-    }
-    if (query.trim()) {
-      const q = query.trim().toLowerCase();
-      list = list.filter((r) =>
-        columns.some((f) => f.type !== "boolean" && displayValue(f, r).toLowerCase().includes(q)),
-      );
-    }
-    const sortField = sort && columns.find((f) => f.key === sort.key);
-    return sort && sortField ? sortRows(list, (r) => sortValue(sortField, r), sort.desc) : list;
-  }, [rows, query, activeOnly, columnFilters, columns, sort]);
+  // The first column (the legacy UID where the table has one) is the ID: it
+  // opens the record in the drawer. Changed / Changed by come last.
+  const spec: GridSpec = {
+    id: gridId,
+    fields: [
+      ...tableFields.map((f, i) => gridField(f, i === 0)),
+      ...(changedBy ? changedFields() : changedFields().slice(0, 1)),
+    ],
+    defaultSort: { key: "changed", desc: true },
+    changedException: changedBy ? undefined : "The table has no updated_by column.",
+  };
 
-  const { pageItems, ...paging } = usePagination(
-    filteredRows,
-    `${query}|${activeOnly}|${JSON.stringify(columnFilters)}|${sort?.key}|${sort?.desc}`,
-  );
+  const columns: GridColumn<Row>[] = [
+    ...tableFields.map(
+      (f, i): GridColumn<Row> => ({
+        key: f.key,
+        // The ID cell is a link-styled button; it gets the plain value.
+        render: i === 0 && !f.render ? (r) => displayValue(f, r) || "—" : (r) => renderCell(f, r),
+        value: (r) => filterValue(f, r),
+        sortValue: (r) => sortValue(f, r),
+        align: f.type === "number" && i > 0 ? "right" : undefined,
+      }),
+    ),
+    ...changedColumns<Row & Changed>(timeZone).slice(0, changedBy ? 2 : 1),
+  ] as GridColumn<Row>[];
 
   function openAdd() {
     setError(null);
@@ -313,6 +360,10 @@ export function EntityCrudTable({
   }
 
   function openEdit(row: Record<string, unknown>) {
+    if (customEditor) {
+      customEditor.onOpen(row);
+      return;
+    }
     setError(null);
     setDrawer({ mode: "edit", id: getId(row), values: initialValues(editFields, row) });
   }
@@ -346,182 +397,61 @@ export function EntityCrudTable({
     return res.id;
   }
 
-  function handleDelete(row: Record<string, unknown>) {
-    if (!confirm(`Delete this ${itemLabel.toLowerCase()}? This cannot be undone.`)) return;
-    setTableError(null);
-    startTransition(async () => {
-      const res = await onDelete(getId(row));
-      if (res.error) setTableError(res.error);
-    });
+  function menu(row: Row): RowMenuItem[] {
+    const items: RowMenuItem[] = [];
+    if (canOpen) items.push({ label: canUpdate ? "Edit" : "View", onSelect: () => openEdit(row) });
+    if (canDelete) {
+      items.push({
+        label: "Delete",
+        danger: true,
+        confirm: `Delete this ${itemLabel.toLowerCase()}? This can't be undone.`,
+        onSelect: async () => {
+          setTableError(null);
+          const res = await onDelete(getId(row));
+          if (res.error) setTableError(res.error);
+        },
+      });
+    }
+    return items;
   }
 
+  const first = tableFields[0];
+
   return (
-    <div data-grid className="flex scroll-mt-4 flex-col gap-4">
-      <div className="flex flex-wrap items-center gap-2.5">
-        <SearchInput
-          value={query}
-          onChange={setQuery}
-          placeholder={`Search ${itemLabel.toLowerCase()}s…`}
-        />
-
-        {hasActiveField && (
-          <button
-            type="button"
-            aria-pressed={activeOnly}
-            onClick={() => setActiveOnly((v) => !v)}
-            className={`flex h-[38px] items-center gap-1.5 rounded-full border px-3.5 text-[13px] font-medium transition-colors ${
-              activeOnly
-                ? "border-primary bg-primary/10 text-primary-hover"
-                : "border-border bg-white text-ink hover:bg-black/[.02]"
-            }`}
-          >
-            Active only
-          </button>
-        )}
-
-        {filterFields.map((f) => (
-          <select
-            key={f.key}
-            aria-label={`Filter by ${f.label.toLowerCase()}`}
-            value={columnFilters[f.key] ?? ""}
-            onChange={(e) => setColumnFilters((c) => ({ ...c, [f.key]: e.target.value }))}
-            className={`h-[38px] rounded-full border px-3.5 text-[13px] font-medium outline-none transition-colors focus:border-primary ${
-              columnFilters[f.key]
-                ? "border-primary bg-primary/10 text-primary-hover"
-                : "border-border bg-white text-ink"
-            }`}
-          >
-            <option value="">All {f.label.toLowerCase()}s</option>
-            {f.options?.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-            <option value={FILTER_NONE}>Not set</option>
-          </select>
-        ))}
-
-        <div className="flex-1" />
-
-        {canCreate && (
-          <button
-            onClick={customEditor ? customEditor.onAdd : openAdd}
-            className="flex h-[38px] items-center gap-2 rounded-control bg-primary px-4 text-sm font-semibold text-white transition-colors hover:bg-primary-hover"
-          >
-            <PlusIcon className="h-4 w-4" />
-            New {itemLabel.toLowerCase()}
-          </button>
-        )}
-      </div>
-
+    <div className="flex flex-col gap-3">
       {tableError && (
         <p className="border-l-2 border-danger py-1 pl-3 text-[13px] text-danger">
           {tableError}
         </p>
       )}
 
-      <div className="overflow-hidden rounded-card border border-border bg-card">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-table-head">
-                {columns.map((f) => (
-                  <SortableTh
-                    key={f.key}
-                    label={f.columnLabel ?? f.label}
-                    sortKey={f.key}
-                    sort={sort}
-                    onSort={toggleSort}
-                    className="px-4 py-2.5 text-left text-[11px] font-semibold text-muted whitespace-nowrap"
-                  />
-                ))}
-                {showActions && (
-                  <th className="px-4 py-2.5 text-left text-[11px] font-semibold tracking-wider text-muted uppercase">
-                    Actions
-                  </th>
-                )}
-              </tr>
-            </thead>
-            <tbody>
-              {filteredRows.length === 0 && (
-                <tr>
-                  <td
-                    colSpan={columns.length + 1}
-                    className="px-4 py-8 text-center text-muted"
-                  >
-                    {rows.length === 0 ? (
-                      (emptyLabel ?? "No records yet.")
-                    ) : (
-                      <>
-                        No {itemLabel.toLowerCase()}s match these filters.{" "}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setQuery("");
-                            setActiveOnly(false);
-                            setColumnFilters({});
-                          }}
-                          className="font-semibold text-primary hover:text-primary-hover"
-                        >
-                          Clear filters
-                        </button>
-                      </>
-                    )}
-                  </td>
-                </tr>
-              )}
-              {pageItems.map((row) => {
-                const id = getId(row);
-                return (
-                  <tr
-                    key={id}
-                    className="h-[50px] border-t border-border transition-colors hover:bg-row-hover"
-                  >
-                    {columns.map((f) => (
-                      <td key={f.key} className="px-4 text-ink">
-                        {renderCell(f, row)}
-                      </td>
-                    ))}
-                    {showActions && (
-                      <td className="px-4 whitespace-nowrap">
-                        <div className="flex gap-4">
-                          {customEditor ? (
-                            <button
-                              onClick={() => customEditor.onOpen(row)}
-                              className="text-xs font-semibold text-primary hover:text-primary-hover"
-                            >
-                              {canUpdate ? "Edit" : "View"}
-                            </button>
-                          ) : (
-                            (canUpdate || canView) && (
-                              <button
-                                onClick={() => openEdit(row)}
-                                className="text-xs font-semibold text-primary hover:text-primary-hover"
-                              >
-                                {canUpdate ? "Edit" : "View"}
-                              </button>
-                            )
-                          )}
-                          {canDelete && (
-                            <button
-                              disabled={isPending}
-                              onClick={() => handleDelete(row)}
-                              className="text-xs font-semibold text-danger hover:opacity-80"
-                            >
-                              Delete
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    )}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-        <Pagination {...paging} className="border-t border-border px-4 py-2" />
-      </div>
+      <Grid
+        mode="client"
+        spec={spec}
+        rows={rows as Row[]}
+        columns={columns}
+        getKey={(r) => getId(r)}
+        title={title ?? `${itemLabel}s`}
+        timeZone={timeZone}
+        prefix={prefix}
+        onRowOpen={canOpen ? openEdit : undefined}
+        rowLabel={(r) => `${itemLabel.toLowerCase()} ${first ? displayValue(first, r) : getId(r)}`}
+        rowMenu={menu}
+        options={changedBy ? { changed_by: changedByOptions(rows as Row[] as Changed[]) } : undefined}
+        emptyLabel={emptyLabel ?? "No records yet."}
+        primaryAction={
+          canCreate && (
+            <button
+              type="button"
+              onClick={customEditor ? customEditor.onAdd : openAdd}
+              className="flex h-[38px] items-center gap-2 rounded-control bg-primary px-4 text-sm font-semibold text-white transition-colors hover:bg-primary-hover"
+            >
+              <PlusIcon className="h-4 w-4" />
+              New {itemLabel.toLowerCase()}
+            </button>
+          )
+        }
+      />
 
       <Drawer
         open={drawer !== null}

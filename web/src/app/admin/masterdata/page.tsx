@@ -1,4 +1,5 @@
 import { requireRole } from "@/lib/auth";
+import { withChanged } from "@/lib/grid/changed";
 import { PageHeader } from "../page-header";
 import {
   listRegions,
@@ -10,6 +11,7 @@ import {
   listAssets,
 } from "./actions";
 import { listInspections } from "../inspection-setup/actions";
+import { getAppTimeZone } from "../services/actions";
 import { MasterdataTabs, type TabKey } from "./tabs-client";
 
 const TAB_KEYS: TabKey[] = ["asset", "asset_type", "location", "organisation", "region", "grading"];
@@ -19,25 +21,20 @@ export default async function MasterdataPage(props: PageProps<"/admin/masterdata
   const { tab: tabParam } = await props.searchParams;
   const initialTab = TAB_KEYS.find((t) => t === tabParam);
 
-  const [
-    regions,
-    organisations,
-    assetTypes,
-    locations,
-    colourContainers,
-    gradings,
-    assets,
-    inspections,
-  ] = await Promise.all([
-    listRegions(),
-    listOrganisations(),
-    listAssetTypes(),
-    listLocations(),
-    listColourContainers(),
-    listGradings(),
-    listAssets(),
+  const [lists, inspections, timeZone] = await Promise.all([
+    Promise.all([
+      listRegions(),
+      listOrganisations(),
+      listAssetTypes(),
+      listLocations(),
+      listColourContainers(),
+      listGradings(),
+      listAssets(),
+    ]).then((l) => withChanged(...l)),
     listInspections(),
+    getAppTimeZone(),
   ]);
+  const [regions, organisations, assetTypes, locations, colourContainers, gradings, assets] = lists;
 
   return (
     <div className="flex flex-1 flex-col">
@@ -53,6 +50,7 @@ export default async function MasterdataPage(props: PageProps<"/admin/masterdata
         assets={assets}
         inspections={inspections}
         initialTab={initialTab}
+        timeZone={timeZone}
       />
     </div>
   );

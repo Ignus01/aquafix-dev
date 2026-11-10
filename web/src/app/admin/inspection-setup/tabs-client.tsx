@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { EntityCrudTable, type FieldConfig } from "../masterdata/entity-crud-table";
+import { replaceTab } from "../grid/use-grid-params";
 import { Drawer } from "../drawer";
 import { canInspectionSetup } from "@/lib/inspection-setup/permissions";
 import type { MasterdataRole } from "@/lib/auth";
@@ -52,6 +53,8 @@ export function InspectionSetupTabs({
   assetTypes,
   accounts,
   qualityParameters,
+  timeZone,
+  initialTab,
 }: {
   roles: MasterdataRole[];
   inspections: Inspection[];
@@ -60,8 +63,11 @@ export function InspectionSetupTabs({
   assetTypes: { id: string; name: string; active: boolean }[];
   accounts: Account[];
   qualityParameters: QualityParameterOption[];
+  timeZone: string;
+  // From ?tab= (the tab survives a refresh).
+  initialTab?: string;
 }) {
-  const [tab, setTab] = useState<TabKey>("inspection");
+  const [tab, setTab] = useState<TabKey>(TABS.find((t) => t.key === initialTab)?.key ?? "inspection");
   const counts: Record<TabKey, number> = {
     inspection: inspections.length,
     incident_type: incidentTypes.length,
@@ -102,7 +108,10 @@ export function InspectionSetupTabs({
         {TABS.map((t) => (
           <button
             key={t.key}
-            onClick={() => setTab(t.key)}
+            onClick={() => {
+              setTab(t.key);
+              replaceTab(t.key);
+            }}
             className={`flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-semibold transition-colors ${
               tab === t.key
                 ? "border-primary text-primary"
@@ -130,6 +139,8 @@ export function InspectionSetupTabs({
           )}
           <EntityCrudTable
             rows={inspections}
+            gridId="inspection-setup-inspections"
+            timeZone={timeZone}
             getId={(r) => r.id as string}
             canCreate={canInspectionSetup(roles, "inspection", "create")}
             canUpdate={canEditInspections}
@@ -188,6 +199,8 @@ export function InspectionSetupTabs({
       {tab === "incident_type" && (
         <EntityCrudTable
           rows={incidentTypes}
+          gridId="inspection-setup-incident-types"
+          timeZone={timeZone}
           getId={(r) => r.id as string}
           canCreate={canInspectionSetup(roles, "incident_type", "create")}
           canUpdate={canInspectionSetup(roles, "incident_type", "update")}
