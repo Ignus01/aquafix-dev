@@ -53,8 +53,3 @@ export function filterParams(f: QualityFilter): URLSearchParams {
   if (f.outOfSpec) p.set("oos", "1");
   return p;
 }
-
-// Import ids from `?imports=a,b` (the link after an import).
-export function parseImportIds(params: Params): string[] {
-  return (one(params.imports) ?? "").split(",").map(uuid).filter(Boolean).slice(0, 50);
-}

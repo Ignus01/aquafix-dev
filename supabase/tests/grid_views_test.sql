@@ -206,6 +206,46 @@ select pg_temp.act_as('10000000-0000-0000-9d1d-000000000003');
 select is((select count(*)::integer from public.logger_reading_grid), 0, 'a viewer sees no readings');
 select is((select count(*)::integer from public.logger_pull_run_grid), 0, 'or runs');
 
+-- ============================================================================
+-- lab_sample_grid and lab_import_grid (phase 3.4)
+-- ============================================================================
+reset role;
+select set_config('request.jwt.claims', '', true);
+insert into public.lab (id, name) values ('a6000000-0000-0000-9d1d-000000000001', 'G-Lab');
+insert into public.lab_import (id, lab_id, lab_name, file_name, storage_path, parsed, created_by)
+values
+  ('92000000-0000-0000-9d1d-000000000001', 'a6000000-0000-0000-9d1d-000000000001', 'G-Lab', 'g-imported.xlsx',
+   'g/imported.xlsx', '{}', '10000000-0000-0000-9d1d-000000000002'),
+  ('92000000-0000-0000-9d1d-000000000002', 'a6000000-0000-0000-9d1d-000000000001', 'G-Lab', 'g-staged.xlsx',
+   'g/staged.xlsx', '{}', '10000000-0000-0000-9d1d-000000000002');
+-- Imported by the admin (the audit trigger stamps the session's user).
+select pg_temp.act_as('10000000-0000-0000-9d1d-000000000002');
+update public.lab_import set status = 'imported', samples_imported = 1 where id = '92000000-0000-0000-9d1d-000000000001';
+insert into public.lab_sample (id, import_id, lab_id, location_id, lab_no, sampled_on)
+values ('93000000-0000-0000-9d1d-000000000001', '92000000-0000-0000-9d1d-000000000001',
+        'a6000000-0000-0000-9d1d-000000000001', 'a2000000-0000-0000-9d1d-000000000001', 'G-0001', current_date);
+
+set local role authenticated;
+select pg_temp.act_as('10000000-0000-0000-9d1d-000000000003');
+select set_eq('select id from public.lab_sample_grid', 'select id from public.lab_sample',
+  'samples: the view shows the table''s rows');
+select results_eq(
+  $$select location_name, region_name, organisation_name, lab_name, file_name, out_of_spec, changed_by_name
+    from public.lab_sample_grid where id = '93000000-0000-0000-9d1d-000000000001'$$,
+  $$values ('G-Plant', 'G-North', 'G-ORG', 'G-Lab', 'g-imported.xlsx', 0, 'g-admin')$$,
+  'a sample row carries its names, and who imported it');
+select set_eq('select id from public.lab_import_grid', 'select id from public.lab_import',
+  'imports: the view shows the table''s rows');
+select results_eq(
+  $$select file_name, changed_at = imported_at, changed_by_name from public.lab_import_grid
+    where id in ('92000000-0000-0000-9d1d-000000000001', '92000000-0000-0000-9d1d-000000000002') order by file_name$$,
+  $$values ('g-imported.xlsx', true, 'g-admin'), ('g-staged.xlsx', null::boolean, 'g-admin')$$,
+  'an import was changed when imported (else uploaded), by whoever did that');
+
+select pg_temp.act_as('10000000-0000-0000-9d1d-000000000004');
+select is((select count(*)::integer from public.lab_sample_grid), 0, 'no role: no samples');
+select is((select count(*)::integer from public.lab_import_grid), 0, 'no role: no imports');
+
 reset role;
 
 select * from finish();

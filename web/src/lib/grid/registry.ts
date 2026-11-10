@@ -3,7 +3,9 @@ import { INCIDENT_ADMINS } from "@/lib/incidents/permissions";
 import { INSPECTION_BACK_OFFICE } from "@/lib/inspections/permissions";
 import { SERVICE_READERS } from "@/lib/services/permissions";
 import { incidentsGrid } from "./specs/incidents";
+import { QUALITY_READERS } from "@/lib/quality/permissions";
 import { readingsGrid, runsGrid } from "./specs/logger";
+import { importsGrid, samplesGrid } from "./specs/quality";
 import { openServicesGrid, servicesGrid } from "./specs/services";
 import { activitiesGrid, cumulativeGrid, scheduledGrid, valuesGrid } from "./specs/inspections";
 import { instructionsGrid } from "./specs/instructions";
@@ -24,6 +26,8 @@ const entries: { spec: GridSpec; roles: MasterdataRole[] }[] = [
   // Admin → Logger Data is for system admins only.
   { spec: readingsGrid, roles: ["system_admin"] },
   { spec: runsGrid, roles: ["system_admin"] },
+  { spec: samplesGrid, roles: QUALITY_READERS },
+  { spec: importsGrid, roles: QUALITY_READERS },
 ];
 
 export const GRID_REGISTRY: Record<string, { spec: GridSpec; roles: MasterdataRole[] }> = Object.fromEntries(

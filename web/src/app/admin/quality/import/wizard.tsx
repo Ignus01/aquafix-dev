@@ -673,7 +673,7 @@ export function ImportWizard({
           )}
           <div className="flex flex-wrap gap-2.5">
             <Link
-              href={`/admin/quality?imports=${data.imports.map((i) => i.id).join(",")}`}
+              href={`/admin/quality?f.file=${data.imports.map((i) => i.id).join(",")}`}
               className={`${primaryButtonClass} flex items-center`}
             >
               See the results
