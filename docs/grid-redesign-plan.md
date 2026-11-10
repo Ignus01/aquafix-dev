@@ -5,7 +5,7 @@ Visual reference (wireframes, measurements): https://claude.ai/artifact/HWgzDNjo
 
 ## Status (10 Nov 2026)
 
-Phases 0–2 are done on branch `claude/grid-redesign-impl-83bd8b` (not merged or pushed, no `db push`). Phases 3–4 are still open.
+Phases 0–2 are done on branch `claude/grid-redesign-impl-83bd8b` (not merged or pushed, no `db push`). Phase 4 (4.1–4.4) is done on `claude/unruffled-villani-e891f6`, built on top of it; phase 3 is on its own branch.
 Measured on the local stack (31,920 values, 11,147 activities, 3,623 instructions) in `next dev`, warm:
 every Inspections tab answers in 160–300 ms, with 110–140 KB of HTML for 50 rows (85 KB for 20).
 
@@ -16,6 +16,15 @@ Where the implementation differs from the plan below:
 - "New instruction" and "New schedule" are pages (`/instructions/new`, `/schedules/new`), so the grids no longer load every asset for the editor.
 - Activities keep their existing capture edit route (IAC-R06). The ID opens the activity page, which offers Edit when allowed.
 - 0.4 was checked locally with `explain analyze` under RLS (Values page 3 ms, filtered count 4 ms). It has not been run against production yet.
+
+Phase 4 deviations:
+- `EntityCrudTable` is the client-mode grid for every lookup table, so 4.1 also converted Inspection setup and Quality parameters, which use it. The ID (legacy UID, else the first column) opens the existing drawer (D1) through `<Grid onRowOpen>`; there are no new edit routes.
+- `stock/product-items.tsx` and `uom-conversions.tsx` are child tables inside the product / unit-of-measure drawer, edited in place. They were left as they are, like the other in-form tables under "Out of scope". The Stock master files lists themselves go through `EntityCrudTable`.
+- Migration `20261110180000_masterdata_updated_by.sql`: region, organisation, asset_type, location, grading, asset, inspection and incident_type had `updated_by` but nothing set it, so Changed by would always have said "System". Same rule as the stock and quality audit triggers. Applied locally only.
+- Client mode gets its Changed fields from `lib/grid/changed.ts` (`withChanged`: `updated_at` / `updated_by` plus one `get_user_names` call), not from views.
+- Recorded `changedException`s: Colours (no `updated_by`, so Changed only), Stock on hand (a sum of the ledger), Movements (ledger rows never change), Users (Changed is `auth.users.updated_at`; who changed an account isn't recorded). Billing runs use generated at / by; invoices use their last step (generated, approved or voided) and who did it.
+- `<Grid>` additions: `rowHref` is optional with `onRowOpen` as the alternative, `selection` (invoice approval), `sortValue` per column, list-valued cells for choice filters, `download` row-menu links, and `replaceTab()` so tabs switched in the browser drop the previous tab's filters.
+- The Movements tab keeps its item / storage-area form, which narrows the server query (latest 300) before the grid filters.
 
 ## Goal
 
@@ -182,11 +191,11 @@ Phase 3 is done when no Work or Quality list uses a hand-built table or `SearchI
 
 ### Phase 4: setup, stock and admin (client mode)
 
-- [ ] **4.1** Master data, all tabs via `masterdata/entity-crud-table.tsx` (one change converts all six).
-- [ ] **4.2** Stock master files (`stock/product-items.tsx`, `uom-conversions.tsx`) and Stock manager lists (`stock-manager/lists.tsx`).
-- [ ] **4.3** Users (`users/users-table.tsx`). Users has no `updated_at`, so use `auth.users.updated_at` through the existing admin action, or omit Changed and record the exception.
-- [ ] **4.4** Billing (`billing/runs-table.tsx`, `setup-table.tsx`, `runs/[id]/invoices-review.tsx`).
-- [ ] **4.5** Delete `data-grid.tsx` and `inspections/data-table.tsx`. Add a short "Grids" section to `web/AGENTS.md` describing how to build a new grid.
+- [x] **4.1** Master data, all tabs via `masterdata/entity-crud-table.tsx` (one change converts all six).
+- [x] **4.2** Stock master files (`stock/product-items.tsx`, `uom-conversions.tsx`) and Stock manager lists (`stock-manager/lists.tsx`).
+- [x] **4.3** Users (`users/users-table.tsx`). Users has no `updated_at`, so use `auth.users.updated_at` through the existing admin action, or omit Changed and record the exception.
+- [x] **4.4** Billing (`billing/runs-table.tsx`, `setup-table.tsx`, `runs/[id]/invoices-review.tsx`).
+- [ ] **4.5** Delete `data-grid.tsx` and `inspections/data-table.tsx`. Add a short "Grids" section to `web/AGENTS.md` describing how to build a new grid. *(AGENTS.md done. The deletion waits for the phase 3 merge: on the phase 4 branch the phase 3 lists still import both files. Checked on a scratch merge of both branches: no conflicts, nothing else imports them, and with both deleted `tsc` and `eslint` pass.)*
 
 Phase 4 is done when every list in the inventory uses `<Grid>`.
 
