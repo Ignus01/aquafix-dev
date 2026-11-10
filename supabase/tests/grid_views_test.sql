@@ -171,6 +171,41 @@ select results_eq(
 select pg_temp.act_as('10000000-0000-0000-9d1d-000000000004');
 select is((select count(*)::integer from public.service_grid), 0, 'no role: no services');
 
+-- ============================================================================
+-- logger_reading_grid and logger_pull_run_grid (phase 3.3): system admins
+-- only, like the tables.
+-- ============================================================================
+reset role;
+select set_config('request.jwt.claims', '', true);
+insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
+values ('10000000-0000-0000-9d1d-000000000005', '00000000-0000-0000-9d1d-000000000000', 'authenticated', 'authenticated',
+        'g-sysadmin@example.test', '', now(), now(), now());
+insert into public.user_masterdata_roles (user_id, role) values ('10000000-0000-0000-9d1d-000000000005', 'system_admin');
+insert into public.logger_pull_run (id, trigger, range_start, range_end, requested_by)
+overriding system value
+values (-9001, 'manual', now() - interval '1 day', now(), '10000000-0000-0000-9d1d-000000000005');
+insert into public.logger_reading (asset_id, logger_type, logger_code, reading_at, value, unit, run_id)
+values ('30000000-0000-0000-9d1d-000000000001', 'HYDRUS', 'G-LOG1', now(), 12.5, 'm3', -9001);
+
+set local role authenticated;
+select pg_temp.act_as('10000000-0000-0000-9d1d-000000000005');
+select set_eq('select id from public.logger_reading_grid', 'select id from public.logger_reading',
+  'readings: the view shows the table''s rows');
+select results_eq(
+  $$select asset_name, asset_code, location_name, value from public.logger_reading_grid where logger_code = 'G-LOG1'$$,
+  $$values ('G-Pump 1', 'G-P1', 'G-Plant', 12.5::numeric)$$,
+  'a reading row carries its asset and location');
+select set_eq('select id from public.logger_pull_run_grid', 'select id from public.logger_pull_run',
+  'runs: the view shows the table''s rows');
+select results_eq(
+  $$select status, changed_by_name, changed_at = created_at from public.logger_pull_run_grid where id = -9001$$,
+  $$values ('no_loggers', 'g-sysadmin', true)$$,
+  'a run row carries its status and who asked for it');
+
+select pg_temp.act_as('10000000-0000-0000-9d1d-000000000003');
+select is((select count(*)::integer from public.logger_reading_grid), 0, 'a viewer sees no readings');
+select is((select count(*)::integer from public.logger_pull_run_grid), 0, 'or runs');
+
 reset role;
 
 select * from finish();
