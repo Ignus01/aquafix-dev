@@ -150,6 +150,27 @@ select results_eq(
 select pg_temp.act_as('10000000-0000-0000-9d1d-000000000004');
 select is((select count(*)::integer from public.incident_grid), 0, 'no role: no incidents');
 
+-- ============================================================================
+-- service_grid (phase 3.2)
+-- ============================================================================
+reset role;
+select set_config('request.jwt.claims', '', true);
+insert into public.service (id, service_type, due_date, asset_id, total_part_cost, total_labour_cost)
+values ('91000000-0000-0000-9d1d-000000000001', 'repair', now(), '30000000-0000-0000-9d1d-000000000001', 10, 5);
+
+set local role authenticated;
+select pg_temp.act_as('10000000-0000-0000-9d1d-000000000003');
+select set_eq('select id from public.service_grid', 'select id from public.service',
+  'services: the view shows the table''s rows');
+select results_eq(
+  $$select asset_code, asset_name, is_completed, total_cost, changed_by_name
+    from public.service_grid where id = '91000000-0000-0000-9d1d-000000000001'$$,
+  $$values ('G-P1', 'G-Pump 1', false, 15.00::numeric, 'System')$$,
+  'a service row carries its asset, costs and editor');
+
+select pg_temp.act_as('10000000-0000-0000-9d1d-000000000004');
+select is((select count(*)::integer from public.service_grid), 0, 'no role: no services');
+
 reset role;
 
 select * from finish();

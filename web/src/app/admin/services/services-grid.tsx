@@ -1,131 +1,119 @@
 "use client";
 
-import Link from "next/link";
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { formatDate, formatDateTime } from "@/lib/incidents/format";
-import { SERVICE_TYPE_LABELS, type ServiceListRow } from "@/lib/services/types";
-import { DataTable, type Column } from "../inspections/data-table";
-import { dangerLinkButtonClass, linkButtonClass } from "../ui";
+import { SYSTEM_OPTION } from "@/lib/grid/fields";
+import { openServicesGrid, servicesGrid, type ServiceGridRow } from "@/lib/grid/specs/services";
+import type { ChoiceOption, GridParams, GridResult } from "@/lib/grid/types";
+import { changedColumns, Dash, type GridColumn } from "../grid/columns";
+import { Grid } from "../grid/grid";
+import type { RowMenuItem } from "../grid/row-menu";
 import { ServiceStatusBadge, ServiceTypeBadge } from "./badges";
 import { deleteService } from "./actions";
 import { formatMoney } from "./format";
 
-// Service_Overview: the data grid of all services, with search, Export and a
-// per-row Edit (writers) or View (viewers).
+// Service_Overview, one page at a time from service_grid. The Open tab is
+// the same grid with the open-only preset (Service_Overview_PWA): there a
+// writer's ID link opens "Complete Service" (ACT_Service_Complete).
 export function ServicesGrid({
-  services,
+  open,
+  result,
+  params,
+  options,
   canEdit,
   timeZone,
   now,
 }: {
-  services: ServiceListRow[];
+  open: boolean;
+  result: GridResult<ServiceGridRow>;
+  params: GridParams;
+  options: Record<"supplier" | "users", ChoiceOption[]>;
   canEdit: boolean;
   timeZone: string;
   // Server render time, so "overdue" agrees between server and browser.
   now: string;
 }) {
   const [error, setError] = useState<string | null>(null);
-  const [isPending, startTransition] = useTransition();
 
-  function remove(service: ServiceListRow) {
-    if (!window.confirm(`Delete service ${service.reference} for ${service.asset.code}? Its files are deleted too.`)) {
-      return;
-    }
-    setError(null);
-    startTransition(async () => {
-      const res = await deleteService(service.id);
-      if (res.error) setError(res.error);
-    });
-  }
+  const viewHref = (s: ServiceGridRow) => `/admin/services/${s.reference}`;
+  const completeHref = (s: ServiceGridRow) => `${viewHref(s)}?complete=1`;
+  const money = (v: number, s: ServiceGridRow) => (s.is_completed ? formatMoney(v) : <Dash />);
 
-  const money = "whitespace-nowrap text-right text-ink tabular-nums";
-  const columns: Column<ServiceListRow>[] = [
-    { key: "uid", label: "UID", render: (s) => <span className="font-semibold">{s.reference}</span>, text: (s) => s.reference },
-    { key: "asset", label: "Asset code", render: (s) => s.asset.code, text: (s) => `${s.asset.code} ${s.asset.name}` },
+  const columns: GridColumn<ServiceGridRow>[] = [
+    { key: "uid", render: (s) => s.reference },
+    { key: "asset", render: (s) => <span className="font-mono text-[13px]">{s.asset_code ?? "—"}</span> },
+    { key: "asset_name", render: (s) => s.asset_name ?? <Dash /> },
+    { key: "due", render: (s) => <span className="tabular-nums">{formatDate(s.due_date, timeZone)}</span> },
+    { key: "type", render: (s) => <ServiceTypeBadge type={s.service_type} /> },
     {
-      key: "due",
-      label: "Due date",
-      render: (s) => formatDate(s.due_date, timeZone),
-      text: (s) => formatDate(s.due_date, timeZone),
-      sortValue: (s) => s.due_date,
-    },
-    {
-      key: "type",
-      label: "Service type",
-      render: (s) => <ServiceTypeBadge type={s.service_type} />,
-      text: (s) => SERVICE_TYPE_LABELS[s.service_type],
-    },
-    {
-      key: "status",
-      label: "Completed",
-      render: (s) => (
-        <ServiceStatusBadge completed={s.is_completed} overdue={!s.is_completed && s.due_date < now} />
-      ),
-      text: (s) => (s.is_completed ? "Yes" : "No"),
+      key: "completed",
+      render: (s) => <ServiceStatusBadge completed={s.is_completed} overdue={!s.is_completed && s.due_date < now} />,
     },
     {
       key: "completed_date",
-      label: "Completed date",
-      render: (s) => formatDateTime(s.completed_date, timeZone),
-      text: (s) => (s.completed_date ? formatDateTime(s.completed_date, timeZone) : ""),
-      sortValue: (s) => s.completed_date,
+      render: (s) =>
+        s.completed_date ? <span className="tabular-nums">{formatDateTime(s.completed_date, timeZone)}</span> : <Dash />,
     },
-    { key: "supplier", label: "Supplier", render: (s) => s.supplier?.name ?? "—", text: (s) => s.supplier?.name ?? "" },
-    { key: "performed_by", label: "Performed by", render: (s) => s.performed_by ?? "—", text: (s) => s.performed_by ?? "" },
-    { key: "invoice", label: "Invoice nr", render: (s) => s.invoice_nr ?? "—", text: (s) => s.invoice_nr ?? "" },
-    {
-      key: "part",
-      label: "Part cost",
-      className: money,
-      render: (s) => (s.is_completed ? formatMoney(s.total_part_cost) : "—"),
-      text: (s) => (s.is_completed ? s.total_part_cost : null),
-    },
-    {
-      key: "labour",
-      label: "Labour cost",
-      className: money,
-      render: (s) => (s.is_completed ? formatMoney(s.total_labour_cost) : "—"),
-      text: (s) => (s.is_completed ? s.total_labour_cost : null),
-    },
-    {
-      key: "total",
-      label: "Total cost",
-      className: `${money} font-semibold`,
-      render: (s) => (s.is_completed ? formatMoney(s.total_cost) : "—"),
-      text: (s) => (s.is_completed ? s.total_cost : null),
-    },
+    { key: "supplier", render: (s) => s.supplier_name ?? <Dash /> },
+    { key: "performed_by", render: (s) => s.performed_by ?? <Dash /> },
+    { key: "invoice", render: (s) => s.invoice_nr ?? <Dash /> },
+    { key: "part", align: "right", render: (s) => money(s.total_part_cost, s) },
+    { key: "labour", align: "right", render: (s) => money(s.total_labour_cost, s) },
+    { key: "total", align: "right", className: "font-semibold", render: (s) => money(s.total_cost, s) },
     {
       key: "comment",
-      label: "Comment",
-      className: "max-w-[260px] truncate text-ink",
-      render: (s) => s.comment ?? "—",
-      text: (s) => s.comment ?? "",
+      render: (s) =>
+        s.comment ? (
+          <span className="line-clamp-1 max-w-[260px] text-muted" title={s.comment}>
+            {s.comment}
+          </span>
+        ) : (
+          <Dash />
+        ),
     },
+    ...changedColumns<ServiceGridRow>(timeZone),
   ];
 
+  function menu(s: ServiceGridRow): RowMenuItem[] {
+    const items: RowMenuItem[] = [{ label: canEdit ? "Edit" : "View", href: viewHref(s) }];
+    if (canEdit && !s.is_completed) items.push({ label: "Complete", href: completeHref(s) });
+    items.push({
+      label: "Copy link",
+      onSelect: () => navigator.clipboard?.writeText(`${window.location.origin}${viewHref(s)}`),
+    });
+    if (canEdit) {
+      items.push({
+        label: "Delete",
+        danger: true,
+        confirm: `Service ${s.reference} for ${s.asset_code ?? "this asset"} and its files will be deleted. This can't be undone.`,
+        onSelect: async () => {
+          setError(null);
+          const res = await deleteService(s.id);
+          if (res.error) setError(res.error);
+        },
+      });
+    }
+    return items;
+  }
+
   return (
-    <div className="flex flex-col gap-3">
-      {error && <p className="border-l-2 border-danger py-1 pl-3 text-[13px] text-danger">{error}</p>}
-      <DataTable
-        rows={services}
-        columns={columns}
+    <>
+      {error && <p className="mb-4 border-l-2 border-danger py-1 pl-3 text-[13px] text-danger">{error}</p>}
+      <Grid
+        mode="server"
+        spec={open ? openServicesGrid : servicesGrid}
+        result={result}
+        params={params}
+        columns={columns.filter((c) => !open || c.key !== "completed_date")}
         getKey={(s) => s.id}
-        emptyLabel="No services yet."
-        searchPlaceholder="Search services…"
-        exportName="services"
-        actions={(s) => (
-          <span className="inline-flex items-center gap-4">
-            <Link href={`/admin/services/${s.reference}`} className={linkButtonClass}>
-              {canEdit ? "Edit" : "View"}
-            </Link>
-            {canEdit && (
-              <button type="button" disabled={isPending} onClick={() => remove(s)} className={dangerLinkButtonClass}>
-                Delete
-              </button>
-            )}
-          </span>
-        )}
+        title={open ? "Open services" : "Services"}
+        timeZone={timeZone}
+        rowHref={(s) => (open && canEdit ? completeHref(s) : viewHref(s))}
+        rowLabel={(s) => `service ${s.reference}`}
+        rowMenu={menu}
+        options={{ supplier: options.supplier, changed_by: [...options.users, SYSTEM_OPTION] }}
+        emptyLabel={open ? "No open services." : "No services yet."}
       />
-    </div>
+    </>
   );
 }
