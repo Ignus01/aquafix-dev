@@ -36,6 +36,11 @@ insert into public.pack_type (id, name, qty, uom_id) values
 -- One item: 5 base units per pack.
 insert into public.item (id, name, product_id, pack_type_id) values
   ('c7000000-0000-0000-57d0-000000000001', 'M drum', 'c2000000-0000-0000-57d0-000000000001', 'c3000000-0000-0000-57d0-000000000001');
+-- A second item, only for the purchase order's second line (an item goes on an order once).
+insert into public.pack_type (id, name, qty, uom_id) values
+  ('c3000000-0000-0000-57d0-000000000002', 'M 1 Litre Bottle', 1, 'c0000000-0000-0000-57d0-000000000001');
+insert into public.item (id, name, product_id, pack_type_id) values
+  ('c7000000-0000-0000-57d0-000000000002', 'M bottle', 'c2000000-0000-0000-57d0-000000000001', 'c3000000-0000-0000-57d0-000000000002');
 
 insert into public.region (id, name) values ('c4000000-0000-0000-57d0-000000000001', 'M-North');
 insert into public.organisation (id, name, is_supplier) values
@@ -64,9 +69,26 @@ $$;
 -- ============================================================================
 insert into public.purchase_order (id, supplier_id) values
   ('d0000000-0000-0000-57d0-000000000001', 'c5000000-0000-0000-57d0-000000000002');
-insert into public.purchase_order_item (id, purchase_order_id, item_id, qty_ordered, unit_cost_exc_vat) values
-  ('d1000000-0000-0000-57d0-000000000001', 'd0000000-0000-0000-57d0-000000000001', 'c7000000-0000-0000-57d0-000000000001', 10, 100),
-  ('d1000000-0000-0000-57d0-000000000002', 'd0000000-0000-0000-57d0-000000000001', 'c7000000-0000-0000-57d0-000000000001', 4, 50);
+insert into public.purchase_order_item (id, purchase_order_id, item_id, qty_ordered, unit_cost_exc_vat, eta) values
+  ('d1000000-0000-0000-57d0-000000000001', 'd0000000-0000-0000-57d0-000000000001', 'c7000000-0000-0000-57d0-000000000001', 10, 100, current_date),
+  ('d1000000-0000-0000-57d0-000000000002', 'd0000000-0000-0000-57d0-000000000001', 'c7000000-0000-0000-57d0-000000000002', 4, 50, current_date);
+
+-- Line rules (PurchaseOrderItem_Validate).
+select throws_ok($$ insert into public.purchase_order_item (purchase_order_id, item_id, qty_ordered, unit_cost_exc_vat, eta)
+  values ('d0000000-0000-0000-57d0-000000000001', 'c7000000-0000-0000-57d0-000000000001', 1, 10, current_date) $$,
+  'P0001', 'That item is already on this purchase order.', 'an item goes on a purchase order once');
+insert into public.purchase_order (id, supplier_id) values
+  ('d0000000-0000-0000-57d0-000000000002', 'c5000000-0000-0000-57d0-000000000002');
+select throws_ok($$ insert into public.purchase_order_item (purchase_order_id, item_id, qty_ordered, unit_cost_exc_vat)
+  values ('d0000000-0000-0000-57d0-000000000002', 'c7000000-0000-0000-57d0-000000000001', 1, 10) $$,
+  'P0001', 'ETA is required.', 'a line needs an ETA');
+select throws_ok($$ insert into public.purchase_order_item (purchase_order_id, item_id, qty_ordered, eta)
+  values ('d0000000-0000-0000-57d0-000000000002', 'c7000000-0000-0000-57d0-000000000001', 1, current_date) $$,
+  'P0001', 'Unit cost must be greater than 0.', 'a line needs a unit cost');
+select lives_ok($$ insert into public.purchase_order_item (purchase_order_id, item_id, qty_ordered, unit_cost_inc_vat, eta)
+  values ('d0000000-0000-0000-57d0-000000000002', 'c7000000-0000-0000-57d0-000000000001', 1, 23, current_date) $$,
+  'the inc VAT price alone is enough');
+delete from public.purchase_order_item where purchase_order_id = 'd0000000-0000-0000-57d0-000000000002';
 
 select is((select unit_cost_inc_vat from public.purchase_order_item where id = 'd1000000-0000-0000-57d0-000000000001'),
   round(100 * (1 + public.get_vat_rate()), 4), 'unit cost inc VAT derived from exc');
@@ -85,9 +107,17 @@ update public.purchase_order_item set unit_cost_exc_vat = 50, unit_cost_inc_vat 
  where id = 'd1000000-0000-0000-57d0-000000000002';
 
 insert into public.load (id) values ('d2000000-0000-0000-57d0-000000000001');
-insert into public.intake (id, load_id, storage_area_id, supplier_id, purchase_order_id) values
+select throws_ok($$ insert into public.intake (load_id, storage_area_id, supplier_id, purchase_order_id, invoice_number) values
+  ('d2000000-0000-0000-57d0-000000000001', 'c8000000-0000-0000-57d0-000000000001',
+   'c5000000-0000-0000-57d0-000000000002', 'd0000000-0000-0000-57d0-000000000001', 'INV-1') $$,
+  'P0001', 'Delivery note is required.', 'a PO intake needs a delivery note');
+select throws_ok($$ insert into public.intake (load_id, storage_area_id, supplier_id, purchase_order_id, delivery_note, invoice_number) values
+  ('d2000000-0000-0000-57d0-000000000001', 'c8000000-0000-0000-57d0-000000000001',
+   'c5000000-0000-0000-57d0-000000000002', 'd0000000-0000-0000-57d0-000000000001', 'DN-1', '  ') $$,
+  'P0001', 'Invoice number is required.', 'and an invoice number');
+insert into public.intake (id, load_id, storage_area_id, supplier_id, purchase_order_id, delivery_note, invoice_number) values
   ('d3000000-0000-0000-57d0-000000000001', 'd2000000-0000-0000-57d0-000000000001', 'c8000000-0000-0000-57d0-000000000001',
-   'c5000000-0000-0000-57d0-000000000002', 'd0000000-0000-0000-57d0-000000000001');
+   'c5000000-0000-0000-57d0-000000000002', 'd0000000-0000-0000-57d0-000000000001', 'DN-1', 'INV-1');
 
 insert into public.intake_item (id, intake_id, item_id, purchase_order_item_id, qty) values
   ('d4000000-0000-0000-57d0-000000000001', 'd3000000-0000-0000-57d0-000000000001',
@@ -100,7 +130,12 @@ select is((select qty_outstanding from public.purchase_order_item where id = 'd1
 select is((select status::text from public.purchase_order_item where id = 'd1000000-0000-0000-57d0-000000000001'), 'new',
   'partially received line stays new');
 
+-- A receipt leaves the prices alone, whatever the VAT rate is by then.
+update public.system_settings set vat_rate = vat_rate + 0.05 where id = 1;
 update public.intake_item set qty = 10 where id = 'd4000000-0000-0000-57d0-000000000001';
+update public.system_settings set vat_rate = vat_rate - 0.05 where id = 1;
+select is((select unit_cost_inc_vat from public.purchase_order_item where id = 'd1000000-0000-0000-57d0-000000000001'),
+  round(100 * (1 + public.get_vat_rate()), 4), 'receiving does not reprice the line at a new VAT rate');
 select is((select status::text from public.purchase_order_item where id = 'd1000000-0000-0000-57d0-000000000001'), 'completed',
   'fully received line is completed');
 select is((select status::text from public.purchase_order where id = 'd0000000-0000-0000-57d0-000000000001'), 'new',
@@ -112,12 +147,29 @@ update public.purchase_order_item set status = 'closed' where id = 'd1000000-000
 select is((select status::text from public.purchase_order where id = 'd0000000-0000-0000-57d0-000000000001'), 'closed',
   'no new lines and one closed: PO closed');
 update public.purchase_order_item set status = 'new' where id = 'd1000000-0000-0000-57d0-000000000002';
+-- A closed line completes once exactly what was ordered has arrived.
+update public.purchase_order_item set status = 'closed' where id = 'd1000000-0000-0000-57d0-000000000002';
 insert into public.intake_item (intake_id, item_id, purchase_order_item_id, qty, transaction_date) values
-  ('d3000000-0000-0000-57d0-000000000001', 'c7000000-0000-0000-57d0-000000000001', 'd1000000-0000-0000-57d0-000000000002', 5, now());
+  ('d3000000-0000-0000-57d0-000000000001', 'c7000000-0000-0000-57d0-000000000002', 'd1000000-0000-0000-57d0-000000000002', 4, now());
+select is((select status::text from public.purchase_order_item where id = 'd1000000-0000-0000-57d0-000000000002'), 'completed',
+  'received = ordered completes the line, even a closed one');
 select is((select status::text from public.purchase_order where id = 'd0000000-0000-0000-57d0-000000000001'), 'completed',
   'all lines completed: PO completed');
+update public.purchase_order_item set status = 'closed' where id = 'd1000000-0000-0000-57d0-000000000002';
+select is((select status::text from public.purchase_order_item where id = 'd1000000-0000-0000-57d0-000000000002'), 'completed',
+  'a completed line can''t be closed');
+-- Over-receipt: allowed, negative outstanding, and the line is open again until someone closes it.
+update public.intake_item set qty = 5 where purchase_order_item_id = 'd1000000-0000-0000-57d0-000000000002';
 select is((select qty_outstanding from public.purchase_order_item where id = 'd1000000-0000-0000-57d0-000000000002'), -1::numeric,
   'over-receipt is allowed and shows as negative outstanding');
+select is((select status::text from public.purchase_order_item where id = 'd1000000-0000-0000-57d0-000000000002'), 'new',
+  'an over-received line is not completed');
+select is((select status::text from public.purchase_order where id = 'd0000000-0000-0000-57d0-000000000001'), 'new',
+  'so its PO is new again');
+update public.purchase_order_item set status = 'closed' where id = 'd1000000-0000-0000-57d0-000000000002';
+select is((select status::text from public.purchase_order where id = 'd0000000-0000-0000-57d0-000000000001'), 'closed',
+  'until the over-received line is closed');
+update public.purchase_order_item set status = 'new' where id = 'd1000000-0000-0000-57d0-000000000002';
 -- Back to a clean 10 in area A.
 delete from public.intake_item where purchase_order_item_id = 'd1000000-0000-0000-57d0-000000000002';
 select is(pg_temp.stock('c8000000-0000-0000-57d0-000000000001'), 10::numeric, 'deleting a receipt removes its ledger row');
@@ -347,9 +399,9 @@ select is(pg_temp.try($$ insert into public.item_transaction (transaction_type, 
 select is((select count(*) from public.item_transaction) > 0, true, 'user can read the ledger');
 select is(pg_temp.try($$ insert into public.purchase_order (supplier_id) values ('c5000000-0000-0000-57d0-000000000002') $$),
   '42501', 'user cannot create a purchase order');
-select is(pg_temp.try($$ update public.purchase_order set comment = 'x' $$), '1', 'user can edit a purchase order');
-select is(pg_temp.try($$ insert into public.purchase_order_item (purchase_order_id, item_id, qty_ordered)
-  values ('d0000000-0000-0000-57d0-000000000001', 'c7000000-0000-0000-57d0-000000000001', 1) $$),
+select is(pg_temp.try($$ update public.purchase_order set comment = 'x' $$), '2', 'user can edit a purchase order');
+select is(pg_temp.try($$ insert into public.purchase_order_item (purchase_order_id, item_id, qty_ordered, unit_cost_exc_vat, eta)
+  values ('d0000000-0000-0000-57d0-000000000002', 'c7000000-0000-0000-57d0-000000000001', 1, 10, current_date) $$),
   '42501', 'user cannot add a purchase order line');
 select is(pg_temp.try($$ update public.purchase_order_item set eta = current_date $$), '2', 'user can edit purchase order lines');
 select is(pg_temp.try($$ insert into public.load default values $$), '42501', 'user cannot create a load');
@@ -384,17 +436,18 @@ select is(pg_temp.try($$ insert into public.load default values $$), '1', 'syste
 select is(pg_temp.try($$ insert into public.intake_item (intake_id, item_id, purchase_order_item_id, qty)
   values ('d3000000-0000-0000-57d0-000000000001', 'c7000000-0000-0000-57d0-000000000001', 'd1000000-0000-0000-57d0-000000000002', 2) $$),
   '1', 'system_admin can receive a PO line');
-select is(pg_temp.stock('c8000000-0000-0000-57d0-000000000001'), 14::numeric, 'the receipt posted to the ledger');
+select is((select qty from public.storage_area_item_stock where item_id = 'c7000000-0000-0000-57d0-000000000002'
+            and storage_area_id = 'c8000000-0000-0000-57d0-000000000001'), 2::numeric, 'the receipt posted to the ledger');
 select set_config('request.jwt.claims',
   '{"sub": "10000000-0000-0000-57d0-000000000001", "role": "authenticated"}', true);
 select is(pg_temp.try($$ insert into public.transfer_item (transfer_id, item_id, qty)
   select id, 'c7000000-0000-0000-57d0-000000000001', 1 from public.transfer_main
    where transfer_type = 'SEND' $$), '1', 'user can add a transfer line');
-select is(pg_temp.stock('c8000000-0000-0000-57d0-000000000001'), 13::numeric, 'user''s transfer line posted to the ledger');
+select is(pg_temp.stock('c8000000-0000-0000-57d0-000000000001'), 11::numeric, 'user''s transfer line posted to the ledger');
 select is(pg_temp.try($$ insert into public.work_order_item (work_order_id, item_id, qty, transaction_date)
   select id, 'c7000000-0000-0000-57d0-000000000001', 1, now() from public.work_order
    where id <> 'f0000000-0000-0000-57d0-000000000001' limit 1 $$), '1', 'user can add a work order line');
-select is(pg_temp.stock('c8000000-0000-0000-57d0-000000000001'), 12::numeric, 'user''s usage posted to the ledger');
+select is(pg_temp.stock('c8000000-0000-0000-57d0-000000000001'), 10::numeric, 'user''s usage posted to the ledger');
 select is(pg_temp.try($$ insert into public.stock_take_item (stock_take_id, item_id, counted_qty)
   select id, 'c7000000-0000-0000-57d0-000000000001', 20 from public.stock_take
    where id <> 'a0000000-0000-0000-57d0-000000000001' limit 1 $$), '1', 'user can add a stock take line');

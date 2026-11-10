@@ -115,8 +115,22 @@ select throws_ok($$ insert into public.item (name, product_id, pack_type_id) val
   '23505', null, 'product + pack type pair unique');
 select throws_ok($$ insert into public.unit_of_measure_conversion (from_uom_id, to_uom_id, conversion) values ('b0000000-0000-0000-57c0-000000000001', 'b0000000-0000-0000-57c0-000000000001', 1) $$,
   '23514', null, 'cannot convert a unit to itself');
-select throws_ok($$ insert into public.unit_of_measure_conversion (from_uom_id, to_uom_id, conversion) values ('b0000000-0000-0000-57c0-000000000003', 'b0000000-0000-0000-57c0-000000000001', 0) $$,
+select throws_ok($$ insert into public.unit_of_measure_conversion (from_uom_id, to_uom_id, conversion) values ('b0000000-0000-0000-57c0-000000000001', 'b0000000-0000-0000-57c0-000000000002', 0) $$,
   '23514', null, 'conversion must be > 0');
+select throws_ok($$ insert into public.unit_of_measure_conversion (from_uom_id, to_uom_id, conversion) values ('b0000000-0000-0000-57c0-000000000003', 'b0000000-0000-0000-57c0-000000000001', 2) $$,
+  'P0001', null, 'a conversion joins units of the same type');
+-- Names and codes are stored in upper case, so they are unique whatever the case.
+insert into public.unit_of_measure (id, code, name, uom_type) values ('b0000000-0000-0000-57c0-000000000009', ' ea ', 'each', 'NODIM');
+select is((select code || '|' || name from public.unit_of_measure where id = 'b0000000-0000-0000-57c0-000000000009'), 'EA|EACH', 'unit code and name upper-cased');
+select throws_ok($$ insert into public.unit_of_measure (code, name, uom_type) values ('Ea', 'Each one', 'NODIM') $$,
+  '23505', null, 'unit codes are unique whatever the case');
+select lives_ok($$ update public.unit_of_measure set uom_type = 'TIME' where id = 'b0000000-0000-0000-57c0-000000000009' $$,
+  'an unused unit can change type');
+delete from public.unit_of_measure where id = 'b0000000-0000-0000-57c0-000000000009';
+select throws_ok($$ update public.unit_of_measure set uom_type = 'MASS' where id = 'b0000000-0000-0000-57c0-000000000001' $$,
+  'P0001', 'The type can''t be changed: this unit of measure is already in use.', 'a unit in use keeps its type');
+select is((select name from public.pack_type where id = 'b3000000-0000-0000-57c0-000000000001'), '5 LITRE DRUM', 'pack type name upper-cased');
+select is((select code || '|' || name from public.product_type where id = 'b1000000-0000-0000-57c0-000000000001'), 'CHEM|CHEMICALS', 'product type upper-cased');
 select throws_ok($$ insert into public.supplier_item (item_id, supplier_id, default_lead_time, default_price_exc_vat)
   values ('b7000000-0000-0000-57c0-000000000001', 'b5000000-0000-0000-57c0-000000000002', 0, 10) $$, '23514', null, 'lead time must be > 0');
 select throws_ok($$ insert into public.supplier_item (item_id, supplier_id, default_lead_time, default_price_exc_vat)
@@ -155,9 +169,10 @@ delete from public.item where id = 'b7000000-0000-0000-57c0-000000000002';
 delete from public.unit_of_measure_conversion where from_uom_id = 'b0000000-0000-0000-57c0-000000000002';
 select is((select count(*) from public.unit_of_measure_conversion), 0::bigint, 'deleting a conversion deletes its mirror');
 
+insert into public.unit_of_measure (id, code, name, uom_type) values ('b0000000-0000-0000-57c0-000000000004', 'KL', 'Kilolitre', 'VOLUME');
 insert into public.unit_of_measure_conversion (from_uom_id, to_uom_id, conversion)
-values ('b0000000-0000-0000-57c0-000000000003', 'b0000000-0000-0000-57c0-000000000002', 4);
-select is((select count(*) from public.unit_of_measure_conversion), 2::bigint, 'kg <-> ml pair');
+values ('b0000000-0000-0000-57c0-000000000004', 'b0000000-0000-0000-57c0-000000000002', 1000000);
+select is((select count(*) from public.unit_of_measure_conversion), 2::bigint, 'kl <-> ml pair');
 -- Only the unused pack type / product reference L and KG; ML is now free.
 delete from public.pack_type where id = 'b3000000-0000-0000-57c0-000000000002';
 delete from public.unit_of_measure where id = 'b0000000-0000-0000-57c0-000000000002';

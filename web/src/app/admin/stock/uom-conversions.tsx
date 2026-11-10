@@ -56,7 +56,14 @@ export function UomConversions({
   }, [fromId]);
 
   const used = new Set((rows ?? []).map((r) => r.to_uom_id));
-  const pickable = units.filter((u) => u.active && u.id !== fromId && (!used.has(u.id) || (editing !== null && u.id === to)));
+  // Same type only: kg converts to g, never to litres.
+  const pickable = units.filter(
+    (u) =>
+      u.active &&
+      u.id !== fromId &&
+      (!from || u.uom_type === from.uom_type) &&
+      (!used.has(u.id) || (editing !== null && u.id === to)),
+  );
 
   function reset() {
     setEditing(null);
