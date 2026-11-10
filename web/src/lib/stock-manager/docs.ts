@@ -119,6 +119,7 @@ export const DOC_CONFIG: Record<DocKind, DocConfig> = {
           label: "Status",
           type: "select",
           options: "poStatuses",
+          required: true,
           hint: "Close a line to stop expecting the rest of it. Received lines complete on their own.",
         },
       ],

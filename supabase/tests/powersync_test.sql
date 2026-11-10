@@ -343,13 +343,18 @@ select is(
 
 -- Sync-only updates of lines post nothing to the ledger and don't recount.
 -- Set up so that they would show: remove T1's ledger row, and add a return
--- before the stock take so a recount would change its adjustment.
+-- before the stock take so a recount would change its adjustment. A movement
+-- dated before a stock take normally recounts it at once
+-- (item_transaction_recalc_stock_takes), so that is switched off for the setup
+-- with the trigger's own "already recounting" setting.
+select set_config('aquafix.stock_take_recalc', '1', true);
 delete from public.item_transaction where transfer_item_id = 'd1000000-0000-0000-7e58-000000000001';
 insert into public.work_order (id, storage_area_id) values
   ('d2000000-0000-0000-7e58-000000000002', 'c8000000-0000-0000-7e58-000000000001');
 insert into public.work_order_item (id, work_order_id, item_id, qty, is_return, transaction_date) values
   ('d3000000-0000-0000-7e58-000000000002', 'd2000000-0000-0000-7e58-000000000002', 'c7000000-0000-0000-7e58-000000000001',
    5, true, now() - interval '2 hours');
+select set_config('aquafix.stock_take_recalc', '', true);
 create temporary table ps_stock as
 select (select adjustment_qty from public.stock_take_item where id = 'd5000000-0000-0000-7e58-000000000001') as adjustment;
 

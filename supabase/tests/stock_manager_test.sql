@@ -231,6 +231,91 @@ select is(pg_temp.stock('c8000000-0000-0000-57d0-000000000001'), 12::numeric, 'c
 select is(pg_temp.rows('STOCK_ADJUSTMENT'), 1::bigint, 'still one adjustment row');
 
 -- ============================================================================
+-- Ledger integrity (20261112120000): future dates, backdated movements and
+-- base quantities. In its own storage area so the counts above are untouched.
+-- ============================================================================
+insert into public.storage_area (id, code, name, location_id) values
+  ('c8000000-0000-0000-57d0-000000000003', 'MC', 'M Area C', 'c6000000-0000-0000-57d0-000000000001');
+
+select throws_ok($$ insert into public.transfer_main (transfer_type, transfer_date, to_storage_area_id)
+  values ('RECEIVE', now() + interval '1 day', 'c8000000-0000-0000-57d0-000000000003') $$,
+  'P0001', 'The date can''t be in the future.', 'a transfer can''t be dated in the future');
+select throws_ok($$ insert into public.stock_take (take_date, storage_area_id)
+  values (now() + interval '1 day', 'c8000000-0000-0000-57d0-000000000003') $$,
+  'P0001', 'The date can''t be in the future.', 'a stock take can''t be dated in the future');
+select throws_ok($$ update public.intake_item set transaction_date = now() + interval '1 day' $$,
+  'P0001', 'The date can''t be in the future.', 'a receipt can''t be dated in the future');
+select lives_ok($$ insert into public.stock_take (take_date, storage_area_id)
+  values (now() + interval '1 minute', 'c8000000-0000-0000-57d0-000000000003') $$,
+  'a clock a minute ahead is tolerated');
+delete from public.stock_take where storage_area_id = 'c8000000-0000-0000-57d0-000000000003';
+
+-- 10 received three days ago, counted as 8 yesterday.
+insert into public.transfer_main (id, transfer_type, transfer_date, to_storage_area_id) values
+  ('e0000000-0000-0000-57d0-0000000000c1', 'RECEIVE', now() - interval '3 days', 'c8000000-0000-0000-57d0-000000000003');
+insert into public.transfer_item (transfer_id, item_id, qty) values
+  ('e0000000-0000-0000-57d0-0000000000c1', 'c7000000-0000-0000-57d0-000000000001', 10);
+insert into public.stock_take (id, take_date, storage_area_id) values
+  ('a0000000-0000-0000-57d0-0000000000c1', now() - interval '1 day', 'c8000000-0000-0000-57d0-000000000003');
+insert into public.stock_take_item (id, stock_take_id, item_id, counted_qty) values
+  ('a1000000-0000-0000-57d0-0000000000c1', 'a0000000-0000-0000-57d0-0000000000c1', 'c7000000-0000-0000-57d0-000000000001', 8);
+select is((select adjustment_qty from public.stock_take_item where id = 'a1000000-0000-0000-57d0-0000000000c1'), -2::numeric,
+  'count of 8 against 10 adjusts by -2');
+
+-- Usage of 3 captured late, dated before the count: the count stands.
+insert into public.work_order (id, storage_area_id) values
+  ('f0000000-0000-0000-57d0-0000000000c1', 'c8000000-0000-0000-57d0-000000000003');
+insert into public.work_order_item (id, work_order_id, item_id, qty, transaction_date) values
+  ('f1000000-0000-0000-57d0-0000000000c1', 'f0000000-0000-0000-57d0-0000000000c1', 'c7000000-0000-0000-57d0-000000000001',
+   3, now() - interval '2 days');
+select is(pg_temp.stock('c8000000-0000-0000-57d0-000000000003'), 8::numeric,
+  'a movement dated before a stock take leaves the counted stock alone');
+select is((select adjustment_qty from public.stock_take_item where id = 'a1000000-0000-0000-57d0-0000000000c1'), 1::numeric,
+  'the stock take''s adjustment is re-worked instead (8 counted against 7)');
+
+-- A second, later stock take follows the first.
+insert into public.stock_take (id, take_date, storage_area_id) values
+  ('a0000000-0000-0000-57d0-0000000000c2', now() - interval '1 hour', 'c8000000-0000-0000-57d0-000000000003');
+insert into public.stock_take_item (id, stock_take_id, item_id, counted_qty) values
+  ('a1000000-0000-0000-57d0-0000000000c2', 'a0000000-0000-0000-57d0-0000000000c2', 'c7000000-0000-0000-57d0-000000000001', 6);
+select is(pg_temp.stock('c8000000-0000-0000-57d0-000000000003'), 6::numeric, 'second count: stock is 6');
+update public.work_order_item set qty = 5 where id = 'f1000000-0000-0000-57d0-0000000000c1';
+select is(
+  (select array_agg(adjustment_qty order by id) from public.stock_take_item
+    where id in ('a1000000-0000-0000-57d0-0000000000c1', 'a1000000-0000-0000-57d0-0000000000c2')),
+  array[3, -2]::numeric[], 'changing the early movement re-works the first take; the second still closes on its count');
+select is(pg_temp.stock('c8000000-0000-0000-57d0-000000000003'), 6::numeric, 'stock still equals the latest count');
+
+-- Changing the first count carries through to the second take's adjustment.
+update public.stock_take_item set counted_qty = 9 where id = 'a1000000-0000-0000-57d0-0000000000c1';
+select is((select adjustment_qty from public.stock_take_item where id = 'a1000000-0000-0000-57d0-0000000000c2'), -3::numeric,
+  'a changed earlier count re-works the later take');
+select is(pg_temp.stock('c8000000-0000-0000-57d0-000000000003'), 6::numeric, 'and stock still equals the latest count');
+
+delete from public.work_order_item where id = 'f1000000-0000-0000-57d0-0000000000c1';
+select is(pg_temp.stock('c8000000-0000-0000-57d0-000000000003'), 6::numeric,
+  'deleting the early movement leaves the counted stock alone');
+select is((select adjustment_qty from public.stock_take_item where id = 'a1000000-0000-0000-57d0-0000000000c1'), -1::numeric,
+  'and the first take is re-worked (9 counted against 10)');
+select is(pg_temp.rows('STOCK_ADJUSTMENT'), 3::bigint, 'one adjustment row per counted line');
+
+-- Base quantities follow the item's pack size.
+select is(pg_temp.base('c8000000-0000-0000-57d0-000000000003'), 30::numeric, '6 packs of 5 = 30 base units');
+update public.pack_type set qty = 20 where id = 'c3000000-0000-0000-57d0-000000000001';
+select is(pg_temp.base('c8000000-0000-0000-57d0-000000000003'), 120::numeric, 'a new pack size re-works the ledger''s base quantities');
+select is((select count(*) from public.intake_item ii join public.item i on i.id = ii.item_id
+            where ii.base_qty <> ii.qty * i.conversion_to_default_uom), 0::bigint, 'receipt lines follow too');
+select is((select count(*) from public.purchase_order_item pi join public.item i on i.id = pi.item_id
+            where pi.base_qty <> pi.qty_ordered * i.conversion_to_default_uom), 0::bigint, 'purchase order lines follow too');
+update public.pack_type set qty = 5 where id = 'c3000000-0000-0000-57d0-000000000001';
+select is(pg_temp.base('c8000000-0000-0000-57d0-000000000003'), 30::numeric, 'and back again');
+
+-- The role checks below pick "any other" document: leave none of these behind.
+delete from public.work_order where storage_area_id = 'c8000000-0000-0000-57d0-000000000003';
+delete from public.stock_take where storage_area_id = 'c8000000-0000-0000-57d0-000000000003';
+delete from public.transfer_main where to_storage_area_id = 'c8000000-0000-0000-57d0-000000000003';
+
+-- ============================================================================
 -- Roles
 -- ============================================================================
 create role m_probe_dummy;
@@ -314,6 +399,12 @@ select is(pg_temp.try($$ insert into public.stock_take_item (stock_take_id, item
   select id, 'c7000000-0000-0000-57d0-000000000001', 20 from public.stock_take
    where id <> 'a0000000-0000-0000-57d0-000000000001' limit 1 $$), '1', 'user can add a stock take line');
 select is(pg_temp.stock('c8000000-0000-0000-57d0-000000000001'), 20::numeric, 'user''s count posted to the ledger');
+
+-- Editing a line runs the line triggers' WHEN clause as the user.
+select isnt(pg_temp.try($$ update public.transfer_item set qty = qty $$), '42501', 'user can edit a transfer line');
+select isnt(pg_temp.try($$ update public.work_order_item set qty = qty $$), '42501', 'user can edit a work order line');
+select isnt(pg_temp.try($$ update public.stock_take_item set counted_qty = counted_qty $$), '42501', 'user can edit a stock take line');
+select is(pg_temp.stock('c8000000-0000-0000-57d0-000000000001'), 20::numeric, 'those edits changed no stock');
 
 select * from finish();
 rollback;
