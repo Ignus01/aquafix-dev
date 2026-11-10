@@ -5,7 +5,7 @@ Visual reference (wireframes, measurements): https://claude.ai/artifact/HWgzDNjo
 
 ## Status (10 Nov 2026)
 
-Phases 0–2 are done on branch `claude/grid-redesign-impl-83bd8b` (not merged or pushed, no `db push`). Phases 3–4 are still open.
+Phases 0–2 are done on branch `claude/grid-redesign-impl-83bd8b`, and phase 3 on `claude/kind-banach-372c32` (built on it). Neither is merged or pushed, no `db push`. Phase 4 is in its own session.
 Measured on the local stack (31,920 values, 11,147 activities, 3,623 instructions) in `next dev`, warm:
 every Inspections tab answers in 160–300 ms, with 110–140 KB of HTML for 50 rows (85 KB for 20).
 
@@ -15,6 +15,9 @@ Where the implementation differs from the plan below:
 - `inspection_value` has no `updated_by`, so Changed by on Values is the activity's last editor.
 - "New instruction" and "New schedule" are pages (`/instructions/new`, `/schedules/new`), so the grids no longer load every asset for the editor.
 - Activities keep their existing capture edit route (IAC-R06). The ID opens the activity page, which offers Edit when allowed.
+- Phase 3: `GridSpec.where` is a fixed preset (Services → Open is `is_completed = false`), applied by `gridQuery` and the export. Incident_Overview_PWA's view is a "Mine" tab (a `gridQuery` scope; not exportable, like the old admin-only export). Phone card layouts on Incidents and Services are gone (D5).
+- Phase 3 Changed columns where the table has no `updated_at`: Logger runs use finished (else started) and who asked for the run; lab samples use the import's `imported_at` / `imported_by`; lab imports use imported (else uploaded). Logger readings have none (`changedException`, estimated count).
+- Phase 3 keeps a few detail tables that aren't lists: a run's per-logger results, Quality → By location, and the sample page.
 - 0.4 was checked locally with `explain analyze` under RLS (Values page 3 ms, filtered count 4 ms). It has not been run against production yet.
 
 ## Goal
@@ -173,10 +176,10 @@ Phase 2 is done when every back-office Inspections tab loads in under 1 s and se
 
 ### Phase 3: operations grids (server mode)
 
-- [ ] **3.1** Incidents (`incidents-view.tsx`): status pills become a Status choice filter. "Start" and "Complete" move into the row menu. ID → `/admin/incidents/[reference]/edit`.
-- [ ] **3.2** Services (`services-grid.tsx`, open + all tabs). "Open" stays as a tab, which is a preset filter.
-- [ ] **3.3** Logger data readings (`readings-view.tsx`) and runs (`runs-view.tsx`). Readings has no edit, so its row menu holds View asset and Copy.
-- [ ] **3.4** Quality samples and imports (`samples-table.tsx`, `imports-table.tsx`).
+- [x] **3.1** Incidents (`incidents-view.tsx`): status pills become a Status choice filter. "Start" and "Complete" move into the row menu. ID → `/admin/incidents/[reference]/edit`.
+- [x] **3.2** Services (`services-grid.tsx`, open + all tabs). "Open" stays as a tab, which is a preset filter.
+- [x] **3.3** Logger data readings (`readings-view.tsx`) and runs (`runs-view.tsx`). Readings has no edit, so its row menu holds View asset and Copy.
+- [x] **3.4** Quality samples and imports (`samples-table.tsx`, `imports-table.tsx`).
 
 Phase 3 is done when no Work or Quality list uses a hand-built table or `SearchInput`.
 
