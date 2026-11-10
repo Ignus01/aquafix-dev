@@ -39,7 +39,7 @@ export async function listInspections(): Promise<Inspection[]> {
   const { data, error } = await supabase
     .from("inspection")
     .select(
-      "id, legacy_uid, name, description, value_type, is_required, active, nr_of_images_required, is_water_quality_parameter, quality_parameter_id",
+      "id, legacy_uid, name, description, value_type, is_required, active, nr_of_images_required, is_water_quality_parameter, quality_parameter_id, updated_at, updated_by",
     )
     .order("name");
   if (error) throw error;
@@ -56,7 +56,7 @@ export async function getInspectionDetail(
     supabase
       .from("inspection")
       .select(
-        "id, legacy_uid, name, description, value_type, is_required, active, nr_of_images_required, is_water_quality_parameter, quality_parameter_id",
+        "id, legacy_uid, name, description, value_type, is_required, active, nr_of_images_required, is_water_quality_parameter, quality_parameter_id, updated_at, updated_by",
       )
       .eq("id", id)
       .maybeSingle(),
@@ -182,7 +182,7 @@ export async function listIncidentTypes(): Promise<IncidentType[]> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("incident_type")
-    .select("id, legacy_uid, name, is_image_required, disables_location, active")
+    .select("id, legacy_uid, name, is_image_required, disables_location, active, updated_at, updated_by")
     .order("name");
   if (error) throw error;
   return data;

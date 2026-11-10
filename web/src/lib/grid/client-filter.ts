@@ -4,12 +4,13 @@ import { BLANK, type FilterValue, type GridParams, type GridResult, type GridSpe
 // Client mode: the same filter, sort and paging semantics as query.ts, in
 // JS, for small tables that are loaded whole.
 
-export type CellValue = string | number | boolean | null | undefined;
+// A list (a user's roles) matches a choice filter when any item does.
+export type CellValue = string | number | boolean | readonly string[] | null | undefined;
 
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 
 function isBlank(v: CellValue) {
-  return v === null || v === undefined || v === "";
+  return v === null || v === undefined || v === "" || (Array.isArray(v) && v.length === 0);
 }
 
 function compareNumber(op: string, a: number, b: number) {
@@ -35,7 +36,9 @@ export function matchesFilter(v: CellValue, f: FilterValue, day: (iso: string) =
     case "text":
       return String(v ?? "").toLowerCase().includes(f.value.toLowerCase());
     case "choice":
-      return f.values.some((c) => (c === BLANK ? isBlank(v) : !isBlank(v) && String(v) === c));
+      return f.values.some((c) =>
+        c === BLANK ? isBlank(v) : Array.isArray(v) ? v.includes(c) : !isBlank(v) && String(v) === c,
+      );
     case "date":
     case "datetime": {
       if (isBlank(v)) return false;
@@ -65,6 +68,9 @@ export function clientGrid<T>(
   params: GridParams,
   value: (row: T, key: string) => CellValue,
   timeZone: string,
+  // A column may sort on something other than what it filters on (a lookup
+  // filtered by id, sorted by name).
+  sortValue: (row: T, key: string) => CellValue = value,
 ): GridResult<T> & { filtered: T[] } {
   const day = zonedDay(timeZone);
   const active = Object.entries(params.filters);
@@ -75,7 +81,7 @@ export function clientGrid<T>(
   const { key, desc } = params.sort;
   if (spec.fields.some((f) => f.key === key)) {
     filtered = filtered
-      .map((row, i) => ({ row, i, v: value(row, key) }))
+      .map((row, i) => ({ row, i, v: sortValue(row, key) }))
       .sort((a, b) => {
         const blank = isBlank(a.v) || isBlank(b.v);
         const c = compareValues(a.v, b.v);

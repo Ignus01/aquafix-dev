@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { requireRole } from "@/lib/auth";
+import { withChanged } from "@/lib/grid/changed";
 import { DOC_CONFIG, type DocKind } from "@/lib/stock-manager/docs";
 import { STOCK_READERS, canDoc } from "@/lib/stock-manager/permissions";
 import { PageHeader } from "../page-header";
@@ -71,7 +72,7 @@ export default async function StockManagerPage(props: PageProps<"/admin/stock-ma
           ))}
         </nav>
 
-        {tab.key === "summary" && <StockSummary rows={await listStock()} />}
+        {tab.key === "summary" && <StockSummary rows={await listStock()} options={options} timeZone={timeZone} />}
 
         {tab.key === "transactions" && (
           <>
@@ -112,7 +113,9 @@ export default async function StockManagerPage(props: PageProps<"/admin/stock-ma
           </>
         )}
 
-        {kind && <DocList kind={kind} rows={await listDocuments(kind)} options={options} timeZone={timeZone} />}
+        {kind && (
+          <DocList kind={kind} rows={(await withChanged(await listDocuments(kind)))[0]} options={options} timeZone={timeZone} />
+        )}
       </div>
     </div>
   );

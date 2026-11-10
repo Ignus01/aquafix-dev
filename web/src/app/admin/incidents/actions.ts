@@ -6,6 +6,11 @@ import { createClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth";
 import { friendlyError } from "@/lib/db-errors";
 import { INCIDENT_READERS, INCIDENT_WRITERS } from "@/lib/incidents/permissions";
+import { gridQuery } from "@/lib/grid/query";
+import { incidentsGrid, type IncidentGridRow } from "@/lib/grid/specs/incidents";
+import type { ChoiceOption, GridParams, GridResult } from "@/lib/grid/types";
+import { gridUserOptions, lookupOptions } from "@/lib/grid/user-options";
+import { todayInZone, zonedInputToIso } from "@/lib/inspections/dates";
 import type {
   FieldErrors,
   IncidentDetail,
@@ -84,6 +89,53 @@ export async function listIncidents(): Promise<IncidentListRow[]> {
   const rows = data as unknown as RawListRow[];
   const names = await userNames(supabase, rows.map((r) => r.created_by));
   return rows.map((r) => toListRow(r, names));
+}
+
+// Incident_Overview: one page of incident_grid with the URL's filters and
+// sort (was: the latest 1,000, filtered in the browser). `mineFor` is
+// Incident_Overview_PWA's view: that user's incidents that are still open,
+// plus anything they logged today.
+export async function listIncidentGrid(
+  params: GridParams,
+  timeZone: string,
+  mineFor: string | null = null,
+): Promise<GridResult<IncidentGridRow>> {
+  await requireRole(INCIDENT_READERS);
+  const supabase = await createClient();
+  const startOfToday = zonedInputToIso(`${todayInZone(timeZone)}T00:00`, timeZone);
+  return gridQuery<IncidentGridRow>(supabase, incidentsGrid, params, {
+    timeZone,
+    scope: mineFor
+      ? (q) => q.eq("created_by", mineFor).or(`status.neq.completed,created_at.gte.${startOfToday}`)
+      : undefined,
+  });
+}
+
+// Choice-filter options: incident types, locations and users.
+export async function listIncidentFilterOptions(): Promise<Record<"type" | "location" | "users", ChoiceOption[]>> {
+  await requireRole(INCIDENT_READERS);
+  const supabase = await createClient();
+  const [types, locations, users] = await Promise.all([
+    supabase.from("incident_type").select("id, name").order("name"),
+    supabase.from("location").select("id, name").order("name"),
+    gridUserOptions(supabase),
+  ]);
+  return { type: lookupOptions(types), location: lookupOptions(locations), users };
+}
+
+// Location_IncidentView: the open incidents that take a location out of
+// operation (a handful at most).
+export async function listOpenDisablingIncidents(): Promise<IncidentGridRow[]> {
+  await requireRole(INCIDENT_READERS);
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("incident_grid")
+    .select(incidentsGrid.select!)
+    .eq("disables_location", true)
+    .neq("status", "completed")
+    .order("reference", { ascending: false });
+  if (error) throw error;
+  return data as unknown as IncidentGridRow[];
 }
 
 // ICD-R10: LocationStatus_Overview lists [Active][IsAssetManager] locations.

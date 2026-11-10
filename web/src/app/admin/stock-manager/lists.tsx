@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { formatDate, formatDateTime } from "@/lib/incidents/format";
+import { changedFields } from "@/lib/grid/fields";
+import type { GridField, GridSpec } from "@/lib/grid/types";
 import {
   DOC_CONFIG,
   TRANSACTION_TYPE_LABELS,
@@ -11,101 +13,152 @@ import {
   type Options,
 } from "@/lib/stock-manager/docs";
 import type { DocRow, LedgerRow, StockRow } from "@/lib/stock-manager/types";
-import { DataTable, type Column } from "../inspections/data-table";
-import { linkButtonClass } from "../ui";
+import { changedByOptions, changedColumns, Dash, type Changed, type GridColumn } from "../grid/columns";
+import { Grid } from "../grid/grid";
+import type { RowMenuItem } from "../grid/row-menu";
 import { PoStatusBadge, formatMoney, formatQty } from "./format";
-
-const num = "whitespace-nowrap text-right text-ink tabular-nums";
 
 function labelOf(options: Options, key: keyof Options, value: unknown): string {
   return options[key].find((o) => o.value === value)?.label ?? "—";
 }
 
-// Stock on hand: the sum of the ledger per item and storage area.
-export function StockSummary({ rows }: { rows: StockRow[] }) {
-  const columns: Column<StockRow>[] = [
-    { key: "code", label: "Item code", render: (r) => r.item_code ?? "—", text: (r) => r.item_code },
-    { key: "item", label: "Item", render: (r) => <span className="font-semibold">{r.item_name}</span>, text: (r) => r.item_name },
-    { key: "area", label: "Storage area", render: (r) => r.storage_area_name, text: (r) => r.storage_area_name },
+const toOptions = (labels: Record<string, string>) => Object.entries(labels).map(([value, label]) => ({ value, label }));
+
+function copyLink(href: string): RowMenuItem {
+  return { label: "Copy link", onSelect: () => navigator.clipboard?.writeText(`${window.location.origin}${href}`) };
+}
+
+const historyHref = (r: StockRow) => `/admin/stock-manager?tab=transactions&item=${r.item_id}&area=${r.storage_area_id}`;
+
+// Stock on hand: the sum of the ledger per item and storage area. The item
+// opens its movements in that storage area.
+const stockGrid: GridSpec = {
+  id: "stock-summary",
+  fields: [
+    { key: "item", label: "Item", filter: "text" },
+    { key: "code", label: "Item code", filter: "text" },
+    { key: "area", label: "Storage area", filter: "choice" },
+    { key: "qty", label: "On hand (packs)", filter: "number" },
+    { key: "base", label: "On hand (default unit)", filter: "number" },
+  ],
+  defaultSort: { key: "item", desc: false },
+  changedException: "Stock on hand is a sum of the ledger, not a record anyone edits.",
+};
+
+export function StockSummary({ rows, options, timeZone }: { rows: StockRow[]; options: Options; timeZone: string }) {
+  const columns: GridColumn<StockRow>[] = [
+    { key: "item", render: (r) => r.item_name, value: (r) => r.item_name },
+    { key: "code", render: (r) => r.item_code ?? <Dash />, value: (r) => r.item_code },
+    {
+      key: "area",
+      render: (r) => r.storage_area_name,
+      value: (r) => r.storage_area_id,
+      sortValue: (r) => r.storage_area_name,
+    },
     {
       key: "qty",
-      label: "On hand (packs)",
+      align: "right",
       render: (r) => <span className={r.qty < 0 ? "text-danger" : undefined}>{formatQty(r.qty)}</span>,
-      text: (r) => r.qty,
-      className: num,
+      value: (r) => r.qty,
     },
-    {
-      key: "base",
-      label: "On hand (default unit)",
-      render: (r) => `${formatQty(r.base_qty)} ${r.base_uom}`,
-      text: (r) => r.base_qty,
-      className: num,
-    },
+    { key: "base", align: "right", render: (r) => `${formatQty(r.base_qty)} ${r.base_uom}`, value: (r) => r.base_qty },
   ];
   return (
-    <DataTable
+    <Grid
+      mode="client"
+      spec={stockGrid}
       rows={rows}
       columns={columns}
       getKey={(r) => `${r.item_id}:${r.storage_area_id}`}
+      title="Stock on hand"
+      timeZone={timeZone}
+      rowHref={historyHref}
+      rowLabel={(r) => `${r.item_name} in ${r.storage_area_name}`}
+      rowMenu={(r) => [{ label: "Movements", href: historyHref(r) }]}
+      options={{ area: options.storageAreas }}
       emptyLabel="No stock has been received yet."
-      searchPlaceholder="Search item or storage area…"
-      exportName="stock-summary"
-      actions={(r) => (
-        <Link
-          href={`/admin/stock-manager?tab=transactions&item=${r.item_id}&area=${r.storage_area_id}`}
-          className={linkButtonClass}
-        >
-          History
-        </Link>
-      )}
     />
   );
 }
 
+// The ledger: written by posting documents, never edited, so it has no
+// Changed columns; the movement date is its timestamp.
+const transactionsGrid: GridSpec = {
+  id: "stock-transactions",
+  fields: [
+    { key: "reference", label: "Ref", filter: "number" },
+    { key: "date", label: "Date", filter: "datetime" },
+    { key: "type", label: "Type", filter: "choice", options: toOptions(TRANSACTION_TYPE_LABELS) },
+    { key: "item", label: "Item", filter: "choice" },
+    { key: "area", label: "Storage area", filter: "choice" },
+    { key: "qty", label: "Qty", filter: "number" },
+    { key: "base", label: "Qty (default unit)", filter: "number" },
+  ],
+  defaultSort: { key: "date", desc: true },
+  changedException: "Ledger rows are written once when a document posts and never change.",
+};
+
 export function Transactions({ rows, options, timeZone }: { rows: LedgerRow[]; options: Options; timeZone: string }) {
-  const columns: Column<LedgerRow>[] = [
+  const columns: GridColumn<LedgerRow>[] = [
+    { key: "reference", render: (r) => r.reference, value: (r) => r.reference },
     {
       key: "date",
-      label: "Date",
-      render: (r) => formatDateTime(r.transaction_date, timeZone),
-      text: (r) => formatDateTime(r.transaction_date, timeZone),
-      sortValue: (r) => r.transaction_date,
+      render: (r) => <span className="tabular-nums">{formatDateTime(r.transaction_date, timeZone)}</span>,
+      value: (r) => r.transaction_date,
     },
     {
       key: "type",
-      label: "Type",
       render: (r) => TRANSACTION_TYPE_LABELS[r.transaction_type] ?? r.transaction_type,
-      text: (r) => TRANSACTION_TYPE_LABELS[r.transaction_type] ?? r.transaction_type,
+      value: (r) => r.transaction_type,
+      sortValue: (r) => TRANSACTION_TYPE_LABELS[r.transaction_type] ?? r.transaction_type,
     },
-    { key: "item", label: "Item", render: (r) => labelOf(options, "items", r.item_id), text: (r) => labelOf(options, "items", r.item_id) },
-    { key: "area", label: "Storage area", render: (r) => labelOf(options, "storageAreas", r.storage_area_id), text: (r) => labelOf(options, "storageAreas", r.storage_area_id) },
+    {
+      key: "item",
+      render: (r) => labelOf(options, "items", r.item_id),
+      value: (r) => r.item_id,
+      sortValue: (r) => labelOf(options, "items", r.item_id),
+    },
+    {
+      key: "area",
+      render: (r) => labelOf(options, "storageAreas", r.storage_area_id),
+      value: (r) => r.storage_area_id,
+      sortValue: (r) => labelOf(options, "storageAreas", r.storage_area_id),
+    },
     {
       key: "qty",
-      label: "Qty",
+      align: "right",
       render: (r) => (
         <span className={r.qty < 0 ? "text-danger" : "text-success"}>
           {r.qty > 0 ? "+" : ""}
           {formatQty(r.qty)}
         </span>
       ),
-      text: (r) => r.qty,
-      className: num,
+      value: (r) => r.qty,
     },
-    { key: "base", label: "Qty (default unit)", render: (r) => formatQty(r.base_qty), text: (r) => r.base_qty, className: num },
+    { key: "base", align: "right", render: (r) => formatQty(r.base_qty), value: (r) => r.base_qty },
   ];
   return (
-    <DataTable
+    <Grid
+      mode="client"
+      spec={transactionsGrid}
       rows={rows}
       columns={columns}
       getKey={(r) => r.id}
+      title="Movements"
+      timeZone={timeZone}
+      rowLabel={(r) => `movement ${r.reference}`}
+      options={{ item: options.items, area: options.storageAreas }}
       emptyLabel="No stock movements."
-      searchPlaceholder="Search movements…"
-      exportName="stock-transactions"
     />
   );
 }
 
-// Overview of one document type; the number links to the document.
+type Doc = DocRow & Changed;
+
+// One column of a document list: its spec field and its cell.
+type DocCol = { field: GridField; column: GridColumn<Doc> };
+
+// Overview of one document type; the number opens the document.
 export function DocList({
   kind,
   rows,
@@ -113,67 +166,100 @@ export function DocList({
   timeZone,
 }: {
   kind: DocKind;
-  rows: DocRow[];
+  rows: Doc[];
   options: Options;
   timeZone: string;
 }) {
   const cfg = DOC_CONFIG[kind];
-  const number: Column<DocRow> = {
-    key: "nr",
-    label: "Number",
-    render: (r) => (
-      <Link href={`/admin/stock-manager/${kind}/${r.reference}`} className="font-semibold text-primary hover:text-primary-hover">
-        {docNumber(kind, r.reference)}
-      </Link>
-    ),
-    text: (r) => docNumber(kind, r.reference),
-  };
-  const date = (key: string, label: string, time: boolean): Column<DocRow> => {
-    const text = (r: DocRow) => (time ? formatDateTime(r[key] as string, timeZone) : formatDate(r[key] as string, timeZone));
-    return { key, label, render: text, text, sortValue: (r) => r[key] as string | null };
-  };
-  const area = (key: string, label: string): Column<DocRow> => {
-    const text = (r: DocRow) => (r[key] ? labelOf(options, "storageAreas", r[key]) : "—");
-    return { key, label, render: text, text };
-  };
-  const supplier: Column<DocRow> = {
-    key: "supplier",
-    label: "Supplier",
-    render: (r) => (r.supplier_id ? labelOf(options, "suppliers", r.supplier_id) : "—"),
-    text: (r) => (r.supplier_id ? labelOf(options, "suppliers", r.supplier_id) : ""),
-  };
-  const comment: Column<DocRow> = {
-    key: "comment",
-    label: "Comment",
-    render: (r) => <span className="line-clamp-1">{(r.comment as string) ?? ""}</span>,
-    text: (r) => (r.comment as string) ?? "",
-  };
+  const href = (r: Doc) => `/admin/stock-manager/${kind}/${r.reference}`;
 
-  const byKind: Record<DocKind, Column<DocRow>[]> = {
+  const number: DocCol = {
+    field: { key: "nr", label: "Number", filter: "number" },
+    column: { key: "nr", render: (r) => docNumber(kind, r.reference), value: (r) => r.reference },
+  };
+  const date = (key: string, label: string, time: boolean): DocCol => ({
+    field: { key, label, filter: time ? "datetime" : "date" },
+    column: {
+      key,
+      render: (r) => (
+        <span className="tabular-nums">
+          {time ? formatDateTime(r[key] as string, timeZone) : formatDate(r[key] as string, timeZone)}
+        </span>
+      ),
+      value: (r) => (r[key] as string | null) ?? null,
+    },
+  });
+  const lookup = (key: string, label: string, list: keyof Options): DocCol => ({
+    field: { key, label, filter: "choice" },
+    column: {
+      key,
+      render: (r) => (r[key] ? labelOf(options, list, r[key]) : <Dash />),
+      value: (r) => (r[key] as string | null) ?? null,
+      sortValue: (r) => (r[key] ? labelOf(options, list, r[key]) : null),
+    },
+  });
+  const comment: DocCol = {
+    field: { key: "comment", label: "Comment", filter: "text", hideable: true },
+    column: {
+      key: "comment",
+      render: (r) =>
+        r.comment ? (
+          <span className="line-clamp-1 max-w-[280px] text-muted" title={r.comment as string}>
+            {r.comment as string}
+          </span>
+        ) : (
+          <Dash />
+        ),
+      value: (r) => (r.comment as string | null) ?? null,
+    },
+  };
+  const area = (key: string, label: string) => lookup(key, label, "storageAreas");
+  const supplier = lookup("supplier_id", "Supplier", "suppliers");
+
+  const byKind: Record<DocKind, DocCol[]> = {
     "purchase-orders": [
       number,
       date("order_date", "Order date", false),
       supplier,
-      { key: "alias", label: "Alias", render: (r) => (r.order_alias as string) ?? "—", text: (r) => (r.order_alias as string) ?? "" },
-      { key: "status", label: "Status", render: (r) => <PoStatusBadge status={r.status as string} />, text: (r) => r.status as string },
-      { key: "items", label: "Lines", render: (r) => r.nr_of_items, text: (r) => r.nr_of_items as number, className: num },
-      { key: "total", label: "Total inc. VAT", render: (r) => formatMoney(r.total_cost_inc_vat), text: (r) => r.total_cost_inc_vat as number, className: num },
+      {
+        field: { key: "alias", label: "Alias", filter: "text" },
+        column: { key: "alias", render: (r) => (r.order_alias as string) || <Dash />, value: (r) => r.order_alias as string | null },
+      },
+      {
+        field: { key: "status", label: "Status", filter: "choice", options: options.poStatuses },
+        column: { key: "status", render: (r) => <PoStatusBadge status={r.status as string} />, value: (r) => r.status as string },
+      },
+      {
+        field: { key: "items", label: "Lines", filter: "number" },
+        column: { key: "items", align: "right", render: (r) => r.nr_of_items, value: (r) => Number(r.nr_of_items) },
+      },
+      {
+        field: { key: "total", label: "Total inc. VAT", filter: "number" },
+        column: {
+          key: "total",
+          align: "right",
+          render: (r) => formatMoney(r.total_cost_inc_vat),
+          value: (r) => (r.total_cost_inc_vat === null ? null : Number(r.total_cost_inc_vat)),
+        },
+      },
     ],
     loads: [number, date("load_date", "Date", false), comment],
     intakes: [
       number,
       {
-        key: "load",
-        label: "Load",
-        render: (r) => {
-          const ref = (r.load as { reference: number }).reference;
-          return (
-            <Link href={`/admin/stock-manager/loads/${ref}`} className="text-primary hover:text-primary-hover">
-              {docNumber("loads", ref)}
-            </Link>
-          );
+        field: { key: "load", label: "Load", filter: "number" },
+        column: {
+          key: "load",
+          render: (r) => {
+            const ref = (r.load as { reference: number }).reference;
+            return (
+              <Link href={`/admin/stock-manager/loads/${ref}`} className="text-primary hover:text-primary-hover">
+                {docNumber("loads", ref)}
+              </Link>
+            );
+          },
+          value: (r) => (r.load as { reference: number }).reference,
         },
-        text: (r) => docNumber("loads", (r.load as { reference: number }).reference),
       },
       area("storage_area_id", "Storage area"),
       supplier,
@@ -182,10 +268,12 @@ export function DocList({
       number,
       date("transfer_date", "Date", true),
       {
-        key: "type",
-        label: "Type",
-        render: (r) => TRANSFER_TYPE_LABELS[r.transfer_type as string],
-        text: (r) => TRANSFER_TYPE_LABELS[r.transfer_type as string],
+        field: { key: "type", label: "Type", filter: "choice", options: options.transferTypes },
+        column: {
+          key: "type",
+          render: (r) => TRANSFER_TYPE_LABELS[r.transfer_type as string],
+          value: (r) => r.transfer_type as string,
+        },
       },
       area("from_storage_area_id", "From"),
       area("to_storage_area_id", "To"),
@@ -194,14 +282,33 @@ export function DocList({
     "stock-takes": [number, date("take_date", "Date", true), area("storage_area_id", "Storage area"), comment],
   };
 
+  const cols = byKind[kind];
+  const spec: GridSpec = {
+    id: `stock-${kind}`,
+    fields: [...cols.map((c) => c.field), ...changedFields()],
+    defaultSort: { key: "changed", desc: true },
+  };
+
   return (
-    <DataTable
+    <Grid
+      mode="client"
+      spec={spec}
       rows={rows}
-      columns={byKind[kind]}
+      columns={[...cols.map((c) => c.column), ...changedColumns<Doc>(timeZone)]}
       getKey={(r) => r.id}
+      title={cfg.plural}
+      timeZone={timeZone}
+      rowHref={href}
+      rowLabel={(r) => docNumber(kind, r.reference)}
+      rowMenu={(r) => [{ label: "Open", href: href(r) }, copyLink(href(r))]}
+      options={{
+        supplier_id: options.suppliers,
+        storage_area_id: options.storageAreas,
+        from_storage_area_id: options.storageAreas,
+        to_storage_area_id: options.storageAreas,
+        changed_by: changedByOptions(rows),
+      }}
       emptyLabel={`No ${cfg.plural.toLowerCase()} yet.`}
-      searchPlaceholder={`Search ${cfg.plural.toLowerCase()}…`}
-      exportName={kind}
     />
   );
 }

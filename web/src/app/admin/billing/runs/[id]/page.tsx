@@ -7,6 +7,7 @@ import { PageHeader } from "../../../page-header";
 import { ChevronLeftIcon } from "../../../icons";
 import { getRun, listRunInvoices } from "../../actions";
 import { InvoicesReview } from "./invoices-review";
+import { getAppTimeZone } from "../../../services/actions";
 
 // One month's invoices: check them, regenerate drafts, approve in bulk and
 // download the approved PDFs.
@@ -15,7 +16,7 @@ export default async function BillingRunPage(props: PageProps<"/admin/billing/ru
   const { id } = await props.params;
   const run = await getRun(id);
   if (!run) notFound();
-  const invoices = await listRunInvoices(id);
+  const [invoices, timeZone] = await Promise.all([listRunInvoices(id), getAppTimeZone()]);
 
   return (
     <div className="flex flex-1 flex-col">
@@ -28,7 +29,7 @@ export default async function BillingRunPage(props: PageProps<"/admin/billing/ru
           <ChevronLeftIcon className="h-4 w-4" />
           All billing runs
         </Link>
-        <InvoicesReview runId={run.id} period={run.period} invoices={invoices} />
+        <InvoicesReview runId={run.id} period={run.period} invoices={invoices} timeZone={timeZone} />
       </div>
     </div>
   );

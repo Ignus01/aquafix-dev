@@ -1,11 +1,20 @@
 import Link from "next/link";
 import { requireRole } from "@/lib/auth";
+import { parseGridParams } from "@/lib/grid/params";
+import { readingsGrid, runsGrid } from "@/lib/grid/specs/logger";
 import { isoToZonedInput } from "@/lib/inspections/dates";
-import { parseReadingFilter } from "@/lib/logger-data/readings";
-import { READINGS_PAGE_SIZE } from "@/lib/logger-data/types";
 import { PageHeader } from "../page-header";
 import { getAppTimeZone } from "../services/actions";
-import { listChartPoints, listLoggerAssets, listReadings, listRunResults, listRuns } from "./actions";
+import {
+  getRun,
+  listChartPoints,
+  listLoggerAssets,
+  listLoggerUserOptions,
+  listReadingFilterOptions,
+  listReadingGrid,
+  listRunGrid,
+  listRunResults,
+} from "./actions";
 import { PullForm } from "./pull-form";
 import { ReadingsView } from "./readings-view";
 import { RunsView } from "./runs-view";
@@ -20,34 +29,33 @@ const TABS = [
 // loggers, a manual pull for a chosen period, and the log of every pull.
 export default async function LoggerDataPage(props: PageProps<"/admin/logger-data">) {
   await requireRole(["system_admin"]);
-  const params = await props.searchParams;
+  const searchParams = await props.searchParams;
   const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
-  const tab = TABS.find((t) => t.key === one(params.tab))?.key ?? "data";
+  const tab = TABS.find((t) => t.key === one(searchParams.tab))?.key ?? "data";
 
   const timeZone = await getAppTimeZone();
 
   let content: React.ReactNode;
   if (tab === "data") {
-    const filter = parseReadingFilter(params);
-    const requested = Math.max(1, Math.floor(Number(one(params.page)) || 1));
-    const [assets, chart, firstTry] = await Promise.all([
+    const params = parseGridParams(searchParams, readingsGrid);
+    // One asset filtered: chart it over the Reading time range.
+    const assetFilter = params.filters.asset;
+    const chartAsset = assetFilter?.kind === "choice" && assetFilter.values.length === 1 ? assetFilter.values[0] : null;
+    const time = params.filters.time;
+    const range = time?.kind === "datetime" ? { from: time.from, to: time.to } : { from: null, to: null };
+    const [assets, result, points] = await Promise.all([
       listLoggerAssets(),
-      filter.asset ? listChartPoints(filter, timeZone) : null,
-      listReadings(filter, requested, timeZone),
+      listReadingGrid(params, timeZone),
+      chartAsset ? listChartPoints(chartAsset, range, timeZone) : null,
     ]);
-    // A page past the end (the data shrank, or a stale link) shows the last one.
-    const lastPage = Math.max(1, Math.ceil(firstTry.total / READINGS_PAGE_SIZE));
-    const page = Math.min(requested, lastPage);
-    const { rows, total, estimated } = page === requested ? firstTry : await listReadings(filter, page, timeZone);
+    const options = await listReadingFilterOptions(assets);
+    const selected = assets.find((a) => a.id === chartAsset);
     content = (
       <ReadingsView
-        assets={assets}
-        filter={filter}
-        rows={rows}
-        total={total}
-        totalIsEstimate={estimated}
-        page={page}
-        chart={chart}
+        result={result}
+        params={params}
+        options={options}
+        chart={points && selected ? { assetLabel: `${selected.name} · ${selected.logger_code}`, ...points } : null}
         timeZone={timeZone}
       />
     );
@@ -62,9 +70,24 @@ export default async function LoggerDataPage(props: PageProps<"/admin/logger-dat
       />
     );
   } else {
-    const runId = Number(one(params.run)) || null;
-    const [runs, results] = await Promise.all([listRuns(), runId ? listRunResults(runId) : []]);
-    content = <RunsView runs={runs} openRunId={runId} results={results} timeZone={timeZone} />;
+    const params = parseGridParams(searchParams, runsGrid);
+    const runId = Number(one(searchParams.run)) || null;
+    const [result, userOptions, openRun, results] = await Promise.all([
+      listRunGrid(params, timeZone),
+      listLoggerUserOptions(),
+      runId ? getRun(runId) : null,
+      runId ? listRunResults(runId) : [],
+    ]);
+    content = (
+      <RunsView
+        result={result}
+        params={params}
+        userOptions={userOptions}
+        openRun={openRun}
+        results={results}
+        timeZone={timeZone}
+      />
+    );
   }
 
   return (

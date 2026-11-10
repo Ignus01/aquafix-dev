@@ -35,7 +35,7 @@ export async function listRegions(): Promise<Region[]> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("region")
-    .select("id, legacy_uid, name, active")
+    .select("id, legacy_uid, name, active, updated_at, updated_by")
     .order("name");
   if (error) throw error;
   return data;
@@ -88,7 +88,7 @@ export async function listOrganisations(): Promise<Organisation[]> {
   return selectAll(() =>
     supabase
       .from("organisation")
-      .select("id, legacy_uid, name, active, is_supplier, is_service_supplier")
+      .select("id, legacy_uid, name, active, is_supplier, is_service_supplier, updated_at, updated_by")
       .order("name")
       .order("id"),
   );
@@ -147,7 +147,7 @@ export async function listAssetTypes(): Promise<AssetType[]> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("asset_type")
-    .select("id, legacy_uid, name, classification, active")
+    .select("id, legacy_uid, name, classification, active, updated_at, updated_by")
     .order("name");
   if (error) throw error;
   return data;
@@ -211,7 +211,7 @@ export async function listLocations(): Promise<Location[]> {
     supabase
       .from("location")
       .select(
-        "id, legacy_uid, name, active, transfer_type, is_stock_manager, is_asset_manager, volume_target, region_id, organisation_id, region:region_id(name), organisation:organisation_id(name), target_bands:location_target_band(from_pct, colour, label)",
+        "id, legacy_uid, name, active, transfer_type, is_stock_manager, is_asset_manager, volume_target, region_id, organisation_id, region:region_id(name), organisation:organisation_id(name), target_bands:location_target_band(from_pct, colour, label), updated_at, updated_by",
       )
       .order("name")
       .order("id"),
@@ -331,7 +331,7 @@ export async function listColourContainers(): Promise<ColourContainer[]> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("colour_container")
-    .select("id, name, hex_colour, class_name")
+    .select("id, name, hex_colour, class_name, updated_at")
     .order("name");
   if (error) throw error;
   return data;
@@ -375,7 +375,7 @@ export async function listGradings(): Promise<Grading[]> {
   const { data, error } = await supabase
     .from("grading")
     .select(
-      "id, legacy_uid, name, priority, class_name, colour_container_id, colour_container:colour_container_id(name)",
+      "id, legacy_uid, name, priority, class_name, colour_container_id, colour_container:colour_container_id(name), updated_at, updated_by",
     )
     .order("priority");
   if (error) throw error;
@@ -445,7 +445,7 @@ export async function listAssets(): Promise<Asset[]> {
     supabase
       .from("asset")
       .select(
-        "id, legacy_uid, name, code, logger_code, logger_type, usage_limit, purchase_date, active, has_service_plan, service_interval, asset_type_id, location_id, asset_type:asset_type_id(name), location:location_id(name)",
+        "id, legacy_uid, name, code, logger_code, logger_type, usage_limit, purchase_date, active, has_service_plan, service_interval, asset_type_id, location_id, asset_type:asset_type_id(name), location:location_id(name), updated_at, updated_by",
       )
       .order("name")
       .order("id"),

@@ -46,7 +46,7 @@ export async function listProductTypes(): Promise<ProductType[]> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("product_type")
-    .select("id, legacy_uid, code, name, active")
+    .select("id, legacy_uid, code, name, active, updated_at, updated_by")
     .order("name");
   if (error) throw error;
   return data;
@@ -95,7 +95,7 @@ export async function listUnitsOfMeasure(): Promise<UnitOfMeasure[]> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("unit_of_measure")
-    .select("id, legacy_uid, code, name, uom_type, active")
+    .select("id, legacy_uid, code, name, uom_type, active, updated_at, updated_by")
     .order("code");
   if (error) throw error;
   return data;
@@ -207,7 +207,7 @@ export async function listPackTypes(): Promise<PackType[]> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("pack_type")
-    .select("id, legacy_uid, name, qty, code, active, uom_id, uom:unit_of_measure!uom_id(code)")
+    .select("id, legacy_uid, name, qty, code, active, uom_id, uom:unit_of_measure!uom_id(code), updated_at, updated_by")
     .order("name");
   if (error) throw error;
   return data as unknown as PackType[];
@@ -267,7 +267,7 @@ export async function listStorageAreas(): Promise<StorageArea[]> {
   const data = await selectAll(() =>
     supabase
       .from("storage_area")
-      .select("id, legacy_uid, code, name, active, location_id, location:location(name)")
+      .select("id, legacy_uid, code, name, active, location_id, location:location(name), updated_at, updated_by")
       .order("name")
       .order("id"),
   );
@@ -324,7 +324,7 @@ export async function listProducts(): Promise<Product[]> {
     supabase
       .from("product")
       .select(
-        "id, legacy_uid, code, name, active, product_type_id, uom_id, product_type:product_type(name), uom:unit_of_measure!uom_id(code)",
+        "id, legacy_uid, code, name, active, product_type_id, uom_id, product_type:product_type(name), uom:unit_of_measure!uom_id(code), updated_at, updated_by",
       )
       .order("name")
       .order("id"),

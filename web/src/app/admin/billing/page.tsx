@@ -25,7 +25,7 @@ export default async function BillingPage(props: PageProps<"/admin/billing">) {
 
   let content: React.ReactNode;
   if (tab === "setup") {
-    content = <SetupTable locations={await getSetup()} today={today} />;
+    content = <SetupTable locations={await getSetup()} today={today} timeZone={timeZone} />;
   } else {
     const [runs, setup] = await Promise.all([listRuns(), getSetup()]);
     const billed = setup.filter((l) => l.billing_day !== null);

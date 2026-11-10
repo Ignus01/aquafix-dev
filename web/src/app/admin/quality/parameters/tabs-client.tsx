@@ -4,6 +4,7 @@ import { useState } from "react";
 import { rangeText } from "@/lib/quality/evaluate";
 import type { Lab, LabLocationMap, LabParameterMap, QualityParameter } from "@/lib/quality/types";
 import { EntityCrudTable, type FieldConfig } from "../../masterdata/entity-crud-table";
+import { replaceTab } from "../../grid/use-grid-params";
 import { inputClass } from "../../ui";
 import * as actions from "./actions";
 
@@ -30,6 +31,8 @@ export function ParametersTabs({
   locationMaps,
   labs,
   locations,
+  timeZone,
+  initialTab,
 }: {
   canEdit: boolean;
   parameters: QualityParameter[];
@@ -37,8 +40,13 @@ export function ParametersTabs({
   locationMaps: LabLocationMap[];
   labs: Lab[];
   locations: { id: string; name: string; active: boolean }[];
+  timeZone: string;
+  // From ?tab= (the tab survives a refresh).
+  initialTab?: string;
 }) {
-  const [tab, setTab] = useState<TabKey>("parameters");
+  const [tab, setTab] = useState<TabKey>(
+    (["parameters", "parameter_maps", "location_maps", "labs"] as const).find((t) => t === initialTab) ?? "parameters",
+  );
   const perms = { canCreate: canEdit, canUpdate: canEdit, canDelete: canEdit };
 
   const tabs: { key: TabKey; label: string; count: number }[] = [
@@ -60,7 +68,10 @@ export function ParametersTabs({
         {tabs.map((t) => (
           <button
             key={t.key}
-            onClick={() => setTab(t.key)}
+            onClick={() => {
+              setTab(t.key);
+              replaceTab(t.key);
+            }}
             className={`flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-semibold transition-colors ${
               tab === t.key ? "border-primary text-primary" : "border-transparent text-muted hover:text-ink"
             }`}
@@ -80,6 +91,8 @@ export function ParametersTabs({
       {tab === "parameters" && (
         <EntityCrudTable
           rows={parameters}
+          gridId="quality-parameters"
+          timeZone={timeZone}
           getId={(r) => r.id as string}
           {...perms}
           canView
@@ -120,10 +133,13 @@ export function ParametersTabs({
           </p>
           <EntityCrudTable
             rows={parameterMaps}
+            gridId="quality-parameter-maps"
+            timeZone={timeZone}
             getId={(r) => r.id as string}
             {...perms}
             canCreate={false}
             itemLabel="Mapping"
+            title="Lab parameter mappings"
             emptyLabel="No mappings yet. They're added when you import a lab's first file."
             onCreate={async () => ({ error: "Mappings are added by importing a file." })}
             onUpdate={actions.updateParameterMap}
@@ -135,7 +151,6 @@ export function ParametersTabs({
                   label: "Lab",
                   type: "select",
                   options: labOptions,
-                  filter: true,
                   renderInput: ({ value }) => readOnly(labName.get(value) ?? ""),
                 },
                 {
@@ -190,10 +205,13 @@ export function ParametersTabs({
           </p>
           <EntityCrudTable
             rows={locationMaps}
+            gridId="quality-location-maps"
+            timeZone={timeZone}
             getId={(r) => r.id as string}
             {...perms}
             canCreate={false}
             itemLabel="Mapping"
+            title="Lab location mappings"
             emptyLabel="No mappings yet. They're added when you import a lab's first file."
             onCreate={async () => ({ error: "Mappings are added by importing a file." })}
             onUpdate={actions.updateLocationMap}
@@ -205,7 +223,6 @@ export function ParametersTabs({
                   label: "Lab",
                   type: "select",
                   options: labOptions,
-                  filter: true,
                   renderInput: ({ value }) => readOnly(labName.get(value) ?? ""),
                 },
                 {
@@ -246,6 +263,8 @@ export function ParametersTabs({
           </p>
           <EntityCrudTable
             rows={labs}
+            gridId="quality-labs"
+            timeZone={timeZone}
             getId={(r) => r.id as string}
             {...perms}
             itemLabel="Lab"

@@ -49,6 +49,7 @@ function applyFilter(q: AnyQuery, column: string, f: FilterValue, timeZone: stri
 }
 
 export function applyGridFilters(q: AnyQuery, spec: GridSpec, params: GridParams, timeZone: string): AnyQuery {
+  for (const w of spec.where ?? []) q = q.eq(w.field, w.eq);
   for (const field of spec.fields) {
     const f = params.filters[field.key];
     if (f) q = applyFilter(q, fieldOf(field), f, timeZone);

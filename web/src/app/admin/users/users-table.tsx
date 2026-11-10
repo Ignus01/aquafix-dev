@@ -1,80 +1,71 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import {
-  Pagination,
-  SearchInput,
-  SortableTh,
-  sortRows,
-  usePagination,
-  useSort,
-  type SortValue,
-} from "../data-grid";
+import type { MasterdataRole } from "@/lib/auth";
+import type { GridSpec } from "@/lib/grid/types";
+import { formatDateTime } from "@/lib/incidents/format";
+import { Dash, type GridColumn } from "../grid/columns";
+import { Grid } from "../grid/grid";
 import type { ListedUser } from "./actions";
 import { RoleToggles } from "./role-toggles";
 
-const SORTERS: Record<string, (u: ListedUser) => SortValue> = {
-  username: (u) => u.username,
-  email: (u) => u.email,
-  phone: (u) => u.phone,
+const ROLE_OPTIONS: { value: MasterdataRole; label: string }[] = [
+  { value: "system_admin", label: "System admin" },
+  { value: "admin", label: "Admin" },
+  { value: "user", label: "User" },
+  { value: "viewer", label: "Viewer" },
+];
+
+// Admin → User Management. Roles are changed in the row itself; there is no
+// separate edit page. Changed is auth.users.updated_at (profile, password and
+// sign-in changes); who made a change isn't recorded anywhere, so there is no
+// Changed by.
+const usersGrid: GridSpec = {
+  id: "users",
+  fields: [
+    { key: "username", label: "Username", filter: "text" },
+    { key: "email", label: "Email", filter: "text" },
+    { key: "phone", label: "Phone", filter: "text", hideable: true },
+    { key: "roles", label: "Roles", filter: "choice", options: ROLE_OPTIONS, sortable: false },
+    { key: "changed", label: "Changed", filter: "datetime" },
+  ],
+  defaultSort: { key: "changed", desc: true },
+  changedException: "auth.users and profiles don't record who changed an account.",
 };
 
-const headClass = "px-4 py-2.5 text-left text-[11px] font-semibold text-muted whitespace-nowrap";
-
-export function UsersTable({ users }: { users: ListedUser[] }) {
-  const [query, setQuery] = useState("");
-  const [sort, toggleSort] = useSort();
-
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const matched = q
-      ? users.filter((u) =>
-          [u.username, u.email, u.phone ?? "", ...u.roles].some((v) => v.toLowerCase().includes(q)),
-        )
-      : users;
-    return sort ? sortRows(matched, SORTERS[sort.key], sort.desc) : matched;
-  }, [users, query, sort]);
-
-  const { pageItems, ...paging } = usePagination(filtered, `${query}|${sort?.key}|${sort?.desc}`);
+export function UsersTable({ users, timeZone }: { users: ListedUser[]; timeZone: string }) {
+  const columns: GridColumn<ListedUser>[] = [
+    { key: "username", render: (u) => u.username, value: (u) => u.username },
+    { key: "email", render: (u) => u.email, value: (u) => u.email },
+    { key: "phone", render: (u) => u.phone ?? <Dash />, value: (u) => u.phone },
+    {
+      key: "roles",
+      className: "py-1.5",
+      render: (u) => (
+        <div className="min-w-[330px]">
+          <RoleToggles userId={u.id} roles={u.roles} />
+        </div>
+      ),
+      value: (u) => u.roles,
+    },
+    {
+      key: "changed",
+      render: (u) => <span className="text-muted tabular-nums">{formatDateTime(u.updatedAt, timeZone)}</span>,
+      value: (u) => u.updatedAt,
+    },
+  ];
 
   return (
-    <div data-grid className="flex scroll-mt-4 flex-col gap-4">
-      <SearchInput value={query} onChange={setQuery} placeholder="Search users…" />
-
-      <div className="overflow-hidden rounded-control border border-border">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-table-head">
-                <SortableTh label="Username" sortKey="username" sort={sort} onSort={toggleSort} className={headClass} />
-                <SortableTh label="Email" sortKey="email" sort={sort} onSort={toggleSort} className={headClass} />
-                <SortableTh label="Phone" sortKey="phone" sort={sort} onSort={toggleSort} className={headClass} />
-                <th className={`${headClass} tracking-wider uppercase`}>Roles</th>
-              </tr>
-            </thead>
-            <tbody>
-              {pageItems.length === 0 && (
-                <tr>
-                  <td colSpan={4} className="px-4 py-8 text-center text-muted">
-                    {users.length === 0 ? "No users yet." : `No users match “${query.trim()}”.`}
-                  </td>
-                </tr>
-              )}
-              {pageItems.map((u) => (
-                <tr key={u.id} className="h-[50px] border-t border-border transition-colors hover:bg-row-hover">
-                  <td className="px-4 font-medium text-ink">{u.username}</td>
-                  <td className="px-4 text-ink">{u.email}</td>
-                  <td className="px-4 text-ink">{u.phone ?? "—"}</td>
-                  <td className="px-4 py-2">
-                    <RoleToggles userId={u.id} roles={u.roles} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <Pagination {...paging} className="border-t border-border px-4 py-2" />
-      </div>
-    </div>
+    <Grid
+      mode="client"
+      spec={usersGrid}
+      rows={users}
+      columns={columns}
+      getKey={(u) => u.id}
+      title="Users"
+      timeZone={timeZone}
+      rowLabel={(u) => u.username}
+      rowMenu={(u) => [{ label: "Copy email", onSelect: () => navigator.clipboard?.writeText(u.email) }]}
+      emptyLabel="No users yet."
+    />
   );
 }
