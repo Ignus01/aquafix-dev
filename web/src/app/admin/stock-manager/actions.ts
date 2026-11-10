@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { selectAll } from "@/lib/supabase/select-all";
 import { requireRole } from "@/lib/auth";
 import { friendlyError } from "@/lib/db-errors";
+import { todayInZone } from "@/lib/inspections/dates";
 import { STOCK_READERS, STOCK_DOC_RIGHTS } from "@/lib/stock-manager/permissions";
 import {
   DOC_CONFIG,
@@ -49,8 +50,8 @@ export async function getOptions(): Promise<Options> {
   await requireRole(STOCK_READERS);
   const supabase = await createClient();
   const [suppliers, areas, items, pos] = await Promise.all([
-    supabase.from("organisation").select("id, name").eq("is_supplier", true).order("name"),
-    supabase.from("storage_area").select("id, code, name, active").order("name"),
+    supabase.from("organisation").select("id, name, active").eq("is_supplier", true).order("name"),
+    supabase.from("storage_area").select("id, code, name, active, location:location_id(transfer_type)").order("name"),
     supabase.from("item").select("id, name, code, active").order("name"),
     supabase
       .from("purchase_order")
@@ -61,13 +62,28 @@ export async function getOptions(): Promise<Options> {
   for (const r of [suppliers, areas, items, pos]) if (r.error) throw r.error;
 
   return {
-    suppliers: (suppliers.data ?? []).map((o) => ({ value: o.id, label: o.name })),
-    storageAreas: (areas.data ?? []).map((a) => ({ value: a.id, label: `${a.name} (${a.code})` })),
-    items: (items.data ?? []).map((i) => ({ value: i.id, label: i.code ? `${i.name} — ${i.code}` : i.name })),
+    // Inactive records stay in the lists so documents that use them still show
+    // their names; the forms only offer the active ones (Mendix: [Active]).
+    suppliers: (suppliers.data ?? []).map((o) => ({ value: o.id, label: o.name, inactive: !o.active })),
+    storageAreas: ((areas.data ?? []) as unknown as { id: string; code: string; name: string; active: boolean; location: { transfer_type: "AUTO" | "MANUAL" } | null }[]).map(
+      (a) => ({
+        value: a.id,
+        label: `${a.name} (${a.code})`,
+        inactive: !a.active,
+        transferType: a.location?.transfer_type,
+      }),
+    ),
+    items: (items.data ?? []).map((i) => ({
+      value: i.id,
+      label: i.code ? `${i.name} — ${i.code}` : i.name,
+      inactive: !i.active,
+    })),
+    // An intake receives against an open purchase order (Mendix: [Status = '_NEW']).
     purchaseOrders: ((pos.data ?? []) as unknown as { id: string; reference: number; status: string; supplier: { name: string } | null }[]).map(
       (p) => ({
         value: p.id,
         label: `${DOC_CONFIG["purchase-orders"].prefix}${String(p.reference).padStart(5, "0")} · ${p.supplier?.name ?? "—"} · ${PO_STATUS_LABELS[p.status] ?? p.status}`,
+        inactive: p.status !== "new",
       }),
     ),
     transferTypes: Object.entries(TRANSFER_TYPE_LABELS).map(([value, label]) => ({ value, label })),
@@ -254,6 +270,38 @@ export async function saveHeader(
   if (invalid) return { error: invalid };
   const supabase = await createClient();
 
+  // Rules the web app applies and the database doesn't: the released phone
+  // app saves loads and transfers without them (see 20261113120000).
+  if (kind === "loads" && typeof row.load_date === "string") {
+    const { data: tz } = await supabase.rpc("app_time_zone");
+    if (row.load_date > todayInZone((tz as string | null) ?? "Africa/Johannesburg")) {
+      return { error: "The load date can't be after today." };
+    }
+  }
+  if (kind === "transfers") {
+    if (row.from_storage_area_id === row.to_storage_area_id) {
+      return { error: "The From and To storage areas must be different." };
+    }
+    // The destination's location decides the type. An existing transfer is
+    // only held to it when its type or destination is being changed, so
+    // editing an old one doesn't post stock it never moved.
+    const { data: before } = id
+      ? await supabase.from("transfer_main").select("transfer_type, to_storage_area_id").eq("id", id).maybeSingle()
+      : { data: null };
+    if (!before || before.transfer_type !== row.transfer_type || before.to_storage_area_id !== row.to_storage_area_id) {
+      const { data: area } = await supabase
+        .from("storage_area")
+        .select("location:location_id(name, transfer_type)")
+        .eq("id", row.to_storage_area_id as string)
+        .maybeSingle();
+      const location = (area as unknown as { location: { name: string; transfer_type: string } | null } | null)?.location;
+      if (location?.transfer_type === "AUTO") row.transfer_type = "BOTH";
+      else if (row.transfer_type === "BOTH") {
+        return { error: `${location?.name ?? "That location"} receives transfers manually: choose Send or Receive.` };
+      }
+    }
+  }
+
   if (!id) {
     if (kind === "intakes") {
       const { data: load } = await supabase.from("load").select("id").eq("reference", parent?.loadReference ?? -1).maybeSingle();
@@ -323,6 +371,31 @@ export async function saveLine(
     if (error) return { error: friendlyError(error) };
     if (!data || data.length === 0) return { error: "You don't have permission to change this line." };
   }
+  revalidate();
+  return { error: null };
+}
+
+// ACT_PurchaseOrderItem_ChangeStatus: close a line that won't be received in
+// full, or reopen a closed one. A completed line has nothing left to close.
+// The database works out the order's status from its lines.
+export async function togglePoLineClosed(lineId: string): Promise<Result> {
+  await requireKind("purchase-orders", "update");
+  const supabase = await createClient();
+  const { data: line, error: readError } = await supabase
+    .from("purchase_order_item")
+    .select("status")
+    .eq("id", lineId)
+    .maybeSingle();
+  if (readError) return { error: friendlyError(readError) };
+  if (!line) return { error: "That line no longer exists." };
+  if (line.status === "completed") return { error: "This line has been received in full, so it can't be closed." };
+  const { data, error } = await supabase
+    .from("purchase_order_item")
+    .update({ status: line.status === "closed" ? "new" : "closed" })
+    .eq("id", lineId)
+    .select("id");
+  if (error) return { error: friendlyError(error) };
+  if (!data || data.length === 0) return { error: "You don't have permission to change this line." };
   revalidate();
   return { error: null };
 }

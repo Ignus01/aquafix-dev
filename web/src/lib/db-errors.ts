@@ -29,6 +29,25 @@ const UNIQUE_MESSAGES: Record<string, string> = {
   barcode_barcode_key: "That barcode already belongs to an item.",
   supplier_item_item_supplier_key: "Already added — that supplier already supplies this item.",
   uom_conversion_from_to_key: "A conversion between those two units already exists.",
+  // Stock manager: one line per item on a document.
+  transfer_item_once: "That item is already on this transfer. Edit its line instead.",
+  work_order_item_once: "That item is already on this work order. Edit its line instead.",
+  stock_take_item_once: "That item has already been counted on this stock take. Edit its line instead.",
+  intake_item_po_line_once: "That purchase order line is already on this intake. Edit its line instead.",
+};
+
+// Check constraints with a message that says which value is wrong.
+const CHECK_MESSAGES: Record<string, string> = {
+  purchase_order_item_qty_positive: "Qty ordered must be greater than 0.",
+  purchase_order_item_cost_positive: "Unit cost can't be negative.",
+  intake_item_qty_positive: "Qty received must be greater than 0.",
+  transfer_item_qty_positive: "Qty must be greater than 0.",
+  work_order_item_qty_positive: "Qty must be greater than 0.",
+  stock_take_item_counted_check: "Counted qty can't be negative.",
+  transfer_from_needed: "Choose the storage area the stock is sent from.",
+  transfer_to_needed: "Choose the storage area the stock is received into.",
+  transfer_areas_differ: "The From and To storage areas must be different.",
+  intake_po_required: "Choose the purchase order this intake receives.",
 };
 
 // Delete-blocking FKs, keyed "<referenced table>:<referencing table>".
@@ -94,8 +113,14 @@ export function friendlyError(error: DbError): string {
     const constraint = /unique constraint "(\w+)"/.exec(text)?.[1];
     return (constraint && UNIQUE_MESSAGES[constraint]) ?? "That name is already in use.";
   }
-  if (error.code === "23514")
-    return "One of the values doesn't meet the required constraints.";
+  if (error.code === "23514") {
+    const constraint = /check constraint "(\w+)"/.exec(text)?.[1];
+    return (
+      (constraint && CHECK_MESSAGES[constraint]) ?? "One of the values doesn't meet the required constraints."
+    );
+  }
+  // A required value was left empty and the form didn't catch it.
+  if (error.code === "23502") return "A required value is missing.";
   if (error.code === "23503") {
     const from = /on table "(\w+)" violates/.exec(text)?.[1];
     const by = /is (?:still )?referenced from table "(\w+)"/.exec(text)?.[1];

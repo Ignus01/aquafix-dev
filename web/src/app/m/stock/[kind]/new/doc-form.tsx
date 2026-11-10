@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { isoToZonedInput, todayInZone, zonedInputToIso } from "@/lib/inspections/dates";
-import { DOC_CONFIG, type DocKind, type Field } from "@/lib/stock-manager/docs";
+import { DOC_CONFIG, fieldOptions, type DocKind, type Field } from "@/lib/stock-manager/docs";
 import type { Options } from "@/lib/stock-manager/docs";
 import { saveHeader, saveLine } from "../../../../admin/stock-manager/actions";
 import { ConfirmDialog, Sheet } from "../../../components";
@@ -20,7 +20,7 @@ function initial(fields: Field[], timeZone: string): Values {
     if (f.type === "date") v[f.key] = todayInZone(timeZone);
     else if (f.type === "datetime") v[f.key] = isoToZonedInput(new Date().toISOString(), timeZone);
     else if (f.type === "bool") v[f.key] = "false";
-    else v[f.key] = f.key === "transfer_type" ? "SEND" : "";
+    else v[f.key] = "";
   }
   return v;
 }
@@ -49,6 +49,7 @@ function validate(fields: Field[], values: Values): Record<string, string> {
 function FieldInput({
   field,
   value,
+  values,
   options,
   error,
   onChange,
@@ -56,6 +57,8 @@ function FieldInput({
 }: {
   field: Field;
   value: string;
+  // The whole form, for selects whose choices depend on other fields.
+  values: Values;
   options: Options;
   error?: string;
   onChange: (v: string) => void;
@@ -70,9 +73,15 @@ function FieldInput({
       {field.type === "textarea" ? (
         <textarea id={id} rows={4} className={`${mInput} !h-auto py-3`} value={value} onChange={(e) => onChange(e.target.value)} />
       ) : field.type === "select" ? (
-        <select id={id} className={mInput} value={value} onChange={(e) => onChange(e.target.value)}>
+        <select
+          id={id}
+          className={mInput}
+          value={value}
+          disabled={field.lockedWhen?.(values, options) ?? false}
+          onChange={(e) => onChange(e.target.value)}
+        >
           <option value="">Select…</option>
-          {options[field.options!].map((o) => (
+          {fieldOptions(field, values, options).map((o) => (
             <option key={o.value} value={o.value}>
               {o.label}
             </option>
@@ -185,9 +194,15 @@ export function DocForm({ kind, options, timeZone }: { kind: DocKind; options: O
             idPrefix="h"
             field={f}
             value={values[f.key] ?? ""}
+            values={values}
             options={options}
             error={errors[f.key]}
-            onChange={(v) => setValues((prev) => ({ ...prev, [f.key]: v }))}
+            onChange={(v) =>
+              setValues((prev) => {
+                const next = { ...prev, [f.key]: v };
+                return cfg.derive ? cfg.derive(next, options, f.key) : next;
+              })
+            }
           />
         ))}
 
@@ -273,6 +288,7 @@ export function DocForm({ kind, options, timeZone }: { kind: DocKind; options: O
                 idPrefix="l"
                 field={f}
                 value={adding[f.key] ?? ""}
+                values={adding}
                 options={options}
                 error={lineErrors[f.key]}
                 onChange={(v) => setAdding((prev) => (prev ? { ...prev, [f.key]: v } : prev))}

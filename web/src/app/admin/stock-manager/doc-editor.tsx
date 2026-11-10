@@ -6,6 +6,7 @@ import { formatDate, formatDateTime } from "@/lib/incidents/format";
 import {
   DOC_CONFIG,
   docNumber,
+  fieldOptions,
   type DocKind,
   type Extra,
   type Field,
@@ -25,7 +26,7 @@ import {
   smallPrimaryButtonClass,
   tableHeadCellClass,
 } from "../ui";
-import { deleteDocument, deleteLine, saveHeader, saveLine } from "./actions";
+import { deleteDocument, deleteLine, saveHeader, saveLine, togglePoLineClosed } from "./actions";
 import { PoStatusBadge, formatMoney, formatQty } from "./format";
 
 type Values = Record<string, string>;
@@ -43,13 +44,14 @@ function today(): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-function initialValues(fields: Field[], row: DocRow | null): Values {
+// `defaults` seeds a new row (a new line takes its document's date).
+function initialValues(fields: Field[], row: DocRow | null, defaults?: Record<string, unknown>): Values {
   const v: Values = {};
   for (const f of fields) {
-    const raw = row?.[f.key];
+    const raw = row ? row[f.key] : defaults?.[f.key];
     if (raw !== null && raw !== undefined && typeof raw !== "object") {
       v[f.key] = f.type === "datetime" && raw !== "" ? toLocalInput(String(raw)) : String(raw);
-    } else if (!row && f.type === "date" && f.required) v[f.key] = today();
+    } else if (!row && f.type === "date" && f.required && f.key !== "eta") v[f.key] = today();
     else if (!row && f.type === "datetime") v[f.key] = toLocalInput(new Date().toISOString());
     else if (f.type === "bool") v[f.key] = "false";
     else if (!row && f.key === "status") v[f.key] = "new";
@@ -87,7 +89,7 @@ function FieldInputs({
       {fields
         .filter((f) => !f.readOnly && !(f.showWhen && !f.showWhen(values)))
         .map((f) => {
-          const off = disabled || (mode === "update" && f.createOnly);
+          const off = disabled || (mode === "update" && f.createOnly) || (f.lockedWhen?.(values, options) ?? false);
           return (
             <label key={f.key} className="flex flex-col gap-1.5">
               <span className={labelClass}>
@@ -102,7 +104,7 @@ function FieldInputs({
                   onChange={(e) => setValue(f.key, e.target.value)}
                 >
                   <option value="">Select…</option>
-                  {options[f.options!].map((o) => (
+                  {fieldOptions(f, values, options).map((o) => (
                     <option key={o.value} value={o.value}>
                       {o.label}
                     </option>
@@ -184,7 +186,10 @@ export function DocEditor({
   const canEditHeader = isNew ? true : rights.update;
 
   function setValue(key: string, value: string) {
-    setValues((v) => ({ ...v, [key]: value }));
+    setValues((v) => {
+      const next = { ...v, [key]: value };
+      return cfg.derive ? cfg.derive(next, options, key) : next;
+    });
   }
 
   function save() {
@@ -322,7 +327,9 @@ function LinesPanel({
   const [isPending, startTransition] = useTransition();
 
   function open(row: DocRow | null) {
-    setValues(initialValues(line.fields, row));
+    const defaults: Record<string, unknown> = {};
+    for (const [lineKey, headerKey] of Object.entries(line.defaultsFromHeader ?? {})) defaults[lineKey] = doc.header[headerKey];
+    setValues(initialValues(line.fields, row, defaults));
     setError(null);
     setEditing({ row });
   }
@@ -345,6 +352,16 @@ function LinesPanel({
     setError(null);
     startTransition(async () => {
       const res = await deleteLine(kind, row.id);
+      if (res.error) setError(res.error);
+      else router.refresh();
+    });
+  }
+
+  // Purchase order lines: close what won't arrive, or reopen it.
+  function toggleClosed(row: DocRow) {
+    setError(null);
+    startTransition(async () => {
+      const res = await togglePoLineClosed(row.id);
       if (res.error) setError(res.error);
       else router.refresh();
     });
@@ -409,6 +426,21 @@ function LinesPanel({
                 {hasActions && (
                   <td className="px-3 py-2.5 text-right whitespace-nowrap">
                     <span className="flex justify-end gap-3">
+                      {canEdit && kind === "purchase-orders" && row.status !== "completed" && (
+                        <button
+                          type="button"
+                          onClick={() => toggleClosed(row)}
+                          disabled={isPending}
+                          className={linkButtonClass}
+                          title={
+                            row.status === "closed"
+                              ? "Expect the rest of this line again"
+                              : "Stop expecting the rest of this line"
+                          }
+                        >
+                          {row.status === "closed" ? "Reopen" : "Close"}
+                        </button>
+                      )}
                       {canEdit && (
                         <button type="button" onClick={() => open(row)} className={linkButtonClass}>
                           Edit
