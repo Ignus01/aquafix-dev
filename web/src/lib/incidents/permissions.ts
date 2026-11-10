@@ -13,6 +13,7 @@ const hasAny = (roles: MasterdataRole[], allowed: MasterdataRole[]) =>
 
 export const INCIDENT_READERS: MasterdataRole[] = ["system_admin", "admin", "user", "viewer"];
 export const INCIDENT_WRITERS = WRITERS;
+export const INCIDENT_ADMINS = ADMINS;
 
 export function isIncidentWriter(roles: MasterdataRole[]) {
   return hasAny(roles, WRITERS);

@@ -124,6 +124,32 @@ select is((select count(*)::integer from public.inspection_value_grid), 0, 'no r
 select is((select count(*)::integer from public.inspection_cumulative_value_grid), 0, 'no role: no cumulative values');
 select is((select count(*)::integer from public.scheduled_instruction_grid), 0, 'no role: no schedules');
 
+-- ============================================================================
+-- incident_grid (phase 3.1)
+-- ============================================================================
+reset role;
+-- Writes below are "the system's" unless they name a user.
+select set_config('request.jwt.claims', '', true);
+insert into public.incident_type (id, name, disables_location)
+values ('a5000000-0000-0000-9d1d-000000000001', 'G-Pump down', true);
+insert into public.incident (id, comment, location_id, incident_type_id, created_by)
+values ('90000000-0000-0000-9d1d-000000000001', 'G-No flow', 'a2000000-0000-0000-9d1d-000000000001',
+        'a5000000-0000-0000-9d1d-000000000001', '10000000-0000-0000-9d1d-000000000001');
+insert into public.incident_note (incident_id, body) values ('90000000-0000-0000-9d1d-000000000001', 'G-On it');
+
+set local role authenticated;
+select pg_temp.act_as('10000000-0000-0000-9d1d-000000000003');
+select set_eq('select id from public.incident_grid', 'select id from public.incident',
+  'incidents: the view shows the table''s rows');
+select results_eq(
+  $$select incident_type_name, disables_location, location_name, image_count, note_count, created_by_name, changed_by_name
+    from public.incident_grid where id = '90000000-0000-0000-9d1d-000000000001'$$,
+  $$values ('G-Pump down', true, 'G-Plant', 0, 1, 'g-field', 'System')$$,
+  'an incident row carries its names and counts');
+
+select pg_temp.act_as('10000000-0000-0000-9d1d-000000000004');
+select is((select count(*)::integer from public.incident_grid), 0, 'no role: no incidents');
+
 reset role;
 
 select * from finish();
