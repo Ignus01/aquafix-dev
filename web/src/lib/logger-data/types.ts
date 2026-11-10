@@ -11,37 +11,6 @@ export type LoggerAsset = {
   location_name: string | null;
 };
 
-export type LoggerReadingRow = {
-  id: number;
-  reading_at: string;
-  value: number;
-  unit: string | null;
-  logger_type: LoggerType;
-  logger_code: string;
-  pulled_at: string;
-  asset_id: string;
-  asset_name: string;
-  asset_code: string;
-  location_name: string | null;
-};
-
-// The grid is paged on the server; this must match the shared Pagination
-// bar's PAGE_SIZE (admin/data-grid.tsx).
-export const READINGS_PAGE_SIZE = 20;
-
-export const READING_SORT_KEYS = ["reading_at", "value", "unit", "logger_code", "pulled_at"] as const;
-export type ReadingSortKey = (typeof READING_SORT_KEYS)[number];
-
-// Filters as they appear in the URL. `from`/`to` are datetime-local values,
-// read as wall time in the app time zone.
-export type ReadingFilter = {
-  asset: string;
-  from: string;
-  to: string;
-  sort: ReadingSortKey | null;
-  desc: boolean;
-};
-
 export type ChartPoint = { t: string; v: number };
 
 export type PullRunStatus = "running" | "success" | "partial" | "failed" | "no_loggers";

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { EntityCrudTable, type FieldConfig } from "../masterdata/entity-crud-table";
+import { replaceTab } from "../grid/use-grid-params";
 import { canStock, type StockEntity } from "@/lib/stock/permissions";
 import type { MasterdataRole } from "@/lib/auth";
 import type { Location, Organisation } from "@/lib/masterdata/types";
@@ -81,6 +82,8 @@ export function StockTabs({
   unitsOfMeasure,
   locations,
   organisations,
+  timeZone,
+  initialTab,
 }: {
   roles: MasterdataRole[];
   products: Product[];
@@ -90,8 +93,11 @@ export function StockTabs({
   unitsOfMeasure: UnitOfMeasure[];
   locations: Location[];
   organisations: Organisation[];
+  timeZone: string;
+  // From ?tab= (the tab survives a refresh).
+  initialTab?: string;
 }) {
-  const [tab, setTab] = useState<TabKey>("product");
+  const [tab, setTab] = useState<TabKey>(TABS.find((t) => t.key === initialTab)?.key ?? "product");
 
   const counts: Record<TabKey, number> = {
     product: products.length,
@@ -129,7 +135,10 @@ export function StockTabs({
         {TABS.map((t) => (
           <button
             key={t.key}
-            onClick={() => setTab(t.key)}
+            onClick={() => {
+              setTab(t.key);
+              replaceTab(t.key);
+            }}
             className={`flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-semibold transition-colors ${
               tab === t.key
                 ? "border-primary text-primary"
@@ -153,6 +162,8 @@ export function StockTabs({
           {(perms) => (
             <EntityCrudTable
               rows={products}
+              gridId="stock-products"
+              timeZone={timeZone}
               getId={(r) => r.id as string}
               {...perms}
               itemLabel="Product"
@@ -207,6 +218,8 @@ export function StockTabs({
           {(perms) => (
             <EntityCrudTable
               rows={packTypes}
+              gridId="stock-pack-types"
+              timeZone={timeZone}
               getId={(r) => r.id as string}
               {...perms}
               itemLabel="Pack Type"
@@ -241,6 +254,8 @@ export function StockTabs({
           {(perms) => (
             <EntityCrudTable
               rows={productTypes}
+              gridId="stock-product-types"
+              timeZone={timeZone}
               getId={(r) => r.id as string}
               {...perms}
               itemLabel="Product Type"
@@ -266,6 +281,8 @@ export function StockTabs({
           {(perms) => (
             <EntityCrudTable
               rows={storageAreas}
+              gridId="stock-storage-areas"
+              timeZone={timeZone}
               getId={(r) => r.id as string}
               {...perms}
               itemLabel="Storage Area"
@@ -299,9 +316,12 @@ export function StockTabs({
           {(perms) => (
             <EntityCrudTable
               rows={unitsOfMeasure}
+              gridId="stock-units-of-measure"
+              timeZone={timeZone}
               getId={(r) => r.id as string}
               {...perms}
               itemLabel="Unit Of Measure"
+              title="Units of measure"
               emptyLabel="No units of measure yet."
               onCreate={actions.createUnitOfMeasure}
               onUpdate={actions.updateUnitOfMeasure}

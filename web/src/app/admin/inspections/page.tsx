@@ -1,5 +1,8 @@
 import Link from "next/link";
 import { requireRole } from "@/lib/auth";
+import { parseGridParams } from "@/lib/grid/params";
+import { activitiesGrid, cumulativeGrid, scheduledGrid, valuesGrid } from "@/lib/grid/specs/inspections";
+import { instructionsGrid } from "@/lib/grid/specs/instructions";
 import { todayInZone } from "@/lib/inspections/dates";
 import {
   INSPECTION_READERS,
@@ -35,7 +38,8 @@ type TabKey = (typeof FIELD_TABS)[number]["key"] | (typeof BACK_OFFICE_TABS)[num
 // and read-only for viewers) on one page. Each tab loads only its own data.
 export default async function InspectionsPage(props: PageProps<"/admin/inspections">) {
   const roles = await requireRole(INSPECTION_READERS);
-  const { tab: tabParam } = await props.searchParams;
+  const searchParams = await props.searchParams;
+  const tabParam = searchParams.tab;
 
   const isWriter = isInspectionWriter(roles);
   const isAdmin = isInspectionAdmin(roles);
@@ -84,7 +88,7 @@ export default async function InspectionsPage(props: PageProps<"/admin/inspectio
           ))}
         </nav>
 
-        <TabContent tab={tab} isAdmin={isAdmin} timeZone={timeZone} today={today} />
+        <TabContent tab={tab} isAdmin={isAdmin} timeZone={timeZone} today={today} searchParams={searchParams} />
       </div>
     </div>
   );
@@ -95,11 +99,13 @@ async function TabContent({
   isAdmin,
   timeZone,
   today,
+  searchParams,
 }: {
   tab: TabKey;
   isAdmin: boolean;
   timeZone: string;
   today: string;
+  searchParams: Record<string, string | string[] | undefined>;
 }) {
   switch (tab) {
     case "today":
@@ -107,16 +113,16 @@ async function TabContent({
     case "my-instructions":
       return <MyInstructionsView instructions={await actions.listMyOpenInstructions()} today={today} />;
     case "instructions": {
-      const [instructions, assets, accounts] = await Promise.all([
-        actions.listInstructions(),
-        isAdmin ? actions.listAssetOptions() : [],
-        isAdmin ? actions.listAccounts() : [],
+      const params = parseGridParams(searchParams, instructionsGrid);
+      const [result, userOptions] = await Promise.all([
+        actions.listInstructionGrid(params, timeZone),
+        actions.listUserOptions(),
       ]);
       return (
         <InstructionsPanel
-          instructions={instructions}
-          assets={assets}
-          accounts={accounts}
+          result={result}
+          params={params}
+          userOptions={userOptions}
           canEdit={isAdmin}
           today={today}
           timeZone={timeZone}
@@ -124,31 +130,54 @@ async function TabContent({
       );
     }
     case "schedules": {
-      const [schedules, runs, holidays, assets, accounts] = await Promise.all([
-        actions.listScheduledInstructions(),
+      const params = parseGridParams(searchParams, scheduledGrid);
+      const [result, runs, holidays, userOptions] = await Promise.all([
+        actions.listScheduledGrid(params, timeZone),
         isAdmin ? actions.listScheduleRuns() : [],
         actions.listPublicHolidays(),
-        actions.listAssetOptions(),
-        // Viewers open schedules read-only and still see the assignee.
-        actions.listAccounts(),
+        actions.listUserOptions(),
       ]);
       return (
         <SchedulesPanel
-          schedules={schedules}
+          result={result}
+          params={params}
+          userOptions={userOptions}
           runs={runs}
           holidays={holidays}
-          assets={assets}
-          accounts={accounts}
           canEdit={isAdmin}
           timeZone={timeZone}
         />
       );
     }
-    case "activities":
-      return <ActivitiesPanel activities={await actions.listActivities()} canDelete={isAdmin} timeZone={timeZone} />;
-    case "values":
-      return <ValuesPanel values={await actions.listValues()} canEdit={isAdmin} timeZone={timeZone} />;
-    case "cumulative":
-      return <CumulativePanel rows={await actions.listCumulativeValues()} canEdit={isAdmin} timeZone={timeZone} />;
+    case "activities": {
+      const params = parseGridParams(searchParams, activitiesGrid);
+      const [result, lookups, userOptions] = await Promise.all([
+        actions.listActivityGrid(params, timeZone),
+        actions.listInspectionLookups(),
+        actions.listUserOptions(),
+      ]);
+      const props = { result, params, lookups, userOptions, canEdit: isAdmin, timeZone };
+      return <ActivitiesPanel {...props} />;
+    }
+    case "values": {
+      const params = parseGridParams(searchParams, valuesGrid);
+      const [result, lookups, userOptions] = await Promise.all([
+        actions.listValueGrid(params, timeZone),
+        actions.listInspectionLookups(),
+        actions.listUserOptions(),
+      ]);
+      const props = { result, params, lookups, userOptions, canEdit: isAdmin, timeZone };
+      return <ValuesPanel {...props} />;
+    }
+    case "cumulative": {
+      const params = parseGridParams(searchParams, cumulativeGrid);
+      const [result, lookups, userOptions] = await Promise.all([
+        actions.listCumulativeGrid(params, timeZone),
+        actions.listInspectionLookups(),
+        actions.listUserOptions(),
+      ]);
+      const props = { result, params, lookups, userOptions, canEdit: isAdmin, timeZone };
+      return <CumulativePanel {...props} />;
+    }
   }
 }

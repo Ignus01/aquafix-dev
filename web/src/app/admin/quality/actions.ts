@@ -7,7 +7,11 @@ import { selectAll } from "@/lib/supabase/select-all";
 import { friendlyError } from "@/lib/db-errors";
 import { QUALITY_ADMINS, QUALITY_READERS } from "@/lib/quality/permissions";
 import { LAB_RESULTS_BUCKET } from "@/lib/quality/constants";
-import type { LabImportRow, QualityFilter, ResultRow, SampleOverview } from "@/lib/quality/types";
+import { gridQuery } from "@/lib/grid/query";
+import { importsGrid, samplesGrid, type ImportGridRow, type SampleGridRow } from "@/lib/grid/specs/quality";
+import type { ChoiceOption, GridParams, GridResult } from "@/lib/grid/types";
+import { gridUserOptions } from "@/lib/grid/user-options";
+import type { QualityFilter, ResultRow, SampleOverview } from "@/lib/quality/types";
 
 // Quality → Lab Results. Reads use the caller's session (RLS: every
 // masterdata role reads); deletes are system admin / admin only, here and in
@@ -45,15 +49,64 @@ async function withNames(supabase: Supabase, rows: SampleRecord[]): Promise<Samp
   }));
 }
 
-// Samples matching the filters, newest first. With imports chosen (the link
-// after an import), the period doesn't apply.
-export async function listSamples(filter: QualityFilter, importIds: string[] = []): Promise<SampleOverview[]> {
+// One page of lab_sample_grid with the URL's filters and sort (was: every
+// sample in the period, filtered in the browser).
+export async function listSampleGrid(params: GridParams, timeZone: string): Promise<GridResult<SampleGridRow>> {
+  await requireRole(QUALITY_READERS);
+  const supabase = await createClient();
+  return gridQuery<SampleGridRow>(supabase, samplesGrid, params, { timeZone });
+}
+
+// One page of lab_import_grid.
+export async function listImportGrid(params: GridParams, timeZone: string): Promise<GridResult<ImportGridRow>> {
+  await requireRole(QUALITY_READERS);
+  const supabase = await createClient();
+  return gridQuery<ImportGridRow>(supabase, importsGrid, params, { timeZone });
+}
+
+// The samples grid's choice-filter options.
+export async function listSampleGridOptions(): Promise<
+  Record<"location" | "region" | "organisation" | "lab" | "file" | "users", ChoiceOption[]>
+> {
+  await requireRole(QUALITY_READERS);
+  const supabase = await createClient();
+  const [options, files, users] = await Promise.all([
+    listFilterOptions(),
+    selectAll(() => supabase.from("lab_import").select("id, file_name").neq("status", "cancelled").order("created_at", { ascending: false }).order("id")),
+    gridUserOptions(supabase),
+  ]);
+  const opts = (rows: { id: string; name: string }[]) => rows.map((r) => ({ value: r.id, label: r.name }));
+  return {
+    location: opts(options.locations),
+    region: opts(options.regions),
+    organisation: opts(options.organisations),
+    lab: opts(options.labs),
+    file: (files as { id: string; file_name: string }[]).map((f) => ({ value: f.id, label: f.file_name })),
+    users,
+  };
+}
+
+// Every staged import, for "Continue all".
+export async function listStagedImportIds(): Promise<string[]> {
+  await requireRole(QUALITY_READERS);
+  const supabase = await createClient();
+  const { data, error } = await supabase.from("lab_import").select("id").eq("status", "staged").order("created_at");
+  if (error) throw error;
+  return data.map((r) => r.id as string);
+}
+
+export async function listQualityUserOptions(): Promise<ChoiceOption[]> {
+  await requireRole(QUALITY_READERS);
+  return gridUserOptions(await createClient());
+}
+
+// Samples matching the filters, newest first (the By location grid).
+export async function listSamples(filter: QualityFilter): Promise<SampleOverview[]> {
   await requireRole(QUALITY_READERS);
   const supabase = await createClient();
   const rows = await selectAll(() => {
     let q = supabase.from("lab_sample_overview").select(SAMPLE_COLUMNS);
-    if (importIds.length > 0) q = q.in("import_id", importIds);
-    else q = q.gte("sampled_on", filter.from).lte("sampled_on", filter.to);
+    q = q.gte("sampled_on", filter.from).lte("sampled_on", filter.to);
     if (filter.region) q = q.eq("region_id", filter.region);
     if (filter.organisation) q = q.eq("organisation_id", filter.organisation);
     if (filter.location) q = q.eq("location_id", filter.location);
@@ -118,30 +171,6 @@ export async function getSample(id: string): Promise<{ sample: SampleOverview; r
     .order("parameter_name");
   if (resultsError) throw resultsError;
   return { sample, results: (results as unknown as Record<string, unknown>[]).map(toResult) };
-}
-
-export async function listImports(): Promise<LabImportRow[]> {
-  await requireRole(QUALITY_READERS);
-  const supabase = await createClient();
-  const rows = (await selectAll(() =>
-    supabase
-      .from("lab_import")
-      .select(
-        "id, lab_id, lab_name, client_name, batch_no, file_name, status, samples_imported, samples_skipped, " +
-          "created_at, created_by, imported_at, imported_by",
-      )
-      .order("created_at", { ascending: false })
-      .order("id"),
-  )) as unknown as (Omit<LabImportRow, "created_by_name" | "imported_by_name"> & {
-    created_by: string | null;
-    imported_by: string | null;
-  })[];
-  const names = await userNames(supabase, rows.flatMap((r) => [r.created_by, r.imported_by]));
-  return rows.map(({ created_by, imported_by, ...r }) => ({
-    ...r,
-    created_by_name: created_by ? (names.get(created_by) ?? null) : null,
-    imported_by_name: imported_by ? (names.get(imported_by) ?? null) : null,
-  }));
 }
 
 export async function listFilterOptions() {

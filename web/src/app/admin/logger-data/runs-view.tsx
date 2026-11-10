@@ -1,12 +1,18 @@
 "use client";
 
-import { Fragment, useEffect } from "react";
+import { useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { formatDateTime } from "@/lib/incidents/format";
-import type { PullResult, PullResultStatus, PullRun, PullRunStatus } from "@/lib/logger-data/types";
-import { ChevronRightIcon } from "../icons";
-import { tableHeadCellClass } from "../ui";
+import { SYSTEM_OPTION } from "@/lib/grid/fields";
+import { RUN_STATUS_LABELS, runsGrid, type RunGridRow } from "@/lib/grid/specs/logger";
+import type { ChoiceOption, GridParams, GridResult } from "@/lib/grid/types";
+import type { PullResult, PullResultStatus, PullRunStatus } from "@/lib/logger-data/types";
+import { changedColumns, Dash, type GridColumn } from "../grid/columns";
+import { Grid } from "../grid/grid";
+import type { RowMenuItem } from "../grid/row-menu";
+import { XIcon } from "../icons";
+import { sectionHeadingClass, tableHeadCellClass } from "../ui";
 
 type Tone = "success" | "danger" | "warning" | "muted";
 
@@ -25,12 +31,12 @@ function Pill({ tone, children }: { tone: Tone; children: React.ReactNode }) {
   );
 }
 
-const RUN_STATUS: Record<PullRunStatus, { tone: Tone; label: string }> = {
-  running: { tone: "warning", label: "Running" },
-  success: { tone: "success", label: "Done" },
-  partial: { tone: "warning", label: "Some failed" },
-  failed: { tone: "danger", label: "Failed" },
-  no_loggers: { tone: "muted", label: "No loggers" },
+const RUN_TONE: Record<PullRunStatus, Tone> = {
+  running: "warning",
+  success: "success",
+  partial: "warning",
+  failed: "danger",
+  no_loggers: "muted",
 };
 
 const RESULT_STATUS: Record<PullResultStatus, { tone: Tone; label: string }> = {
@@ -40,22 +46,26 @@ const RESULT_STATUS: Record<PullResultStatus, { tone: Tone; label: string }> = {
   failed: { tone: "danger", label: "Failed" },
 };
 
-// Each daily or manual pull with how its loggers went. A run opens to show
-// every logger's result; while anything is still running the page refreshes
-// itself.
+// Each daily or manual pull, one page at a time from logger_pull_run_grid.
+// A run's ID opens its loggers' results above the grid; while a run on the
+// page (or the open one) is still running, the page refreshes itself.
 export function RunsView({
-  runs,
-  openRunId,
+  result,
+  params,
+  userOptions,
+  openRun,
   results,
   timeZone,
 }: {
-  runs: PullRun[];
-  openRunId: number | null;
+  result: GridResult<RunGridRow>;
+  params: GridParams;
+  userOptions: ChoiceOption[];
+  openRun: RunGridRow | null;
   results: PullResult[];
   timeZone: string;
 }) {
   const router = useRouter();
-  const running = runs.some((r) => r.status === "running");
+  const running = result.rows.some((r) => r.status === "running") || openRun?.status === "running";
 
   useEffect(() => {
     if (!running) return;
@@ -63,93 +73,108 @@ export function RunsView({
     return () => clearInterval(timer);
   }, [running, router]);
 
-  if (runs.length === 0) {
-    return (
-      <p className="rounded-card border border-border bg-card px-5 py-10 text-center text-sm text-muted">
-        No pulls yet. The first daily pull runs at 06:00.
-      </p>
-    );
+  const runHref = (r: RunGridRow) => `/admin/logger-data?tab=runs&run=${r.id}`;
+  const num = (v: number, danger = false) => (
+    <span className={`font-mono text-[13px] tabular-nums ${danger && v ? "text-danger" : "text-muted"}`}>
+      {v.toLocaleString("en-US")}
+    </span>
+  );
+
+  const columns: GridColumn<RunGridRow>[] = [
+    { key: "id", render: (r) => r.id },
+    { key: "started", render: (r) => <span className="whitespace-nowrap tabular-nums">{formatDateTime(r.created_at, timeZone)}</span> },
+    {
+      key: "trigger",
+      render: (r) => (
+        <>
+          {r.trigger === "cron" ? "Daily" : "Manual"}
+          {r.asset_count !== null && (
+            <span className="block text-xs text-muted">
+              {r.asset_count} asset{r.asset_count === 1 ? "" : "s"}
+            </span>
+          )}
+        </>
+      ),
+    },
+    {
+      key: "period",
+      render: (r) => (
+        <span className="whitespace-nowrap text-muted tabular-nums">
+          {formatDateTime(r.range_start, timeZone)} – {formatDateTime(r.range_end, timeZone)}
+        </span>
+      ),
+    },
+    {
+      key: "status",
+      render: (r) => (
+        <Pill tone={RUN_TONE[r.status]}>
+          {RUN_STATUS_LABELS[r.status]}
+          {r.status === "running" && ` · ${r.loggers - r.pending}/${r.loggers}`}
+        </Pill>
+      ),
+    },
+    { key: "loggers", align: "right", render: (r) => num(r.loggers) },
+    { key: "failed", align: "right", render: (r) => num(r.failed, true) },
+    { key: "readings", align: "right", render: (r) => num(r.readings_saved) },
+    {
+      key: "finished",
+      render: (r) => (r.finished_at ? <span className="text-muted tabular-nums">{formatDateTime(r.finished_at, timeZone)}</span> : <Dash />),
+    },
+    ...changedColumns<RunGridRow>(timeZone),
+  ];
+
+  function menu(r: RunGridRow): RowMenuItem[] {
+    return [
+      { label: "Show results", href: runHref(r) },
+      ...(r.readings_saved > 0 ? [{ label: "Readings in this period", href: readingsHref(r, timeZone) }] : []),
+    ];
   }
 
   return (
-    <section className="rounded-card border border-border bg-card">
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="bg-table-head">
-              <th className={`${tableHeadCellClass} !px-5`}>Started</th>
-              <th className={tableHeadCellClass}>Type</th>
-              <th className={tableHeadCellClass}>Period</th>
-              <th className={tableHeadCellClass}>Status</th>
-              <th className={`${tableHeadCellClass} text-right`}>Loggers</th>
-              <th className={`${tableHeadCellClass} text-right`}>Failed</th>
-              <th className={`${tableHeadCellClass} text-right`}>Readings</th>
-              <th className={tableHeadCellClass}>Finished</th>
-            </tr>
-          </thead>
-          <tbody>
-            {runs.map((run) => {
-              const open = run.id === openRunId;
-              const status = RUN_STATUS[run.status];
-              return (
-                <Fragment key={run.id}>
-                  <tr className={`border-t border-border ${open ? "bg-row-hover" : "hover:bg-row-hover"}`}>
-                    <td className="px-5 py-2.5 whitespace-nowrap">
-                      <Link
-                        href={open ? "/admin/logger-data?tab=runs" : `/admin/logger-data?tab=runs&run=${run.id}`}
-                        scroll={false}
-                        aria-expanded={open}
-                        className="inline-flex items-center gap-1.5 font-medium text-ink hover:text-primary"
-                      >
-                        <ChevronRightIcon className={`h-3.5 w-3.5 text-muted transition-transform ${open ? "rotate-90" : ""}`} />
-                        {formatDateTime(run.created_at, timeZone)}
-                      </Link>
-                    </td>
-                    <td className="px-3 py-2.5 text-ink">
-                      {run.trigger === "cron" ? "Daily" : "Manual"}
-                      {run.trigger === "manual" && (
-                        <span className="block text-xs text-muted">
-                          {run.requested_by_name ?? "—"}
-                          {run.asset_count !== null && ` · ${run.asset_count} asset${run.asset_count === 1 ? "" : "s"}`}
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2.5 whitespace-nowrap text-muted tabular-nums">
-                      {formatDateTime(run.range_start, timeZone)} – {formatDateTime(run.range_end, timeZone)}
-                    </td>
-                    <td className="px-3 py-2.5">
-                      <Pill tone={status.tone}>
-                        {status.label}
-                        {run.status === "running" && ` · ${run.loggers - run.pending}/${run.loggers}`}
-                      </Pill>
-                    </td>
-                    <td className="px-3 py-2.5 text-right font-mono text-[13px] text-muted tabular-nums">{run.loggers}</td>
-                    <td className={`px-3 py-2.5 text-right font-mono text-[13px] tabular-nums ${run.failed ? "text-danger" : "text-muted"}`}>
-                      {run.failed}
-                    </td>
-                    <td className="px-3 py-2.5 text-right font-mono text-[13px] text-muted tabular-nums">
-                      {run.readings_saved.toLocaleString("en-US")}
-                    </td>
-                    <td className="px-3 py-2.5 whitespace-nowrap text-muted tabular-nums">
-                      {run.finished_at ? formatDateTime(run.finished_at, timeZone) : "—"}
-                    </td>
-                  </tr>
-                  {open && (
-                    <tr className="border-t border-border bg-page/60">
-                      <td colSpan={8} className="px-5 py-4">
-                        <RunResults results={results} timeZone={timeZone} />
-                      </td>
-                    </tr>
-                  )}
-                </Fragment>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-      <p className="border-t border-border px-5 py-3 text-xs text-muted">Showing the latest 100 pulls.</p>
-    </section>
+    <div className="flex flex-col gap-6">
+      {openRun && (
+        <section className="rounded-card border border-border bg-card">
+          <div className="flex items-center justify-between gap-2 border-b border-border px-5 py-3 md:px-6">
+            <h2 className={sectionHeadingClass}>
+              Run {openRun.id} · {formatDateTime(openRun.created_at, timeZone)}
+            </h2>
+            <Link
+              href="/admin/logger-data?tab=runs"
+              scroll={false}
+              aria-label="Close run results"
+              className="rounded-control p-1 text-muted hover:bg-black/[.04] hover:text-ink"
+            >
+              <XIcon className="h-4 w-4" />
+            </Link>
+          </div>
+          <div className="px-5 py-4 md:px-6">
+            <RunResults results={results} timeZone={timeZone} />
+          </div>
+        </section>
+      )}
+      <Grid
+        mode="server"
+        spec={runsGrid}
+        result={result}
+        params={params}
+        columns={columns}
+        getKey={(r) => String(r.id)}
+        title="Run log"
+        timeZone={timeZone}
+        rowHref={runHref}
+        rowLabel={(r) => `run ${r.id}`}
+        rowMenu={menu}
+        options={{ changed_by: [...userOptions, SYSTEM_OPTION] }}
+        emptyLabel="No pulls yet. The first daily pull runs at 06:00."
+      />
+    </div>
   );
+}
+
+// The readings grid over a run's period (whole days in the app time zone).
+function readingsHref(r: RunGridRow, timeZone: string) {
+  const day = (iso: string) => new Intl.DateTimeFormat("en-CA", { timeZone }).format(new Date(iso));
+  return `/admin/logger-data?tab=data&f.time=${day(r.range_start)}..${day(r.range_end)}`;
 }
 
 function RunResults({ results, timeZone }: { results: PullResult[]; timeZone: string }) {

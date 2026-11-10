@@ -1,12 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { formatDay } from "@/lib/dashboard/format";
 import { formatRate } from "@/lib/billing/format";
 import { BILLING_METER_OPTIONS, billingMeterLabel, type SetupLocation } from "@/lib/billing/types";
+import { changedFields } from "@/lib/grid/fields";
+import { BLANK, type GridSpec } from "@/lib/grid/types";
 import { assetClassificationLabel } from "@/lib/masterdata/types";
-import { SearchInput } from "../data-grid";
+import { changedByOptions, changedColumns, Dash, type GridColumn } from "../grid/columns";
+import { Grid } from "../grid/grid";
 import { Modal } from "../modal";
 import { cellInputClass, dangerLinkButtonClass, inputClass, labelClass, linkButtonClass, smallPrimaryButtonClass } from "../ui";
 import { addTariff, deleteTariff, setBillingDay } from "./actions";
@@ -17,22 +20,54 @@ const DAYS = Array.from({ length: 30 }, (_, i) => i + 1);
 // The tariff in effect on `day`: the latest one starting on or before it.
 const currentTariff = (l: SetupLocation, day: string) => l.tariffs.find((t) => t.effective_from <= day) ?? null;
 
-export function SetupTable({ locations, today }: { locations: SetupLocation[]; today: string }) {
-  const [query, setQuery] = useState("");
-  const [onlyBilled, setOnlyBilled] = useState(false);
+const billedMeters = (l: SetupLocation) => l.meters.filter((m) => m.billing_meter !== null);
+const missingTreated = (l: SetupLocation) =>
+  l.billing_day !== null && !billedMeters(l).some((m) => m.billing_meter === "treated");
+
+// Billing day: "Billed" (any day) or a particular day; blank = not billed.
+// The cell's value lists both, so either option finds the row.
+const dayLabel = (d: number) => (d === 31 ? "Last day of month" : `Day ${d}`);
+
+// Admin → Billing → Location setup: every active location, with its billing
+// day, tariff and meters edited in the row. Changed is the location row (a
+// new billing day); adding a tariff doesn't change it.
+const setupGrid: GridSpec = {
+  id: "billing-setup",
+  fields: [
+    { key: "name", label: "Location", filter: "text" },
+    { key: "organisation", label: "Organisation", filter: "text", hideable: true },
+    {
+      key: "billing_day",
+      label: "Billing day (readings)",
+      filter: "choice",
+      options: [
+        { value: "billed", label: "Billed (any day)" },
+        ...[...DAYS, 31].map((d) => ({ value: String(d), label: dayLabel(d) })),
+        { value: BLANK, label: "Not billed" },
+      ],
+    },
+    { key: "tariff", label: "Tariff per kL", filter: "number" },
+    {
+      key: "meters",
+      label: "Billing meters",
+      filter: "choice",
+      sortable: false,
+      options: [
+        ...BILLING_METER_OPTIONS,
+        { value: "no_treated", label: "No treated meter (billed)" },
+        { value: BLANK, label: "None" },
+      ],
+    },
+    ...changedFields(),
+  ],
+  defaultSort: { key: "name", desc: false },
+};
+
+export function SetupTable({ locations, today, timeZone }: { locations: SetupLocation[]; today: string; timeZone: string }) {
   const [tariffFor, setTariffFor] = useState<string | null>(null);
   const [metersFor, setMetersFor] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
-
-  const rows = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return locations.filter(
-      (l) =>
-        (!onlyBilled || l.billing_day !== null) &&
-        (!q || [l.name, l.organisation, l.region].some((v) => v?.toLowerCase().includes(q))),
-    );
-  }, [locations, query, onlyBilled]);
 
   function run(action: () => Promise<{ error: string | null }>) {
     setError(null);
@@ -42,111 +77,108 @@ export function SetupTable({ locations, today }: { locations: SetupLocation[]; t
     });
   }
 
+  const columns: GridColumn<SetupLocation>[] = [
+    { key: "name", render: (l) => l.name, value: (l) => l.name },
+    { key: "organisation", render: (l) => <span className="text-muted">{l.organisation ?? "—"}</span>, value: (l) => l.organisation },
+    {
+      key: "billing_day",
+      className: "py-1.5",
+      render: (l) => (
+        <select
+          aria-label={`Billing day for ${l.name}`}
+          value={l.billing_day ?? ""}
+          onChange={(e) => run(() => setBillingDay(l.id, e.target.value === "" ? null : Number(e.target.value)))}
+          className={`${cellInputClass} w-48`}
+        >
+          <option value="">Not billed</option>
+          {DAYS.map((d) => (
+            <option key={d} value={d}>
+              {dayLabel(d)}
+            </option>
+          ))}
+          <option value={31}>{dayLabel(31)}</option>
+        </select>
+      ),
+      value: (l) => (l.billing_day === null ? [] : ["billed", String(l.billing_day)]),
+      sortValue: (l) => l.billing_day,
+    },
+    {
+      key: "tariff",
+      render: (l) => {
+        const tariff = currentTariff(l, today);
+        return (
+          <button type="button" onClick={() => setTariffFor(l.id)} className="text-left whitespace-nowrap">
+            {tariff ? (
+              <span className="font-semibold text-ink tabular-nums">{formatRate(tariff.rate)}</span>
+            ) : (
+              <span className={l.billing_day !== null ? "font-semibold text-warning" : "text-muted"}>No tariff</span>
+            )}
+            <span className={`ml-2 ${linkButtonClass}`}>Edit</span>
+          </button>
+        );
+      },
+      value: (l) => currentTariff(l, today)?.rate ?? null,
+    },
+    {
+      key: "meters",
+      render: (l) => {
+        const billed = billedMeters(l);
+        return (
+          <button type="button" onClick={() => setMetersFor(l.id)} className="flex min-w-[300px] flex-wrap items-center gap-1.5 text-left">
+            {BILLING_METER_OPTIONS.map((o) => {
+              const n = billed.filter((m) => m.billing_meter === o.value).length;
+              if (n === 0) return null;
+              return (
+                <span key={o.value} className="rounded-full bg-black/[.04] px-2 py-0.5 text-xs text-ink">
+                  {o.label}
+                  {n > 1 ? ` ×${n}` : ""}
+                </span>
+              );
+            })}
+            {missingTreated(l) && (
+              <span className="rounded-full bg-warning-bg px-2 py-0.5 text-xs font-semibold text-warning">
+                No treated meter
+              </span>
+            )}
+            {billed.length === 0 && l.billing_day === null && <Dash />}
+            <span className={linkButtonClass}>View</span>
+          </button>
+        );
+      },
+      value: (l) => [
+        ...new Set(billedMeters(l).map((m) => m.billing_meter as string)),
+        ...(missingTreated(l) ? ["no_treated"] : []),
+      ],
+    },
+    ...changedColumns<SetupLocation>(timeZone),
+  ];
+
   const tariffLocation = locations.find((l) => l.id === tariffFor) ?? null;
   const metersLocation = locations.find((l) => l.id === metersFor) ?? null;
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center gap-4">
-        <SearchInput value={query} onChange={setQuery} placeholder="Search locations…" />
-        <label className="flex items-center gap-2 text-sm text-ink">
-          <input type="checkbox" checked={onlyBilled} onChange={(e) => setOnlyBilled(e.target.checked)} />
-          Only billed locations
-        </label>
-        {pending && <span className="text-xs text-muted">Saving…</span>}
-      </div>
-      {error && <p className="text-sm text-danger">{error}</p>}
+    <div className="flex flex-col gap-3">
+      {error && <p className="border-l-2 border-danger py-1 pl-3 text-[13px] text-danger">{error}</p>}
+      {pending && <p className="text-xs text-muted">Saving…</p>}
 
-      <div className="overflow-hidden rounded-card border border-border bg-card">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-table-head">
-                <th className={th}>Location</th>
-                <th className={th}>Organisation</th>
-                <th className={th}>Billing day (readings)</th>
-                <th className={th}>Tariff per kL</th>
-                <th className={th}>Billing meters</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-muted">
-                    No locations match.
-                  </td>
-                </tr>
-              )}
-              {rows.map((l) => {
-                const tariff = currentTariff(l, today);
-                const billed = l.meters.filter((m) => m.billing_meter !== null);
-                const hasTreated = billed.some((m) => m.billing_meter === "treated");
-                return (
-                  <tr key={l.id} className="h-[54px] border-t border-border">
-                    <td className="px-4 font-semibold text-ink">{l.name}</td>
-                    <td className="px-4 text-muted">{l.organisation ?? "—"}</td>
-                    <td className="w-56 px-4">
-                      <select
-                        aria-label={`Billing day for ${l.name}`}
-                        value={l.billing_day ?? ""}
-                        onChange={(e) =>
-                          run(() => setBillingDay(l.id, e.target.value === "" ? null : Number(e.target.value)))
-                        }
-                        className={cellInputClass}
-                      >
-                        <option value="">Not billed</option>
-                        {DAYS.map((d) => (
-                          <option key={d} value={d}>
-                            Day {d}
-                          </option>
-                        ))}
-                        <option value={31}>Last day of month</option>
-                      </select>
-                    </td>
-                    <td className="px-4 whitespace-nowrap">
-                      <button type="button" onClick={() => setTariffFor(l.id)} className="text-left">
-                        {tariff ? (
-                          <span className="font-semibold text-ink tabular-nums">{formatRate(tariff.rate)}</span>
-                        ) : (
-                          <span className={l.billing_day !== null ? "font-semibold text-warning" : "text-muted"}>
-                            No tariff
-                          </span>
-                        )}
-                        <span className={`ml-2 ${linkButtonClass}`}>Edit</span>
-                      </button>
-                    </td>
-                    <td className="px-4">
-                      <button type="button" onClick={() => setMetersFor(l.id)} className="flex flex-wrap items-center gap-1.5 text-left">
-                        {BILLING_METER_OPTIONS.map((o) => {
-                          const n = billed.filter((m) => m.billing_meter === o.value).length;
-                          if (n === 0) return null;
-                          return (
-                            <span key={o.value} className="rounded-full bg-black/[.04] px-2 py-0.5 text-xs text-ink">
-                              {o.label}
-                              {n > 1 ? ` ×${n}` : ""}
-                            </span>
-                          );
-                        })}
-                        {l.billing_day !== null && !hasTreated && (
-                          <span className="rounded-full bg-warning-bg px-2 py-0.5 text-xs font-semibold text-warning">
-                            No treated meter
-                          </span>
-                        )}
-                        {billed.length === 0 && l.billing_day === null && <span className="text-muted">—</span>}
-                        <span className={linkButtonClass}>View</span>
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <Grid
+        mode="client"
+        spec={setupGrid}
+        rows={locations}
+        columns={columns}
+        getKey={(l) => l.id}
+        title="Locations"
+        timeZone={timeZone}
+        rowLabel={(l) => l.name}
+        rowMenu={(l) => [
+          { label: "Tariff…", onSelect: () => setTariffFor(l.id) },
+          { label: "Billing meters…", onSelect: () => setMetersFor(l.id) },
+        ]}
+        options={{ changed_by: changedByOptions(locations) }}
+        emptyLabel="No active locations."
+      />
 
-      {tariffLocation && (
-        <TariffModal location={tariffLocation} today={today} onClose={() => setTariffFor(null)} />
-      )}
+      {tariffLocation && <TariffModal location={tariffLocation} today={today} onClose={() => setTariffFor(null)} />}
       {metersLocation && <MetersModal location={metersLocation} onClose={() => setMetersFor(null)} />}
     </div>
   );

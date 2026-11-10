@@ -7,9 +7,8 @@ import { inputClass, labelClass, primaryButtonClass, secondaryButtonClass } from
 import { saveInstruction } from "./actions";
 import { AssetList, AssetPicker } from "./asset-picker";
 
-// Instruction_NewEdit (admins). New: status New, due today (INS-R01). The
-// asset list is saved with the instruction; inspected assets can't be
-// removed.
+// Instruction_NewEdit (admins) in a drawer: "New instruction" on the grid,
+// and Edit on the instruction's page.
 export function InstructionEditor({
   instruction,
   assets,
@@ -22,6 +21,35 @@ export function InstructionEditor({
   accounts: AccountOption[];
   today: string;
   onClose: () => void;
+}) {
+  return (
+    <Drawer
+      open
+      width={760}
+      title={instruction ? `Instruction ${instruction.legacy_uid}` : "New instruction"}
+      onClose={onClose}
+    >
+      <InstructionForm instruction={instruction} assets={assets} accounts={accounts} today={today} onDone={onClose} />
+    </Drawer>
+  );
+}
+
+// Instruction_NewEdit (admins). New: status New, due today (INS-R01). The
+// asset list is saved with the instruction; inspected assets can't be
+// removed. Shared by the drawer and the edit page (/instructions/[uid]/edit).
+export function InstructionForm({
+  instruction,
+  assets,
+  accounts,
+  today,
+  onDone,
+}: {
+  instruction: InstructionDetail | null;
+  assets: AssetOption[];
+  accounts: AccountOption[];
+  today: string;
+  // After a save (true) or Cancel (false).
+  onDone: (saved: boolean) => void;
 }) {
   const [name, setName] = useState(instruction?.name ?? "");
   const [comment, setComment] = useState(instruction?.comment ?? "");
@@ -49,27 +77,12 @@ export function InstructionEditor({
       });
       if (res.fieldErrors) setFieldErrors(res.fieldErrors);
       if (res.error) setError(res.error);
-      if (!res.error && !res.fieldErrors) onClose();
+      if (!res.error && !res.fieldErrors) onDone(true);
     });
   }
 
   return (
-    <Drawer
-      open
-      width={760}
-      title={instruction ? `Instruction ${instruction.legacy_uid}` : "New instruction"}
-      onClose={onClose}
-      footer={
-        <>
-          <button type="button" className={secondaryButtonClass} disabled={isPending} onClick={onClose}>
-            Cancel
-          </button>
-          <button type="button" className={primaryButtonClass} disabled={isPending} onClick={save}>
-            {isPending ? "Saving…" : "Save"}
-          </button>
-        </>
-      }
-    >
+    <>
       <div className="flex flex-col gap-5">
         {error && <p className="border-l-2 border-danger py-1 pl-3 text-[13px] text-danger">{error}</p>}
 
@@ -111,6 +124,15 @@ export function InstructionEditor({
             if (confirm("Are you sure?")) setAssetIds((prev) => prev.filter((x) => x !== id));
           }}
         />
+
+        <div className="flex justify-end gap-2 border-t border-border pt-4">
+          <button type="button" className={secondaryButtonClass} disabled={isPending} onClick={() => onDone(false)}>
+            Cancel
+          </button>
+          <button type="button" className={primaryButtonClass} disabled={isPending} onClick={save}>
+            {isPending ? "Saving…" : "Save"}
+          </button>
+        </div>
       </div>
 
       {pickerOpen && (
@@ -126,7 +148,7 @@ export function InstructionEditor({
           }}
         />
       )}
-    </Drawer>
+    </>
   );
 }
 

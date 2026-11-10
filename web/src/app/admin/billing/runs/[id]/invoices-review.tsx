@@ -1,84 +1,77 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import { formatDay } from "@/lib/dashboard/format";
 import { formatMoney, formatQty, formatRate } from "@/lib/billing/format";
 import { invoiceIssues, issueLabel } from "@/lib/billing/issues";
-import type { InvoiceRow, InvoiceStatus } from "@/lib/billing/types";
-import { SearchInput } from "../../../data-grid";
+import type { InvoiceListRow, InvoiceStatus } from "@/lib/billing/types";
+import { changedFields } from "@/lib/grid/fields";
+import type { GridSpec } from "@/lib/grid/types";
+import { changedByOptions, changedColumns, Dash, type GridColumn } from "../../../grid/columns";
+import { Grid } from "../../../grid/grid";
 import { DownloadIcon } from "../../../icons";
 import { secondaryButtonClass, smallPrimaryButtonClass } from "../../../ui";
 import { approveInvoices, generateRun } from "../../actions";
 import { InvoiceStatusBadge } from "../../status";
 
-const th = "px-3 py-2.5 text-left text-[11px] font-semibold text-muted whitespace-nowrap";
-
-type Filter = "all" | "ready" | "blocked" | "warnings" | InvoiceStatus;
-
-const FILTERS: { key: Filter; label: string }[] = [
-  { key: "all", label: "All" },
-  { key: "ready", label: "Ready to approve" },
-  { key: "blocked", label: "Blocked" },
-  { key: "warnings", label: "Drafts with warnings" },
-  { key: "approved", label: "Approved" },
-  { key: "void", label: "Void" },
+const STATUS_OPTIONS: { value: InvoiceStatus; label: string }[] = [
+  { value: "draft", label: "Draft" },
+  { value: "approved", label: "Approved" },
+  { value: "void", label: "Void" },
 ];
 
-function classify(inv: InvoiceRow) {
+// A draft's checks, as filter values: ready (no blocking issue and an
+// amount), blocked, has warnings, all good. Approved and void invoices have
+// none.
+const CHECK_OPTIONS = [
+  { value: "ready", label: "Ready to approve" },
+  { value: "blocked", label: "Blocked" },
+  { value: "warnings", label: "Has warnings" },
+  { value: "ok", label: "All good" },
+];
+
+function classify(inv: InvoiceListRow) {
   const issues = invoiceIssues(inv.issues);
   const blocking = issues.filter((i) => i.blocking);
   const warnings = issues.filter((i) => !i.blocking);
-  return { issues, blocking, warnings, ready: inv.status === "draft" && blocking.length === 0 && inv.amount !== null };
+  const ready = inv.status === "draft" && blocking.length === 0 && inv.amount !== null;
+  const checks =
+    inv.status !== "draft"
+      ? []
+      : [ready ? "ready" : "blocked", ...(warnings.length > 0 ? ["warnings"] : []), ...(issues.length === 0 ? ["ok"] : [])];
+  return { issues, blocking, warnings, ready, checks };
 }
 
-export function InvoicesReview({ runId, period, invoices }: { runId: string; period: string; invoices: InvoiceRow[] }) {
+const invoicesGrid: GridSpec = {
+  id: "billing-invoices",
+  fields: [
+    { key: "location", label: "Location", filter: "text" },
+    { key: "invoice_no", label: "Invoice / organisation", filter: "text", hideable: true },
+    { key: "period", label: "Period", filter: "date", hideable: true },
+    { key: "treated", label: "Treated (kL)", filter: "number" },
+    { key: "rate", label: "Rate", filter: "number", hideable: true },
+    { key: "amount", label: "Amount", filter: "number" },
+    { key: "status", label: "Status", filter: "choice", options: STATUS_OPTIONS },
+    { key: "checks", label: "Checks", filter: "choice", options: CHECK_OPTIONS, sortable: false },
+    ...changedFields(),
+  ],
+  defaultSort: { key: "location", desc: false },
+};
+
+const invoiceHref = (inv: InvoiceListRow) => `/admin/billing/invoices/${inv.id}`;
+
+export function InvoicesReview({ runId, period, invoices, timeZone }: { runId: string; period: string; invoices: InvoiceListRow[]; timeZone: string }) {
   const router = useRouter();
-  const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<Filter>("all");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [message, setMessage] = useState<{ tone: "ok" | "error"; text: string; details?: string[] } | null>(null);
   const [pending, startTransition] = useTransition();
 
   const info = useMemo(() => new Map(invoices.map((i) => [i.id, classify(i)])), [invoices]);
 
-  const rows = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return invoices.filter((inv) => {
-      const c = info.get(inv.id)!;
-      if (q && ![inv.location_name, inv.organisation_name, inv.invoice_no].some((v) => v?.toLowerCase().includes(q)))
-        return false;
-      switch (filter) {
-        case "ready":
-          return c.ready;
-        case "blocked":
-          return inv.status === "draft" && !c.ready;
-        case "warnings":
-          return inv.status === "draft" && c.warnings.length > 0;
-        case "approved":
-        case "void":
-        case "draft":
-          return inv.status === filter;
-        default:
-          return true;
-      }
-    });
-  }, [invoices, info, query, filter]);
-
   const drafts = invoices.filter((i) => i.status === "draft");
   const approved = invoices.filter((i) => i.status === "approved");
-  const selectable = rows.filter((i) => i.status === "draft");
   const selectedDrafts = [...selected].filter((id) => drafts.some((d) => d.id === id));
-  const allSelected = selectable.length > 0 && selectable.every((i) => selected.has(i.id));
-
-  const toggle = (id: string) =>
-    setSelected((s) => {
-      const next = new Set(s);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
 
   function approve(ids: string[]) {
     setMessage(null);
@@ -114,61 +107,95 @@ export function InvoicesReview({ runId, period, invoices }: { runId: string; per
     });
   }
 
-  const total = (list: InvoiceRow[]) => list.reduce((t, i) => t + (i.amount ?? 0), 0);
+  // The summary cards double as quick filters (the grid reads the URL).
+  function preset(qs: string) {
+    window.history.replaceState(null, "", `${window.location.pathname}${qs ? `?${qs}` : ""}`);
+  }
+
+  const total = (list: InvoiceListRow[]) => list.reduce((t, i) => t + (i.amount ?? 0), 0);
   const readyCount = drafts.filter((d) => info.get(d.id)!.ready).length;
+
+  const columns: GridColumn<InvoiceListRow>[] = [
+    { key: "location", render: (inv) => inv.location_name, value: (inv) => inv.location_name },
+    {
+      key: "invoice_no",
+      render: (inv) => <span className="text-muted">{inv.invoice_no ?? inv.organisation_name ?? "—"}</span>,
+      value: (inv) => inv.invoice_no ?? inv.organisation_name,
+    },
+    {
+      key: "period",
+      render: (inv) => (
+        <span className="whitespace-nowrap text-muted">
+          {formatDay(inv.period_start, false)} – {formatDay(inv.period_end)}
+        </span>
+      ),
+      value: (inv) => inv.period_end,
+    },
+    { key: "treated", align: "right", render: (inv) => formatQty(inv.treated_usage), value: (inv) => inv.treated_usage },
+    {
+      key: "rate",
+      align: "right",
+      render: (inv) => <span className="text-muted">{formatRate(inv.tariff_rate)}</span>,
+      value: (inv) => inv.tariff_rate,
+    },
+    {
+      key: "amount",
+      align: "right",
+      render: (inv) => <span className="font-semibold">{formatMoney(inv.amount)}</span>,
+      value: (inv) => inv.amount,
+    },
+    { key: "status", render: (inv) => <InvoiceStatusBadge status={inv.status} />, value: (inv) => inv.status },
+    {
+      key: "checks",
+      render: (inv) => {
+        const c = info.get(inv.id)!;
+        if (inv.status === "approved") {
+          return (
+            <a
+              href={`${invoiceHref(inv)}/pdf`}
+              className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:text-primary-hover"
+            >
+              <DownloadIcon className="h-3.5 w-3.5" />
+              PDF
+            </a>
+          );
+        }
+        if (inv.status === "void") return inv.void_reason ? <span className="text-xs text-muted">{inv.void_reason}</span> : <Dash />;
+        return (
+          <div className="flex flex-wrap gap-1" title={c.issues.map((i) => issueLabel(i.code)).join("\n")}>
+            {c.blocking.length > 0 && (
+              <span className="rounded-full bg-danger-bg px-2 py-0.5 text-xs font-semibold text-danger">
+                {c.blocking.length === 1 ? issueLabel(c.blocking[0].code) : `${c.blocking.length} blocking`}
+              </span>
+            )}
+            {c.warnings.length > 0 && (
+              <span className="rounded-full bg-warning-bg px-2 py-0.5 text-xs font-semibold text-warning">
+                {c.warnings.length} warning{c.warnings.length === 1 ? "" : "s"}
+              </span>
+            )}
+            {c.issues.length === 0 && (
+              <span className="rounded-full bg-success-bg px-2 py-0.5 text-xs font-semibold text-success">All good</span>
+            )}
+          </div>
+        );
+      },
+      value: (inv) => info.get(inv.id)!.checks,
+    },
+    ...changedColumns<InvoiceListRow>(timeZone),
+  ];
 
   return (
     <div className="flex flex-col gap-4">
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Stat label="Drafts" value={String(drafts.length)} sub={formatMoney(total(drafts))} />
-        <Stat label="Ready to approve" value={String(readyCount)} />
-        <Stat label="Blocked" value={String(drafts.length - readyCount)} tone={drafts.length - readyCount > 0 ? "danger" : undefined} />
-        <Stat label="Approved" value={String(approved.length)} sub={formatMoney(total(approved))} />
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2.5">
-        <SearchInput value={query} onChange={setQuery} placeholder="Search locations…" />
-        <div className="flex flex-wrap gap-1">
-          {FILTERS.map((f) => (
-            <button
-              key={f.key}
-              type="button"
-              onClick={() => setFilter(f.key)}
-              className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors ${
-                filter === f.key ? "bg-primary text-white" : "bg-black/[.04] text-muted hover:text-ink"
-              }`}
-            >
-              {f.label}
-            </button>
-          ))}
-        </div>
-        <div className="ml-auto flex flex-wrap gap-2">
-          <button
-            type="button"
-            disabled={pending}
-            onClick={() => regenerate(selectedDrafts.length > 0 ? invoices.filter((i) => selectedDrafts.includes(i.id)).map((i) => i.location_id) : null)}
-            className={`${secondaryButtonClass} h-[34px] text-[13px]`}
-          >
-            {selectedDrafts.length > 0 ? `Regenerate ${selectedDrafts.length} selected` : "Regenerate all drafts"}
-          </button>
-          <button
-            type="button"
-            disabled={pending || selectedDrafts.length === 0}
-            onClick={() => approve(selectedDrafts)}
-            className={`${smallPrimaryButtonClass} h-[34px]`}
-          >
-            Approve {selectedDrafts.length > 0 ? `${selectedDrafts.length} selected` : "selected"}
-          </button>
-          {approved.length > 0 && (
-            <a
-              href={`/admin/billing/runs/${runId}/pdf`}
-              className={`${secondaryButtonClass} flex h-[34px] items-center gap-1.5 text-[13px]`}
-            >
-              <DownloadIcon className="h-4 w-4" />
-              All approved PDFs
-            </a>
-          )}
-        </div>
+        <Stat label="Drafts" value={String(drafts.length)} sub={formatMoney(total(drafts))} onClick={() => preset("f.status=draft")} />
+        <Stat label="Ready to approve" value={String(readyCount)} onClick={() => preset("f.checks=ready")} />
+        <Stat
+          label="Blocked"
+          value={String(drafts.length - readyCount)}
+          tone={drafts.length - readyCount > 0 ? "danger" : undefined}
+          onClick={() => preset("f.checks=blocked")}
+        />
+        <Stat label="Approved" value={String(approved.length)} sub={formatMoney(total(approved))} onClick={() => preset("f.status=approved")} />
       </div>
 
       {message && (
@@ -188,134 +215,94 @@ export function InvoicesReview({ runId, period, invoices }: { runId: string; per
         </div>
       )}
 
-      <div className="overflow-hidden rounded-card border border-border bg-card">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-table-head">
-                <th className={`${th} w-10`}>
-                  <input
-                    type="checkbox"
-                    aria-label="Select all drafts shown"
-                    checked={allSelected}
-                    disabled={selectable.length === 0}
-                    onChange={() =>
-                      setSelected((s) => {
-                        const next = new Set(s);
-                        for (const i of selectable) {
-                          if (allSelected) next.delete(i.id);
-                          else next.add(i.id);
-                        }
-                        return next;
-                      })
-                    }
-                  />
-                </th>
-                <th className={th}>Location</th>
-                <th className={th}>Period</th>
-                <th className={`${th} text-right`}>Treated (kL)</th>
-                <th className={`${th} text-right`}>Rate</th>
-                <th className={`${th} text-right`}>Amount</th>
-                <th className={th}>Status</th>
-                <th className={th}>Checks</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.length === 0 && (
-                <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-muted">
-                    {invoices.length === 0 ? "No invoices in this run. Set billing days under Location setup." : "No invoices match."}
-                  </td>
-                </tr>
-              )}
-              {rows.map((inv) => {
-                const c = info.get(inv.id)!;
-                return (
-                  <tr
-                    key={inv.id}
-                    onClick={() => router.push(`/admin/billing/invoices/${inv.id}`)}
-                    className="h-[52px] cursor-pointer border-t border-border transition-colors hover:bg-row-hover"
-                  >
-                    <td className="px-3" onClick={(e) => e.stopPropagation()}>
-                      {inv.status === "draft" && (
-                        <input
-                          type="checkbox"
-                          aria-label={`Select ${inv.location_name}`}
-                          checked={selected.has(inv.id)}
-                          onChange={() => toggle(inv.id)}
-                        />
-                      )}
-                    </td>
-                    <td className="px-3">
-                      <Link
-                        href={`/admin/billing/invoices/${inv.id}`}
-                        onClick={(e) => e.stopPropagation()}
-                        className="font-semibold text-primary hover:text-primary-hover"
-                      >
-                        {inv.location_name}
-                      </Link>
-                      <div className="text-xs text-muted">{inv.invoice_no ?? inv.organisation_name ?? ""}</div>
-                    </td>
-                    <td className="px-3 whitespace-nowrap text-muted">
-                      {formatDay(inv.period_start, false)} – {formatDay(inv.period_end)}
-                    </td>
-                    <td className="px-3 text-right text-ink tabular-nums">{formatQty(inv.treated_usage)}</td>
-                    <td className="px-3 text-right whitespace-nowrap text-muted tabular-nums">{formatRate(inv.tariff_rate)}</td>
-                    <td className="px-3 text-right whitespace-nowrap font-semibold text-ink tabular-nums">
-                      {formatMoney(inv.amount)}
-                    </td>
-                    <td className="px-3">
-                      <InvoiceStatusBadge status={inv.status} />
-                    </td>
-                    <td className="px-3">
-                      {inv.status === "draft" ? (
-                        <div className="flex flex-wrap gap-1" title={c.issues.map((i) => issueLabel(i.code)).join("\n")}>
-                          {c.blocking.length > 0 && (
-                            <span className="rounded-full bg-danger-bg px-2 py-0.5 text-xs font-semibold text-danger">
-                              {c.blocking.length === 1 ? issueLabel(c.blocking[0].code) : `${c.blocking.length} blocking`}
-                            </span>
-                          )}
-                          {c.warnings.length > 0 && (
-                            <span className="rounded-full bg-warning-bg px-2 py-0.5 text-xs font-semibold text-warning">
-                              {c.warnings.length} warning{c.warnings.length === 1 ? "" : "s"}
-                            </span>
-                          )}
-                          {c.issues.length === 0 && (
-                            <span className="rounded-full bg-success-bg px-2 py-0.5 text-xs font-semibold text-success">
-                              All good
-                            </span>
-                          )}
-                        </div>
-                      ) : inv.status === "approved" ? (
-                        <a
-                          href={`/admin/billing/invoices/${inv.id}/pdf`}
-                          onClick={(e) => e.stopPropagation()}
-                          className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:text-primary-hover"
-                        >
-                          <DownloadIcon className="h-3.5 w-3.5" />
-                          PDF
-                        </a>
-                      ) : (
-                        <span className="text-xs text-muted">{inv.void_reason}</span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <Grid
+        mode="client"
+        spec={invoicesGrid}
+        rows={invoices}
+        columns={columns}
+        getKey={(inv) => inv.id}
+        title="Invoices"
+        timeZone={timeZone}
+        rowHref={invoiceHref}
+        rowLabel={(inv) => inv.location_name}
+        rowMenu={(inv) => [
+          { label: "Open", href: invoiceHref(inv) },
+          ...(inv.status === "draft"
+            ? [
+                { label: "Approve", onSelect: () => approve([inv.id]) },
+                { label: "Regenerate", onSelect: () => regenerate([inv.location_id]) },
+              ]
+            : []),
+          ...(inv.status === "approved"
+            ? [{ label: "Download PDF", href: `${invoiceHref(inv)}/pdf`, download: true }]
+            : []),
+        ]}
+        selection={{ selected, onChange: setSelected, isSelectable: (inv) => inv.status === "draft" }}
+        options={{ changed_by: changedByOptions(invoices) }}
+        emptyLabel="No invoices in this run. Set billing days under Location setup."
+        primaryAction={
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() =>
+                regenerate(
+                  selectedDrafts.length > 0
+                    ? invoices.filter((i) => selectedDrafts.includes(i.id)).map((i) => i.location_id)
+                    : null,
+                )
+              }
+              className={`${secondaryButtonClass} h-[38px] text-[13px]`}
+            >
+              {selectedDrafts.length > 0 ? `Regenerate ${selectedDrafts.length} selected` : "Regenerate all drafts"}
+            </button>
+            {approved.length > 0 && (
+              <a
+                href={`/admin/billing/runs/${runId}/pdf`}
+                className={`${secondaryButtonClass} flex h-[38px] items-center gap-1.5 text-[13px]`}
+              >
+                <DownloadIcon className="h-4 w-4" />
+                All approved PDFs
+              </a>
+            )}
+            <button
+              type="button"
+              disabled={pending || selectedDrafts.length === 0}
+              onClick={() => approve(selectedDrafts)}
+              className={`${smallPrimaryButtonClass} h-[38px]`}
+            >
+              Approve {selectedDrafts.length > 0 ? `${selectedDrafts.length} selected` : "selected"}
+            </button>
+          </div>
+        }
+      />
     </div>
   );
 }
 
-function Stat({ label, value, sub, tone }: { label: string; value: string; sub?: string; tone?: "danger" }) {
+function Stat({
+  label,
+  value,
+  sub,
+  tone,
+  onClick,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  tone?: "danger";
+  onClick: () => void;
+}) {
   return (
-    <div className="rounded-card border border-border bg-card px-4 py-3">
+    <button
+      type="button"
+      onClick={onClick}
+      title={`Show ${label.toLowerCase()}`}
+      className="rounded-card border border-border bg-card px-4 py-3 text-left transition-colors hover:border-primary/40"
+    >
       <div className="text-[11px] font-semibold tracking-wider text-muted uppercase">{label}</div>
       <div className={`mt-1 text-xl font-bold ${tone === "danger" ? "text-danger" : "text-ink"}`}>{value}</div>
       {sub && <div className="text-xs text-muted tabular-nums">{sub}</div>}
-    </div>
+    </button>
   );
 }
