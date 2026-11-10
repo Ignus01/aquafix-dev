@@ -198,7 +198,7 @@ Phase 3 is done when no Work or Quality list uses a hand-built table or `SearchI
 - [x] **4.2** Stock master files (`stock/product-items.tsx`, `uom-conversions.tsx`) and Stock manager lists (`stock-manager/lists.tsx`).
 - [x] **4.3** Users (`users/users-table.tsx`). Users has no `updated_at`, so use `auth.users.updated_at` through the existing admin action, or omit Changed and record the exception.
 - [x] **4.4** Billing (`billing/runs-table.tsx`, `setup-table.tsx`, `runs/[id]/invoices-review.tsx`).
-- [ ] **4.5** Delete `data-grid.tsx` and `inspections/data-table.tsx`. Add a short "Grids" section to `web/AGENTS.md` describing how to build a new grid. *(AGENTS.md done. The deletion waits for the phase 3 merge: on the phase 4 branch the phase 3 lists still import both files. Checked on a scratch merge of both branches: no conflicts, nothing else imports them, and with both deleted `tsc` and `eslint` pass.)*
+- [x] **4.5** Delete `data-grid.tsx` and `inspections/data-table.tsx`. Add a short "Grids" section to `web/AGENTS.md` describing how to build a new grid.
 
 Phase 4 is done when every list in the inventory uses `<Grid>`.
 
