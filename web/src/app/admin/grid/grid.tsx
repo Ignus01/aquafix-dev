@@ -267,7 +267,8 @@ export function Grid<T>(props: GridProps<T>) {
   function exportClient() {
     if (!clientResult) return;
     const cols = spec.fields.filter((f) => f.exportField !== false);
-    const label = (f: GridField, v: CellValue) => {
+    const label = (f: GridField, v: CellValue): CellValue => {
+      if (Array.isArray(v)) return v.map((x) => label(f, x)).join(", ");
       const o = optionsFor(f).find((x) => x.value === String(v));
       return o ? o.label : v;
     };

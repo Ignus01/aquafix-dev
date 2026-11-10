@@ -1,12 +1,13 @@
 import { requireRole } from "@/lib/auth";
 import { PageHeader } from "../page-header";
+import { getAppTimeZone } from "../services/actions";
 import { listUsers } from "./actions";
 import { UsersTable } from "./users-table";
 import CreateUserForm from "./create-user-form";
 
 export default async function UsersPage() {
   await requireRole(["system_admin"]);
-  const users = await listUsers();
+  const [users, timeZone] = await Promise.all([listUsers(), getAppTimeZone()]);
 
   return (
     <div className="flex flex-1 flex-col">
@@ -20,12 +21,7 @@ export default async function UsersPage() {
           <CreateUserForm />
         </section>
 
-        <section className="rounded-card border border-border bg-card p-6">
-          <h2 className="mb-4 text-[11px] font-semibold tracking-wider text-muted uppercase">
-            Existing users ({users.length})
-          </h2>
-          <UsersTable users={users} />
-        </section>
+        <UsersTable users={users} timeZone={timeZone} />
       </div>
     </div>
   );

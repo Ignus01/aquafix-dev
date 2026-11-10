@@ -18,6 +18,8 @@ export type ListedUser = {
   phone: string | null;
   roles: MasterdataRole[];
   createdAt: string;
+  // auth.users.updated_at: profile, password and sign-in changes.
+  updatedAt: string | null;
 };
 
 // Only system_admin manages accounts — assigning system_admin itself is
@@ -56,6 +58,7 @@ export async function listUsers(): Promise<ListedUser[]> {
       phone: profileById.get(u.id)?.phone ?? null,
       roles: rolesById.get(u.id) ?? [],
       createdAt: u.created_at,
+      updatedAt: u.updated_at ?? null,
     }))
     .sort((a, b) => a.username.localeCompare(b.username));
 }
