@@ -60,6 +60,9 @@ export type GridSpec = {
   // 26k+ rows): unfiltered, the total is the planner's estimate ("about N").
   // Smaller tables always count exactly (≈200 ms for 11k activities).
   estimateCount?: boolean;
+  // A preset the grid always applies (a tab such as Services → Open):
+  // `field = eq` on the view, for the page, the count and the export.
+  where?: { field: string; eq: string | number | boolean }[];
   // Why this grid has no Changed / Changed by columns (e.g. logger_reading has
   // no updated_at). Every other grid ends with changedFields().
   changedException?: string;

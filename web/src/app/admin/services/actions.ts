@@ -7,6 +7,10 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { requireRole } from "@/lib/auth";
 import { friendlyError } from "@/lib/db-errors";
 import { SERVICE_READERS, SERVICE_WRITERS } from "@/lib/services/permissions";
+import { gridQuery } from "@/lib/grid/query";
+import { openServicesGrid, servicesGrid, type ServiceGridRow } from "@/lib/grid/specs/services";
+import type { ChoiceOption, GridParams, GridResult } from "@/lib/grid/types";
+import { gridUserOptions, lookupOptions } from "@/lib/grid/user-options";
 import type {
   AssetOption,
   FieldErrors,
@@ -44,21 +48,31 @@ export async function getAppTimeZone(): Promise<string> {
   return (data as string | null) ?? "Africa/Johannesburg";
 }
 
-// Service_Overview: every service, newest due date first. Capped at the API's
-// max_rows (1000); the grid filters client-side.
-export async function listServices(): Promise<ServiceListRow[]> {
+// Service_Overview (all) and its Open tab: one page of service_grid with the
+// URL's filters and sort (was: the latest 1,000, filtered in the browser).
+export async function listServiceGrid(
+  open: boolean,
+  params: GridParams,
+  timeZone: string,
+): Promise<GridResult<ServiceGridRow>> {
   await requireRole(SERVICE_READERS);
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("service")
-    .select(LIST_COLUMNS)
-    .order("due_date", { ascending: false })
-    .limit(1000);
-  if (error) throw error;
-  return data as unknown as ServiceListRow[];
+  return gridQuery<ServiceGridRow>(supabase, open ? openServicesGrid : servicesGrid, params, { timeZone });
 }
 
-// Service_Overview_PWA: open services ([IsCompleted = false]), soonest due first.
+// Choice-filter options: suppliers (organisations) and users.
+export async function listServiceFilterOptions(): Promise<Record<"supplier" | "users", ChoiceOption[]>> {
+  await requireRole(SERVICE_READERS);
+  const supabase = await createClient();
+  const [suppliers, users] = await Promise.all([
+    supabase.from("organisation").select("id, name").order("name"),
+    gridUserOptions(supabase),
+  ]);
+  return { supplier: lookupOptions(suppliers), users };
+}
+
+// Service_Overview_PWA (the phone app): open services ([IsCompleted =
+// false]), soonest due first.
 export async function listOpenServices(): Promise<ServiceListRow[]> {
   await requireRole(SERVICE_READERS);
   const supabase = await createClient();

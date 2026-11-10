@@ -124,6 +124,128 @@ select is((select count(*)::integer from public.inspection_value_grid), 0, 'no r
 select is((select count(*)::integer from public.inspection_cumulative_value_grid), 0, 'no role: no cumulative values');
 select is((select count(*)::integer from public.scheduled_instruction_grid), 0, 'no role: no schedules');
 
+-- ============================================================================
+-- incident_grid (phase 3.1)
+-- ============================================================================
+reset role;
+-- Writes below are "the system's" unless they name a user.
+select set_config('request.jwt.claims', '', true);
+insert into public.incident_type (id, name, disables_location)
+values ('a5000000-0000-0000-9d1d-000000000001', 'G-Pump down', true);
+insert into public.incident (id, comment, location_id, incident_type_id, created_by)
+values ('90000000-0000-0000-9d1d-000000000001', 'G-No flow', 'a2000000-0000-0000-9d1d-000000000001',
+        'a5000000-0000-0000-9d1d-000000000001', '10000000-0000-0000-9d1d-000000000001');
+insert into public.incident_note (incident_id, body) values ('90000000-0000-0000-9d1d-000000000001', 'G-On it');
+
+set local role authenticated;
+select pg_temp.act_as('10000000-0000-0000-9d1d-000000000003');
+select set_eq('select id from public.incident_grid', 'select id from public.incident',
+  'incidents: the view shows the table''s rows');
+select results_eq(
+  $$select incident_type_name, disables_location, location_name, image_count, note_count, created_by_name, changed_by_name
+    from public.incident_grid where id = '90000000-0000-0000-9d1d-000000000001'$$,
+  $$values ('G-Pump down', true, 'G-Plant', 0, 1, 'g-field', 'System')$$,
+  'an incident row carries its names and counts');
+
+select pg_temp.act_as('10000000-0000-0000-9d1d-000000000004');
+select is((select count(*)::integer from public.incident_grid), 0, 'no role: no incidents');
+
+-- ============================================================================
+-- service_grid (phase 3.2)
+-- ============================================================================
+reset role;
+select set_config('request.jwt.claims', '', true);
+insert into public.service (id, service_type, due_date, asset_id, total_part_cost, total_labour_cost)
+values ('91000000-0000-0000-9d1d-000000000001', 'repair', now(), '30000000-0000-0000-9d1d-000000000001', 10, 5);
+
+set local role authenticated;
+select pg_temp.act_as('10000000-0000-0000-9d1d-000000000003');
+select set_eq('select id from public.service_grid', 'select id from public.service',
+  'services: the view shows the table''s rows');
+select results_eq(
+  $$select asset_code, asset_name, is_completed, total_cost, changed_by_name
+    from public.service_grid where id = '91000000-0000-0000-9d1d-000000000001'$$,
+  $$values ('G-P1', 'G-Pump 1', false, 15.00::numeric, 'System')$$,
+  'a service row carries its asset, costs and editor');
+
+select pg_temp.act_as('10000000-0000-0000-9d1d-000000000004');
+select is((select count(*)::integer from public.service_grid), 0, 'no role: no services');
+
+-- ============================================================================
+-- logger_reading_grid and logger_pull_run_grid (phase 3.3): system admins
+-- only, like the tables.
+-- ============================================================================
+reset role;
+select set_config('request.jwt.claims', '', true);
+insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
+values ('10000000-0000-0000-9d1d-000000000005', '00000000-0000-0000-9d1d-000000000000', 'authenticated', 'authenticated',
+        'g-sysadmin@example.test', '', now(), now(), now());
+insert into public.user_masterdata_roles (user_id, role) values ('10000000-0000-0000-9d1d-000000000005', 'system_admin');
+insert into public.logger_pull_run (id, trigger, range_start, range_end, requested_by)
+overriding system value
+values (-9001, 'manual', now() - interval '1 day', now(), '10000000-0000-0000-9d1d-000000000005');
+insert into public.logger_reading (asset_id, logger_type, logger_code, reading_at, value, unit, run_id)
+values ('30000000-0000-0000-9d1d-000000000001', 'HYDRUS', 'G-LOG1', now(), 12.5, 'm3', -9001);
+
+set local role authenticated;
+select pg_temp.act_as('10000000-0000-0000-9d1d-000000000005');
+select set_eq('select id from public.logger_reading_grid', 'select id from public.logger_reading',
+  'readings: the view shows the table''s rows');
+select results_eq(
+  $$select asset_name, asset_code, location_name, value from public.logger_reading_grid where logger_code = 'G-LOG1'$$,
+  $$values ('G-Pump 1', 'G-P1', 'G-Plant', 12.5::numeric)$$,
+  'a reading row carries its asset and location');
+select set_eq('select id from public.logger_pull_run_grid', 'select id from public.logger_pull_run',
+  'runs: the view shows the table''s rows');
+select results_eq(
+  $$select status, changed_by_name, changed_at = created_at from public.logger_pull_run_grid where id = -9001$$,
+  $$values ('no_loggers', 'g-sysadmin', true)$$,
+  'a run row carries its status and who asked for it');
+
+select pg_temp.act_as('10000000-0000-0000-9d1d-000000000003');
+select is((select count(*)::integer from public.logger_reading_grid), 0, 'a viewer sees no readings');
+select is((select count(*)::integer from public.logger_pull_run_grid), 0, 'or runs');
+
+-- ============================================================================
+-- lab_sample_grid and lab_import_grid (phase 3.4)
+-- ============================================================================
+reset role;
+select set_config('request.jwt.claims', '', true);
+insert into public.lab (id, name) values ('a6000000-0000-0000-9d1d-000000000001', 'G-Lab');
+insert into public.lab_import (id, lab_id, lab_name, file_name, storage_path, parsed, created_by)
+values
+  ('92000000-0000-0000-9d1d-000000000001', 'a6000000-0000-0000-9d1d-000000000001', 'G-Lab', 'g-imported.xlsx',
+   'g/imported.xlsx', '{}', '10000000-0000-0000-9d1d-000000000002'),
+  ('92000000-0000-0000-9d1d-000000000002', 'a6000000-0000-0000-9d1d-000000000001', 'G-Lab', 'g-staged.xlsx',
+   'g/staged.xlsx', '{}', '10000000-0000-0000-9d1d-000000000002');
+-- Imported by the admin (the audit trigger stamps the session's user).
+select pg_temp.act_as('10000000-0000-0000-9d1d-000000000002');
+update public.lab_import set status = 'imported', samples_imported = 1 where id = '92000000-0000-0000-9d1d-000000000001';
+insert into public.lab_sample (id, import_id, lab_id, location_id, lab_no, sampled_on)
+values ('93000000-0000-0000-9d1d-000000000001', '92000000-0000-0000-9d1d-000000000001',
+        'a6000000-0000-0000-9d1d-000000000001', 'a2000000-0000-0000-9d1d-000000000001', 'G-0001', current_date);
+
+set local role authenticated;
+select pg_temp.act_as('10000000-0000-0000-9d1d-000000000003');
+select set_eq('select id from public.lab_sample_grid', 'select id from public.lab_sample',
+  'samples: the view shows the table''s rows');
+select results_eq(
+  $$select location_name, region_name, organisation_name, lab_name, file_name, out_of_spec, changed_by_name
+    from public.lab_sample_grid where id = '93000000-0000-0000-9d1d-000000000001'$$,
+  $$values ('G-Plant', 'G-North', 'G-ORG', 'G-Lab', 'g-imported.xlsx', 0, 'g-admin')$$,
+  'a sample row carries its names, and who imported it');
+select set_eq('select id from public.lab_import_grid', 'select id from public.lab_import',
+  'imports: the view shows the table''s rows');
+select results_eq(
+  $$select file_name, changed_at = imported_at, changed_by_name from public.lab_import_grid
+    where id in ('92000000-0000-0000-9d1d-000000000001', '92000000-0000-0000-9d1d-000000000002') order by file_name$$,
+  $$values ('g-imported.xlsx', true, 'g-admin'), ('g-staged.xlsx', null::boolean, 'g-admin')$$,
+  'an import was changed when imported (else uploaded), by whoever did that');
+
+select pg_temp.act_as('10000000-0000-0000-9d1d-000000000004');
+select is((select count(*)::integer from public.lab_sample_grid), 0, 'no role: no samples');
+select is((select count(*)::integer from public.lab_import_grid), 0, 'no role: no imports');
+
 reset role;
 
 select * from finish();
