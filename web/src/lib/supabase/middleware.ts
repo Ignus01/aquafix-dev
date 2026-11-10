@@ -26,10 +26,14 @@ export async function updateSession(request: NextRequest) {
   );
 
   // Refreshes the session if expired — required for Server Components,
-  // which cannot write cookies themselves.
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // which cannot write cookies themselves. getClaims() checks the token's
+  // signature against the project's public keys, which are cached, so most
+  // requests need no call to Supabase Auth here (a project still on a shared
+  // JWT secret falls back to asking Auth, as getUser() does). This only
+  // decides the redirects below: every page and action still confirms the
+  // user with Auth through requireRole().
+  const { data } = await supabase.auth.getClaims();
+  const user = data?.claims ?? null;
 
   const path = request.nextUrl.pathname;
   const isAdminRoute = path.startsWith("/admin") || path === "/m" || path.startsWith("/m/");
