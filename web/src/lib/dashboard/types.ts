@@ -114,6 +114,7 @@ export type FilterOption = { id: string; name: string };
 export type LocationFilterOption = FilterOption & { region_id: string; organisation_id: string };
 
 export const PERIOD_PRESETS = [
+  { key: "7d", label: "7 days" },
   { key: "30d", label: "30 days" },
   { key: "90d", label: "90 days" },
   { key: "ytd", label: "Year to date" },
@@ -122,6 +123,70 @@ export const PERIOD_PRESETS = [
 ] as const;
 
 export type PeriodPreset = (typeof PERIOD_PRESETS)[number]["key"];
+
+// The period a home page URL without `period` shows.
+export const DEFAULT_PERIOD: PeriodPreset = "30d";
+
+// Shapes of the Overview functions (supabase/migrations/20261114120000_home_overview.sql).
+
+// public.overview_attention(). A count is null when the caller's role may
+// not read what it counts.
+export type OverviewAttention = {
+  thresholds: { incident_days: number; inspection_days: number; water_days: number; logger_hours: number };
+  overdue_instructions: number;
+  stale_incidents: number;
+  services_overdue: number;
+  uninspected_assets: number;
+  lab_out_sites: number;
+  borehole_over_sites: number | null;
+  target_red_sites: number | null;
+  silent_loggers: number | null;
+  draft_invoices: number | null;
+};
+
+export type OverviewServiceQueueItem = {
+  reference: number;
+  asset: string;
+  location: string;
+  service_type: "scheduled_maintenance" | "repair";
+  due_date: string;
+};
+
+// public.overview_extras(). `series` lines up with HomeDashboard.series.
+export type OverviewExtras = {
+  services: {
+    overdue: number;
+    due_soon: number;
+    completed: number;
+    on_time: number;
+    parts: number;
+    labour: number;
+    prev_spend: number;
+  };
+  series: { bucket: string; parts: number; labour: number; closed: number }[];
+  service_queue: OverviewServiceQueueItem[];
+  water: { sites: number; days: number; days_on: number } | null;
+  quality: { checked: number; ok: number };
+  billing: { period: string; invoices: number; drafts: number; amount: number; usage: number } | null;
+  assignees: Record<string, string>;
+};
+
+export type OverviewSite = {
+  id: string;
+  services_overdue: number;
+  services_due: number;
+  target: { pct: number; colour: TargetBand["colour"] | null; days: number; days_on: number } | null;
+  borehole: { pct: number; days: number; days_over: number } | null;
+  quality: { sample_id: string; sampled_on: string; out_of_spec: number; inconclusive: number } | null;
+  loggers: number | null;
+  loggers_silent: number | null;
+};
+
+// public.overview_sites().
+export type OverviewSites = {
+  access: { water: boolean; loggers: boolean };
+  sites: OverviewSite[];
+};
 
 // Shape of public.logger_dashboard() (supabase/migrations/20261011120000_logger_dashboard.sql).
 

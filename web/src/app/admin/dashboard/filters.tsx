@@ -3,6 +3,7 @@
 import { usePathname, useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import {
+  DEFAULT_PERIOD,
   PERIOD_PRESETS,
   type FilterOption,
   type LocationFilterOption,
@@ -53,7 +54,7 @@ export function DashboardFilters({
     const merged = { ...state, ...next };
     const params = new URLSearchParams();
     if (tab) params.set("tab", tab);
-    if (merged.period !== "90d") params.set("period", merged.period);
+    if (merged.period !== DEFAULT_PERIOD) params.set("period", merged.period);
     if (merged.period === "custom") {
       params.set("from", merged.from);
       params.set("to", merged.to);

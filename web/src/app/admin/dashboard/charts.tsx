@@ -79,12 +79,14 @@ export type ColumnDatum = {
 };
 
 // Single or stacked columns on one axis. `percent` normalises each stack to
-// 100%. `labelPeak` writes the total on the highest and the latest column.
+// 100%. `grouped` puts the series side by side instead of stacking them.
+// `labelPeak` writes the total on the highest and the latest column.
 export function ColumnChart({
   data,
   series,
   height = 220,
   percent = false,
+  grouped = false,
   labelPeak = false,
   unit = "count",
   ariaLabel,
@@ -93,26 +95,37 @@ export function ColumnChart({
   series: ColumnSeries[];
   height?: number;
   percent?: boolean;
+  grouped?: boolean;
   labelPeak?: boolean;
   // What the values are, for ticks, labels and tooltips (`percent` aside).
-  unit?: "count" | "percent";
+  unit?: "count" | "percent" | "rand";
   ariaLabel: string;
 }) {
   const [ref, width] = useWidth<HTMLDivElement>(560);
-  const format = unit === "percent" ? (n: number) => `${Number(n.toFixed(1))}%` : fmt;
+  const format =
+    unit === "percent"
+      ? (n: number) => `${Number(n.toFixed(1))}%`
+      : unit === "rand"
+        ? (n: number) => `R ${fmt(Math.round(n))}`
+        : fmt;
   const [active, setActive] = useState<number | null>(null);
 
-  const L = 40;
+  const L = unit === "rand" ? 64 : 40;
   const R = 6;
   const T = 18;
   const B = 24;
   const plotW = width - L - R;
   const plotH = height - T - B;
   const totals = data.map((d) => series.reduce((sum, s) => sum + (d.values[s.key] ?? 0), 0));
-  const ticks = percent ? [0, 25, 50, 75, 100] : niceScale(Math.max(0, ...totals));
+  // Grouped columns share the axis, so it runs to the tallest single value.
+  const tops = grouped
+    ? data.map((d) => Math.max(0, ...series.map((s) => d.values[s.key] ?? 0)))
+    : totals;
+  const ticks = percent ? [0, 25, 50, 75, 100] : niceScale(Math.max(0, ...tops));
   const max = ticks[ticks.length - 1] || 1;
   const band = data.length ? plotW / data.length : plotW;
-  const barW = Math.max(2, Math.min(24, band * 0.62));
+  const barW = Math.max(2, Math.min(grouped ? 24 * series.length : 24, band * 0.62));
+  const groupW = Math.max(1, (barW - 2 * (series.length - 1)) / series.length);
   const labelEvery = Math.max(1, Math.ceil(data.length / Math.max(1, Math.floor(plotW / 52))));
   const y = (v: number) => T + plotH - (v / max) * plotH;
 
@@ -130,10 +143,10 @@ export function ColumnChart({
         value: percent ? `${total ? Math.round((v / total) * 100) : 0}% · ${fmt(v)}` : format(v),
       };
     });
-    if (series.length > 1 && !percent) rows.push({ label: "Total", value: format(total) });
+    if (series.length > 1 && !percent && !grouped) rows.push({ label: "Total", value: format(total) });
     if (percent) rows.push({ label: "Total", value: fmt(total) });
     rows.push(...(d.extra ?? []));
-    return { x: L + band * i + band / 2, y: y(percent ? (total ? 100 : 0) : total), title: d.title, rows };
+    return { x: L + band * i + band / 2, y: y(percent ? (total ? 100 : 0) : tops[i]), title: d.title, rows };
   };
 
   return (
@@ -158,7 +171,19 @@ export function ColumnChart({
               opacity={active === null || active === i ? 1 : 0.45}
               className="transition-opacity"
             >
-              {visible.map((s, si) => {
+              {grouped &&
+                series.map((s, si) => {
+                  const v = d.values[s.key] ?? 0;
+                  if (v <= 0) return null;
+                  return (
+                    <path
+                      key={s.key}
+                      d={columnPath(x + si * (groupW + 2), y(v), groupW, y(0), true)}
+                      fill={s.colour}
+                    />
+                  );
+                })}
+              {!grouped && visible.map((s, si) => {
                 const raw = d.values[s.key] ?? 0;
                 const v = percent ? (total ? (raw / total) * 100 : 0) : raw;
                 const base = y(acc);
@@ -174,7 +199,7 @@ export function ColumnChart({
                   />
                 );
               })}
-              {labelled.has(i) && total > 0 && (
+              {labelled.has(i) && total > 0 && !grouped && (
                 <text
                   x={x + barW / 2}
                   y={y(total) - 6}
@@ -196,7 +221,11 @@ export function ColumnChart({
                 height={plotH}
                 fill="transparent"
                 tabIndex={0}
-                aria-label={`${d.title}: ${percent ? fmt(total) : format(total)}`}
+                aria-label={
+                  grouped
+                    ? `${d.title}: ${series.map((s) => `${s.label} ${format(d.values[s.key] ?? 0)}`).join(", ")}`
+                    : `${d.title}: ${percent ? fmt(total) : format(total)}`
+                }
                 className="cursor-crosshair outline-none"
                 onMouseEnter={() => setActive(i)}
                 onMouseLeave={() => setActive(null)}
