@@ -33,6 +33,8 @@ export type Option = {
   transferType?: "AUTO" | "MANUAL";
   // Services and incidents: the site (location) they are at.
   locationId?: string;
+  // Storage areas: the technician whose kit it is.
+  technicianUserId?: string | null;
 };
 export type Options = Record<OptionsKey, Option[]>;
 type Values = Record<string, string>;

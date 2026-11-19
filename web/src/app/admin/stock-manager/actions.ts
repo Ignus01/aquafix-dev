@@ -56,7 +56,7 @@ export async function getOptions(): Promise<Options> {
   const supabase = await createClient();
   const [suppliers, areas, items, pos, collectors, sites, services, incidents] = await Promise.all([
     supabase.from("organisation").select("id, name, active").eq("is_supplier", true).order("name"),
-    supabase.from("storage_area").select("id, code, name, active, location:location_id(transfer_type)").order("name"),
+    supabase.from("storage_area").select("id, code, name, active, technician_user_id, location:location_id(transfer_type)").order("name"),
     supabase.from("item").select("id, name, code, active").order("name"),
     supabase
       .from("purchase_order")
@@ -85,12 +85,13 @@ export async function getOptions(): Promise<Options> {
     // Inactive records stay in the lists so documents that use them still show
     // their names; the forms only offer the active ones (Mendix: [Active]).
     suppliers: (suppliers.data ?? []).map((o) => ({ value: o.id, label: o.name, inactive: !o.active })),
-    storageAreas: ((areas.data ?? []) as unknown as { id: string; code: string; name: string; active: boolean; location: { transfer_type: "AUTO" | "MANUAL" } | null }[]).map(
+    storageAreas: ((areas.data ?? []) as unknown as { id: string; code: string; name: string; active: boolean; technician_user_id: string | null; location: { transfer_type: "AUTO" | "MANUAL" } | null }[]).map(
       (a) => ({
         value: a.id,
         label: `${a.name} (${a.code})`,
         inactive: !a.active,
         transferType: a.location?.transfer_type,
+        technicianUserId: a.technician_user_id,
       }),
     ),
     items: (items.data ?? []).map((i) => ({
@@ -633,4 +634,27 @@ export async function listCollectable(): Promise<CollectableOrder[]> {
         .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at))),
     }),
   );
+}
+
+// ============================================================================
+// Stock on hand for the phone (storage_area_stock, the ledger's running sum)
+// ============================================================================
+export type OnHand = { item_id: string; storage_area_id: string; qty: number; base_qty: number };
+
+export async function listOnHand(): Promise<OnHand[]> {
+  await requireRole(STOCK_READERS);
+  const supabase = await createClient();
+  const rows = await selectAll(() =>
+    supabase.from("storage_area_stock").select("item_id, storage_area_id, qty, base_qty").neq("qty", 0).order("id"),
+  );
+  return rows.map((r) => ({ ...r, qty: Number(r.qty), base_qty: Number(r.base_qty) }));
+}
+
+// The signed-in user's id (to find their kit among the storage areas).
+export async function getCurrentUserId(): Promise<string | null> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  return user?.id ?? null;
 }

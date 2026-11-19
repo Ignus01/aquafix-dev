@@ -62,11 +62,13 @@ insert into public.location (id, name, transfer_type, is_stock_manager, region_i
   ('5eed0300-0000-0000-0000-000000000003', 'Selby', 'AUTO', false, '5eed0100-0000-0000-0000-000000000001', '5eed0200-0000-0000-0000-000000000001'),
   ('5eed0300-0000-0000-0000-000000000004', 'Rietfontein', 'AUTO', false, '5eed0100-0000-0000-0000-000000000001', '5eed0200-0000-0000-0000-000000000001');
 
-insert into public.storage_area (id, code, name, location_id) values
-  ('5eed0400-0000-0000-0000-000000000001', 'MWTS-STORE', 'MWTS store', '5eed0300-0000-0000-0000-000000000001'),
-  ('5eed0400-0000-0000-0000-000000000002', 'RYAN-KIT', 'Ryan''s kit', '5eed0300-0000-0000-0000-000000000001'),
-  ('5eed0400-0000-0000-0000-000000000003', 'JONIFAS-KIT', 'Jonifas''s kit', '5eed0300-0000-0000-0000-000000000001'),
-  ('5eed0400-0000-0000-0000-000000000004', 'WPS-STORE', 'WPS store', '5eed0300-0000-0000-0000-000000000002');
+-- Kits belong to a technician; the MWTS store (optional) and the WPS store
+-- (a contractor holding stock for MWTS) belong to nobody.
+insert into public.storage_area (id, code, name, location_id, technician_user_id) values
+  ('5eed0400-0000-0000-0000-000000000001', 'MWTS-STORE', 'MWTS store', '5eed0300-0000-0000-0000-000000000001', null),
+  ('5eed0400-0000-0000-0000-000000000002', 'RYAN-KIT', 'Ryan''s kit', '5eed0300-0000-0000-0000-000000000001', '5eed0000-0000-0000-0000-000000000003'),
+  ('5eed0400-0000-0000-0000-000000000003', 'JONIFAS-KIT', 'Jonifas''s kit', '5eed0300-0000-0000-0000-000000000001', '5eed0000-0000-0000-0000-000000000004'),
+  ('5eed0400-0000-0000-0000-000000000004', 'WPS-STORE', 'WPS store', '5eed0300-0000-0000-0000-000000000002', null);
 
 -- ============================================================================
 -- Products and items: salt in 25 kg bags; DPD1 and DPD3 reagent tablets in packs of 100
@@ -117,3 +119,13 @@ select setval(pg_get_serial_sequence('public.purchase_order', 'reference'), 4);
 
 insert into public.purchase_order_item (id, purchase_order_id, item_id, qty_ordered, unit_cost_exc_vat, eta) values
   ('5eed1000-0000-0000-0000-000000000001', '5eed0f00-0000-0000-0000-000000000004', '5eed0900-0000-0000-0000-000000000001', 10, 212.00, current_date);
+
+-- Script B's reagent order (spec): Hanna Instruments, alias ODOO P00123,
+-- DPD1 × 5 and DPD3 × 3, no collector (any technician can collect it).
+insert into public.purchase_order (id, reference, supplier_id, order_date, order_alias)
+overriding system value
+values ('5eed0f00-0000-0000-0000-000000000005', 5, '5eed0200-0000-0000-0000-000000000004', current_date, 'ODOO P00123');
+select setval(pg_get_serial_sequence('public.purchase_order', 'reference'), 5);
+insert into public.purchase_order_item (id, purchase_order_id, item_id, qty_ordered, unit_cost_exc_vat, eta) values
+  ('5eed1000-0000-0000-0000-000000000002', '5eed0f00-0000-0000-0000-000000000005', '5eed0900-0000-0000-0000-000000000002', 5, 480.00, current_date),
+  ('5eed1000-0000-0000-0000-000000000003', '5eed0f00-0000-0000-0000-000000000005', '5eed0900-0000-0000-0000-000000000003', 3, 520.00, current_date);

@@ -21,7 +21,7 @@
 #
 # Buckets: PowerSync allows 1,000 per user and makes one per value a stream
 # filters on. Every stream here filters on the user id or on nothing, so a
-# user gets 9 buckets (4 shared, 5 their own) however much they capture.
+# user gets 10 buckets (5 shared, 5 their own) however much they capture.
 # That is why child rows carry a copied sync_user_id or incident_open instead
 # of being filtered through their parent (see
 # 20261102120000_powersync_sync_window.sql).
@@ -304,6 +304,24 @@ streams:
         SELECT id, name FROM organisation
         WHERE is_supplier = true
           AND auth.user_id() IN capture_users
+
+  # --------------------------------------------------------------------------
+  # stock_on_hand: stock on hand per item and storage area (storage_area_stock,
+  # the ledger's running sum kept by trigger), so the phone shows what is in
+  # each kit and store and offers only what is there, offline too.
+  #
+  # Every stock role reads stock on hand in the web app (Stock summary).
+  #
+  # Filters on no user: one bucket shared by all users.
+  # --------------------------------------------------------------------------
+  stock_on_hand:
+    auto_subscribe: true
+    with:
+      capture_users: SELECT user_id FROM user_masterdata_roles WHERE role != 'viewer'
+    queries:
+      - |
+        SELECT * FROM storage_area_stock
+        WHERE auth.user_id() IN capture_users
 
   # --------------------------------------------------------------------------
   # my_roles: this user's own roles, for tile visibility.

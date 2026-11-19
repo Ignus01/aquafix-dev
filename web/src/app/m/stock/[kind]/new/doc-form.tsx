@@ -5,7 +5,7 @@ import { useEffect, useState, useTransition } from "react";
 import { isoToZonedInput, todayInZone, zonedInputToIso } from "@/lib/inspections/dates";
 import { DOC_CONFIG, fieldOptions, type DocKind, type Field } from "@/lib/stock-manager/docs";
 import type { Options } from "@/lib/stock-manager/docs";
-import { saveHeader, saveLine } from "../../../../admin/stock-manager/actions";
+import { saveHeader, saveLine, type OnHand } from "../../../../admin/stock-manager/actions";
 import { ConfirmDialog, Sheet } from "../../../components";
 import { PlusIcon, XIcon } from "../../../icons";
 import { getLastSite, setLastSite } from "../../../last-site";
@@ -118,12 +118,45 @@ function FieldInput({
 // them) its lines — "Add Item" like the PWA. Saving creates the header and
 // then each line; if a line fails the header is kept and Save retries only
 // the lines that didn't go in.
-export function DocForm({ kind, options, timeZone }: { kind: DocKind; options: Options; timeZone: string }) {
+const plain = (n: number) => String(Number(n.toFixed(4)));
+
+// The storage area stock is taken from, for documents that take stock out:
+// a transfer's From (not a RECEIVE), a work order's (stock-usage) area, and
+// the area a stock take counts.
+function sourceArea(kind: DocKind, values: Values): string | null {
+  if (kind === "transfers") return values.transfer_type === "RECEIVE" ? null : values.from_storage_area_id || null;
+  if (kind === "work-orders" || kind === "stock-takes") return values.storage_area_id || null;
+  return null;
+}
+
+// New documents start at my kit: stock usage and stock takes from it, and
+// transfers handing stock out of it.
+function kitDefaults(kind: DocKind, values: Values, myKit: string | null): Values {
+  if (!myKit) return values;
+  if (kind === "work-orders" || kind === "stock-takes") return { ...values, storage_area_id: values.storage_area_id || myKit };
+  if (kind === "transfers") return { ...values, from_storage_area_id: values.from_storage_area_id || myKit };
+  return values;
+}
+
+export function DocForm({
+  kind,
+  options,
+  timeZone,
+  onHand,
+  myKit,
+}: {
+  kind: DocKind;
+  options: Options;
+  timeZone: string;
+  // Stock on hand per item and storage area, and the signed-in technician's kit.
+  onHand: OnHand[];
+  myKit: string | null;
+}) {
   const router = useRouter();
   const cfg = DOC_CONFIG[kind];
   const lineCfg = cfg.line && !cfg.line.noAdd ? cfg.line : null;
 
-  const [values, setValues] = useState<Values>(() => initial(cfg.header, timeZone));
+  const [values, setValues] = useState<Values>(() => kitDefaults(kind, initial(cfg.header, timeZone), myKit));
   // Stock usage starts at the site the technician last opened (MWTS spec R4).
   // Read after mounting: the browser's storage isn't there on the server.
   useEffect(() => {
@@ -183,9 +216,30 @@ export function DocForm({ kind, options, timeZone }: { kind: DocKind; options: O
     });
   }
 
+  // What the source area holds, per item.
+  const source = sourceArea(kind, values);
+  const available = new Map(onHand.filter((r) => r.storage_area_id === source).map((r) => [r.item_id, r.qty]));
+  // Taking stock out (not a stock take, not a return to stock): only what is there.
+  const takesOut = (line: Values | null) => !!source && kind !== "stock-takes" && line?.is_return !== "true";
+  const lineOptions: Options = {
+    ...options,
+    items: options.items
+      .filter((o) => !takesOut(adding) || (available.get(o.value) ?? 0) > 0 || o.value === adding?.item_id)
+      .map((o) =>
+        source
+          ? { ...o, label: `${o.label} · ${plain(available.get(o.value) ?? 0)} ${kind === "stock-takes" ? "expected" : "in stock"}` }
+          : o,
+      ),
+  };
+
   function addLine() {
     if (!lineCfg || !adding) return;
     const found = validate(lineCfg.fields, adding);
+    if (takesOut(adding) && adding.item_id && !found.qty) {
+      const have = available.get(adding.item_id) ?? 0;
+      const taken = lines.filter((l) => l.values.item_id === adding.item_id).reduce((s, l) => s + Number(l.values.qty), 0);
+      if (Number(adding.qty) > have - taken) found.qty = `Only ${plain(have - taken)} in stock there.`;
+    }
     setLineErrors(found);
     if (Object.keys(found).length > 0) return;
     setLines((prev) => [...prev, { key: crypto.randomUUID(), values: adding }]);
@@ -299,7 +353,7 @@ export function DocForm({ kind, options, timeZone }: { kind: DocKind; options: O
                 field={f}
                 value={adding[f.key] ?? ""}
                 values={adding}
-                options={options}
+                options={lineOptions}
                 error={lineErrors[f.key]}
                 onChange={(v) => setAdding((prev) => (prev ? { ...prev, [f.key]: v } : prev))}
               />

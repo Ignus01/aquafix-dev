@@ -14,13 +14,23 @@ const plain = (n: number) => String(Number(n));
 // MWTS spec R3: one tap — Collected — makes the load (today, driver = me) and
 // the PO intake into the order's Deliver to. Each line starts at what is
 // still outstanding; lower it for a short delivery. A photo of the delivery
-// note is optional.
-export function CollectForm({ order, items, areas }: { order: CollectableOrder; items: Option[]; areas: Option[] }) {
+// note is optional. With no Deliver to on the order, it goes into my kit.
+export function CollectForm({
+  order,
+  items,
+  areas,
+  myKit,
+}: {
+  order: CollectableOrder;
+  items: Option[];
+  areas: Option[];
+  myKit: string | null;
+}) {
   const router = useRouter();
   const [qty, setQty] = useState<Record<string, string>>(() =>
     Object.fromEntries(order.lines.map((l) => [l.id, plain(Math.max(Number(l.qty_outstanding), 0))])),
   );
-  const [area, setArea] = useState(order.deliver_to_area_id ?? "");
+  const [area, setArea] = useState(order.deliver_to_area_id ?? myKit ?? "");
   const [deliveryNote, setDeliveryNote] = useState("");
   const [photos, setPhotos] = useState<File[]>([]);
   const camera = useRef<HTMLInputElement>(null);
@@ -116,7 +126,7 @@ export function CollectForm({ order, items, areas }: { order: CollectableOrder; 
         <option value="">Select…</option>
         {areas.map((a) => (
           <option key={a.value} value={a.value}>
-            {a.label}
+            {a.value === myKit ? `My kit — ${a.label}` : a.label}
           </option>
         ))}
       </select>

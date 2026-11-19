@@ -82,6 +82,7 @@ export function StockTabs({
   unitsOfMeasure,
   locations,
   organisations,
+  technicians,
   timeZone,
   initialTab,
 }: {
@@ -93,6 +94,7 @@ export function StockTabs({
   unitsOfMeasure: UnitOfMeasure[];
   locations: Location[];
   organisations: Organisation[];
+  technicians: { id: string; name: string }[];
   timeZone: string;
   // From ?tab= (the tab survives a refresh).
   initialTab?: string;
@@ -302,6 +304,13 @@ export function StockTabs({
                     required: true,
                     options: locationOptions,
                     render: (_v, row) => (row.location as { name: string } | null)?.name ?? "—",
+                  },
+                  {
+                    key: "technician_user_id",
+                    label: "Technician (kit)",
+                    type: "select",
+                    options: technicians.map((t) => ({ value: t.id, label: t.name })),
+                    render: (v) => technicians.find((t) => t.id === v)?.name ?? "—",
                   },
                   activeField,
                 ] satisfies FieldConfig[]

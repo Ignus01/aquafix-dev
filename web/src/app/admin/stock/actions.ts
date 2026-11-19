@@ -267,7 +267,7 @@ export async function listStorageAreas(): Promise<StorageArea[]> {
   const data = await selectAll(() =>
     supabase
       .from("storage_area")
-      .select("id, legacy_uid, code, name, active, location_id, location:location(name), updated_at, updated_by")
+      .select("id, legacy_uid, code, name, active, location_id, location:location(name), technician_user_id, updated_at, updated_by")
       .order("name")
       .order("id"),
   );
@@ -279,8 +279,18 @@ function storageAreaValues(v: Record<string, string>) {
     code: text(v.code),
     name: text(v.name),
     location_id: v.location_id || null,
+    technician_user_id: v.technician_user_id || null,
     active: flag(v.active),
   };
+}
+
+// Who a kit can belong to: everyone who can receive and move stock.
+export async function listTechnicians(): Promise<{ id: string; name: string }[]> {
+  await requireAnyRole();
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("list_stock_collectors");
+  if (error) throw error;
+  return (data ?? []) as { id: string; name: string }[];
 }
 
 export async function createStorageArea(v: Record<string, string>): Promise<CreateResult> {

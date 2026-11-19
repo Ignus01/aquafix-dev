@@ -159,6 +159,11 @@ synced as (
   from public.organisation t, capture_user
   where t.is_supplier = true
 
+  -- stock_on_hand
+  union all
+  select 'stock_on_hand', 'storage_area_stock', t.id::text
+  from public.storage_area_stock t, capture_user
+
   -- my_roles
   union all
   select 'my_roles', 'user_masterdata_roles', t.user_id::text || ':' || t.role::text
