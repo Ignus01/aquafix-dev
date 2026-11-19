@@ -313,6 +313,8 @@ end;
 $$;
 revoke execute on function public.receive_purchase_order(jsonb) from public, anon;
 grant execute on function public.receive_purchase_order(jsonb) to authenticated;
+-- The phone chooses the intake's and its lines' ids (as for the other stock documents).
+grant insert (id) on public.intake, public.intake_item to authenticated;
 
 -- ============================================================================
 -- R4 · Site, service and incident on work orders
