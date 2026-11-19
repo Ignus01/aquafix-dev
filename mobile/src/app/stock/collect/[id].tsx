@@ -16,6 +16,7 @@ import { canReceive } from "../../../domain/permissions";
 import { discardFreshPhotos, type FormPhoto, payloadToFormPhotos } from "../../../photos/photos";
 import { useApp } from "../../../state/app-context";
 import { Button, ConfirmDialog, Empty, ErrorBox, FormFooter, Header, Input, Label, Screen, SelectField } from "../../../ui/components";
+import { DateTimeField } from "../../../ui/date-field";
 import { PhotoSheet } from "../../../ui/photo-sheet";
 import { useMyKit, useStockOptions } from "../../../ui/stock-fields";
 import { colors } from "../../../ui/theme";
@@ -38,7 +39,7 @@ const plain = (n: number | null | undefined) => String(Number(n ?? 0));
 export default function CollectOrder() {
   const db = usePowerSync();
   const { id, attention } = useLocalSearchParams<{ id: string; attention?: string }>();
-  const { user, roles, captureBlocked, toast } = useApp();
+  const { user, roles, captureBlocked, toast, timeZone } = useApp();
   const options = useStockOptions(true);
   const myKit = useMyKit(user.id);
   const allOptions = useStockOptions(false);
@@ -58,6 +59,9 @@ export default function CollectOrder() {
 
   // Only what the technician typed; the rest falls back to the order's values.
   const [qty, setQty] = useState<Record<string, string>>({});
+  // Optional per line: batch number and expiry as printed on the pack.
+  const [batch, setBatch] = useState<Record<string, { batch_number: string; expiry_date: string }>>({});
+  const batchOf = (lineId: string) => batch[lineId] ?? { batch_number: "", expiry_date: "" };
   const [areaTyped, setArea] = useState<string | null>(null);
   const [deliveryNote, setDeliveryNote] = useState("");
   const [photos, setPhotos] = useState<FormPhoto[]>([]);
@@ -89,6 +93,11 @@ export default function CollectOrder() {
       setDeliveryNote(p.delivery_note ?? "");
       setRetryLineIds(p.lines.map((l) => l.purchase_order_item_id));
       setQty(Object.fromEntries(p.lines.map((l) => [l.purchase_order_item_id, plain(l.qty)])));
+      setBatch(
+        Object.fromEntries(
+          p.lines.map((l) => [l.purchase_order_item_id, { batch_number: l.batch_number ?? "", expiry_date: l.expiry_date ?? "" }]),
+        ),
+      );
       setPhotos(
         payloadToFormPhotos(
           p.documents.map((d) => ({ storage_path: d.storage_path, thumbnail_path: d.thumbnail_path, mime_type: d.mime_type, size_bytes: d.size_bytes })),
@@ -109,7 +118,7 @@ export default function CollectOrder() {
       purchase_order_id: order.id,
       storage_area_id: area,
       delivery_note: deliveryNote,
-      lines: lines.map((l) => ({ purchase_order_item_id: l.id, qty: Number(qtyOf(l).trim() || "0") })),
+      lines: lines.map((l) => ({ purchase_order_item_id: l.id, qty: Number(qtyOf(l).trim() || "0"), ...batchOf(l.id) })),
     };
     const problem = validateCollect(input);
     if (problem) {
@@ -184,6 +193,24 @@ export default function CollectOrder() {
                     onChangeText={(t) => setQty((q) => ({ ...q, [l.id]: t.replace(",", ".") }))}
                     accessibilityLabel={`Collected: ${itemName(l.item_id)}`}
                   />
+                </View>
+                <View style={{ marginTop: 8, flexDirection: "row", gap: 8 }}>
+                  <View style={{ flex: 1 }}>
+                    <Input
+                      placeholder="Batch (optional)"
+                      value={batchOf(l.id).batch_number}
+                      onChangeText={(t) => setBatch((b) => ({ ...b, [l.id]: { ...batchOf(l.id), batch_number: t } }))}
+                      accessibilityLabel={`Batch: ${itemName(l.item_id)}`}
+                    />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <DateTimeField
+                      mode="date"
+                      timeZone={timeZone}
+                      value={batchOf(l.id).expiry_date}
+                      onChange={(v) => setBatch((b) => ({ ...b, [l.id]: { ...batchOf(l.id), expiry_date: v } }))}
+                    />
+                  </View>
                 </View>
               </View>
             ))}

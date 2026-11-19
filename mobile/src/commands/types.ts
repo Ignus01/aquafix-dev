@@ -67,7 +67,7 @@ export type CollectPayload = {
   load_id: string;
   intake_id: string;
   delivery_note: string | null;
-  lines: { id: string; purchase_order_item_id: string; qty: number }[];
+  lines: { id: string; purchase_order_item_id: string; qty: number; batch_number: string | null; expiry_date: string | null }[];
   documents: CollectDocument[];
 };
 

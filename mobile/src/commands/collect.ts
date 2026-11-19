@@ -13,7 +13,8 @@ import { addLocalStock } from "./local-stock";
 import { newId, queueCommand, resolveAttention } from "./outbox";
 import type { CollectPayload } from "./types";
 
-export type CollectLine = { purchase_order_item_id: string; qty: number };
+// batch_number and expiry_date: optional, as printed on the pack (YYYY-MM-DD).
+export type CollectLine = { purchase_order_item_id: string; qty: number; batch_number?: string; expiry_date?: string };
 
 export type CollectInput = {
   purchase_order_id: string;
@@ -45,7 +46,15 @@ export async function collectPurchaseOrder(
     load_id: newId(),
     intake_id: newId(),
     delivery_note: input.delivery_note.trim() || null,
-    lines: input.lines.filter((l) => l.qty > 0).map((l) => ({ id: newId(), ...l })),
+    lines: input.lines
+      .filter((l) => l.qty > 0)
+      .map((l) => ({
+        id: newId(),
+        purchase_order_item_id: l.purchase_order_item_id,
+        qty: l.qty,
+        batch_number: l.batch_number?.trim() || null,
+        expiry_date: l.expiry_date?.trim() || null,
+      })),
     documents: input.photos
       .filter((p) => !p.serverId)
       .map((p) => ({

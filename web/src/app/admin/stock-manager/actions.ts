@@ -25,6 +25,7 @@ import type {
   DocRow,
   LedgerRow,
   LedgerRowWithSite,
+  PoTraceRow,
   Receipt,
   StockRow,
 } from "@/lib/stock-manager/types";
@@ -219,7 +220,7 @@ export async function getDocument(kind: DocKind, reference: number): Promise<Doc
 export async function listStock(): Promise<StockRow[]> {
   await requireRole(STOCK_READERS);
   const supabase = await createClient();
-  const [stock, items, areas] = await Promise.all([
+  const [stock, items, areas, expiries] = await Promise.all([
     selectAll(() =>
       supabase
         .from("storage_area_item_stock")
@@ -229,7 +230,9 @@ export async function listStock(): Promise<StockRow[]> {
     ),
     selectAll(() => supabase.from("item").select("id, name, code, product:product_id(uom:uom_id(code))").order("id")),
     selectAll(() => supabase.from("storage_area").select("id, name, code").order("id")),
+    selectAll(() => supabase.from("storage_area_stock").select("item_id, storage_area_id, next_expiry").not("next_expiry", "is", null).order("id")),
   ]);
+  const expiry = new Map(expiries.map((e) => [`${e.item_id}:${e.storage_area_id}`, e.next_expiry as string]));
 
   const itemById = new Map((items as unknown as { id: string; name: string; code: string | null; product: { uom: { code: string } | null } | null }[]).map((i) => [i.id, i]));
   const areaById = new Map(areas.map((a) => [a.id, a]));
@@ -246,6 +249,7 @@ export async function listStock(): Promise<StockRow[]> {
         qty: Number(s.qty),
         base_qty: Number(s.base_qty),
         base_uom: item?.product?.uom?.code ?? "",
+        next_expiry: expiry.get(`${s.item_id}:${s.storage_area_id}`) ?? null,
       };
     })
     .sort((a, b) => a.item_name.localeCompare(b.item_name) || a.storage_area_name.localeCompare(b.storage_area_name));
@@ -258,7 +262,7 @@ export async function listTransactions(filter: { item?: string; area?: string })
   let q = supabase
     .from("item_transaction")
     .select(
-      "id, reference, transaction_type, qty, base_qty, transaction_date, item_id, storage_area_id, work_order_item:work_order_item_id(work_order:work_order_id(reference, location_id))",
+      "id, reference, transaction_type, qty, base_qty, transaction_date, item_id, storage_area_id, work_order_item:work_order_item_id(work_order:work_order_id(reference, location_id)), allocations:stock_allocation(qty, value_exc_vat, lot:lot_id(source, batch_number, expiry_date, po_item:purchase_order_item_id(purchase_order:purchase_order_id(reference))))",
     )
     .order("transaction_date", { ascending: false })
     .order("reference", { ascending: false })
@@ -267,13 +271,31 @@ export async function listTransactions(filter: { item?: string; area?: string })
   if (filter.area) q = q.eq("storage_area_id", filter.area);
   const { data, error } = await q;
   if (error) throw error;
-  return ((data ?? []) as unknown as (LedgerRow & { work_order_item: { work_order: { reference: number; location_id: string | null } | null } | null })[]).map(
-    ({ work_order_item, ...r }) => ({
+  type Alloc = {
+    qty: number;
+    value_exc_vat: number | null;
+    lot: { source: string; batch_number: string | null; expiry_date: string | null; po_item: { purchase_order: { reference: number } | null } | null } | null;
+  };
+  return ((data ?? []) as unknown as (LedgerRow & {
+    work_order_item: { work_order: { reference: number; location_id: string | null } | null } | null;
+    allocations: Alloc[];
+  })[]).map(({ work_order_item, allocations, ...r }) => {
+    const sources = allocations.map((a) => ({
+      purchase_order_reference: a.lot?.po_item?.purchase_order?.reference ?? null,
+      source: a.lot?.source ?? null,
+      batch_number: a.lot?.batch_number ?? null,
+      expiry_date: a.lot?.expiry_date ?? null,
+      qty: Number(a.qty),
+      value: a.value_exc_vat === null ? null : Number(a.value_exc_vat),
+    }));
+    return {
       ...r,
       location_id: work_order_item?.work_order?.location_id ?? null,
       work_order_reference: work_order_item?.work_order?.reference ?? null,
-    }),
-  );
+      sources,
+      value: sources.some((x) => x.value === null) ? null : sources.reduce((s, x) => s + (x.value ?? 0), 0),
+    };
+  });
 }
 
 // ============================================================================
@@ -644,13 +666,13 @@ export async function listCollectable(): Promise<CollectableOrder[]> {
 // ============================================================================
 // Stock on hand for the phone (storage_area_stock, the ledger's running sum)
 // ============================================================================
-export type OnHand = { item_id: string; storage_area_id: string; qty: number; base_qty: number };
+export type OnHand = { item_id: string; storage_area_id: string; qty: number; base_qty: number; next_expiry: string | null };
 
 export async function listOnHand(): Promise<OnHand[]> {
   await requireRole(STOCK_READERS);
   const supabase = await createClient();
   const rows = await selectAll(() =>
-    supabase.from("storage_area_stock").select("item_id, storage_area_id, qty, base_qty").neq("qty", 0).order("id"),
+    supabase.from("storage_area_stock").select("item_id, storage_area_id, qty, base_qty, next_expiry").neq("qty", 0).order("id"),
   );
   return rows.map((r) => ({ ...r, qty: Number(r.qty), base_qty: Number(r.base_qty) }));
 }
@@ -662,4 +684,77 @@ export async function getCurrentUserId(): Promise<string | null> {
     data: { user },
   } = await supabase.auth.getUser();
   return user?.id ?? null;
+}
+
+// ============================================================================
+// Traceability: where one purchase order's stock is now, and where it was used
+// ============================================================================
+export async function listPurchaseOrderTrace(purchaseOrderId: string): Promise<PoTraceRow[]> {
+  await requireRole(STOCK_READERS);
+  const supabase = await createClient();
+  const { data: lots, error } = await supabase
+    .from("stock_lot")
+    .select("id, item_id, batch_number, expiry_date, po_item:purchase_order_item_id!inner(purchase_order_id)")
+    .eq("po_item.purchase_order_id", purchaseOrderId);
+  if (error) throw error;
+  const lotById = new Map(((lots ?? []) as unknown as { id: string; item_id: string; batch_number: string | null; expiry_date: string | null }[]).map((l) => [l.id, l]));
+  if (lotById.size === 0) return [];
+  const ids = [...lotById.keys()];
+
+  const [balances, moves] = await Promise.all([
+    supabase.from("stock_lot_balance").select("lot_id, storage_area_id, qty, value_exc_vat").in("lot_id", ids).neq("qty", 0),
+    supabase
+      .from("stock_allocation")
+      .select(
+        "id, lot_id, storage_area_id, qty, value_exc_vat, tx:item_transaction_id!inner(transaction_type, transaction_date, work_order_item:work_order_item_id(work_order:work_order_id(reference, location_id)))",
+      )
+      .in("lot_id", ids)
+      .in("tx.transaction_type", ["WORK_ORDER_USAGE", "WORK_ORDER_RETURN", "STOCK_ADJUSTMENT"]),
+  ]);
+  if (balances.error) throw balances.error;
+  if (moves.error) throw moves.error;
+
+  const rows: PoTraceRow[] = [];
+  for (const b of (balances.data ?? []) as { lot_id: string; storage_area_id: string; qty: number; value_exc_vat: number | null }[]) {
+    const lot = lotById.get(b.lot_id)!;
+    rows.push({
+      key: `on:${b.lot_id}:${b.storage_area_id}`,
+      kind: "on_hand",
+      date: null,
+      item_id: lot.item_id,
+      storage_area_id: b.storage_area_id,
+      location_id: null,
+      work_order_reference: null,
+      batch_number: lot.batch_number,
+      expiry_date: lot.expiry_date,
+      qty: Number(b.qty),
+      value: b.value_exc_vat === null ? null : Number(b.value_exc_vat),
+    });
+  }
+  type Move = {
+    id: string;
+    lot_id: string;
+    storage_area_id: string;
+    qty: number;
+    value_exc_vat: number | null;
+    tx: { transaction_type: string; transaction_date: string; work_order_item: { work_order: { reference: number; location_id: string | null } | null } | null };
+  };
+  for (const m of (moves.data ?? []) as unknown as Move[]) {
+    const lot = lotById.get(m.lot_id)!;
+    const wo = m.tx.work_order_item?.work_order ?? null;
+    rows.push({
+      key: m.id,
+      kind: m.tx.transaction_type === "STOCK_ADJUSTMENT" ? "adjusted" : "used",
+      date: m.tx.transaction_date,
+      item_id: lot.item_id,
+      storage_area_id: m.storage_area_id,
+      location_id: wo?.location_id ?? null,
+      work_order_reference: wo?.reference ?? null,
+      batch_number: lot.batch_number,
+      expiry_date: lot.expiry_date,
+      qty: Number(m.qty),
+      value: m.value_exc_vat === null ? null : Number(m.value_exc_vat),
+    });
+  }
+  return rows.sort((a, b) => (a.kind === "on_hand" ? 0 : 1) - (b.kind === "on_hand" ? 0 : 1) || String(b.date).localeCompare(String(a.date)));
 }

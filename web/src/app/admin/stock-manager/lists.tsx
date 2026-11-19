@@ -12,7 +12,7 @@ import {
   type DocKind,
   type Options,
 } from "@/lib/stock-manager/docs";
-import type { DocRow, LedgerRowWithSite, StockRow } from "@/lib/stock-manager/types";
+import type { BatchSource, DocRow, LedgerRowWithSite, StockRow } from "@/lib/stock-manager/types";
 import { changedByOptions, changedColumns, Dash, type Changed, type GridColumn } from "../grid/columns";
 import { Grid } from "../grid/grid";
 import type { RowMenuItem } from "../grid/row-menu";
@@ -40,6 +40,7 @@ const stockGrid: GridSpec = {
     { key: "area", label: "Storage area", filter: "choice" },
     { key: "qty", label: "On hand (packs)", filter: "number" },
     { key: "base", label: "On hand (default unit)", filter: "number" },
+    { key: "expiry", label: "Next expiry", filter: "date" },
   ],
   defaultSort: { key: "item", desc: false },
   changedException: "Stock on hand is a sum of the ledger, not a record anyone edits.",
@@ -62,6 +63,18 @@ export function StockSummary({ rows, options, timeZone }: { rows: StockRow[]; op
       value: (r) => r.qty,
     },
     { key: "base", align: "right", render: (r) => `${formatQty(r.base_qty)} ${r.base_uom}`, value: (r) => r.base_qty },
+    {
+      key: "expiry",
+      render: (r) =>
+        r.next_expiry ? (
+          <span className={r.next_expiry < new Date().toISOString().slice(0, 10) ? "font-semibold text-danger" : undefined}>
+            {formatDate(r.next_expiry, timeZone)}
+          </span>
+        ) : (
+          <Dash />
+        ),
+      value: (r) => r.next_expiry,
+    },
   ];
   return (
     <Grid
@@ -93,7 +106,9 @@ const transactionsGrid: GridSpec = {
     { key: "area", label: "Storage area", filter: "choice" },
     { key: "site", label: "Site", filter: "choice" },
     { key: "qty", label: "Qty", filter: "number" },
-    { key: "base", label: "Qty (default unit)", filter: "number" },
+    { key: "base", label: "Qty (default unit)", filter: "number", hideable: true },
+    { key: "from", label: "Came from", filter: "text" },
+    { key: "value", label: "Value exc. VAT", filter: "number" },
   ],
   defaultSort: { key: "date", desc: true },
   changedException: "Ledger rows are written once when a document posts and never change.",
@@ -151,6 +166,30 @@ export function Transactions({ rows, options, timeZone }: { rows: LedgerRowWithS
       value: (r) => r.qty,
     },
     { key: "base", align: "right", render: (r) => formatQty(r.base_qty), value: (r) => r.base_qty },
+    {
+      // The batches this movement took or brought, oldest batch first.
+      key: "from",
+      render: (r) =>
+        r.sources.length === 0 ? (
+          <Dash />
+        ) : (
+          <span className="flex flex-col gap-0.5">
+            {r.sources.map((s, i) => (
+              <span key={i} className="whitespace-nowrap">
+                {sourceLabel(s)}
+                {r.sources.length > 1 && <span className="text-muted"> × {formatQty(Math.abs(s.qty))}</span>}
+              </span>
+            ))}
+          </span>
+        ),
+      value: (r) => r.sources.map(sourceLabel),
+    },
+    {
+      key: "value",
+      align: "right",
+      render: (r) => (r.value === null ? <Dash /> : formatMoney(r.value)),
+      value: (r) => r.value,
+    },
   ];
   return (
     <Grid
@@ -166,6 +205,19 @@ export function Transactions({ rows, options, timeZone }: { rows: LedgerRowWithS
       emptyLabel="No stock movements."
     />
   );
+}
+
+// "PO-00004 · batch B12 · exp 31 Jan 2027"; stock with no receipt says why.
+export function sourceLabel(s: BatchSource): string {
+  const origin =
+    s.purchase_order_reference !== null
+      ? docNumber("purchase-orders", s.purchase_order_reference)
+      : s.source === "ADJUSTMENT"
+        ? "Stock-take surplus"
+        : s.source === "RETURN"
+          ? "Returned to stock"
+          : "Untraced";
+  return [origin, s.batch_number && `batch ${s.batch_number}`, s.expiry_date && `exp ${s.expiry_date}`].filter(Boolean).join(" · ");
 }
 
 type Doc = DocRow & Changed;

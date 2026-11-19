@@ -7,6 +7,7 @@ import { BanIcon } from "../../icons";
 import { Empty, mInput, mLabel } from "../../ui";
 
 const plain = (n: number) => Number(n).toLocaleString("en-ZA", { maximumFractionDigits: 3 });
+const todayIso = () => new Date().toISOString().slice(0, 10);
 
 export function OnHandList({
   areas,
@@ -52,7 +53,15 @@ export function OnHandList({
         <ul>
           {rows.map((r) => (
             <li key={r.item_id} className="flex items-baseline justify-between gap-3 border-b border-[#e6e8f0] px-4 py-3.5">
-              <span className="min-w-0 flex-1 text-[19px] font-semibold">{itemName.get(r.item_id) ?? "—"}</span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[19px] font-semibold">{itemName.get(r.item_id) ?? "—"}</span>
+                {r.next_expiry && (
+                  <span className={`text-[16px] ${r.next_expiry < todayIso() ? "font-semibold text-[#d92d20]" : "text-[#5b6480]"}`}>
+                    {r.next_expiry < todayIso() ? "Expired " : "Next expiry "}
+                    {r.next_expiry}
+                  </span>
+                )}
+              </span>
               <span className={`shrink-0 text-[21px] font-semibold tabular-nums ${r.qty < 0 ? "text-[#d92d20]" : ""}`}>{plain(r.qty)}</span>
             </li>
           ))}

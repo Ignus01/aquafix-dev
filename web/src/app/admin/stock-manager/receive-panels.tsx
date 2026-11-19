@@ -6,7 +6,7 @@ import { useRef, useState, useTransition } from "react";
 import { formatDateTime } from "@/lib/incidents/format";
 import { docNumber, fieldOptions, type Options } from "@/lib/stock-manager/docs";
 import { uploadStockDocument, type UploadedFile } from "@/lib/stock-manager/file-upload";
-import type { DocRow, Receipt } from "@/lib/stock-manager/types";
+import type { DocRow, PoTraceRow, Receipt } from "@/lib/stock-manager/types";
 import { PaperclipIcon, XIcon } from "../icons";
 import {
   inputClass,
@@ -17,7 +17,7 @@ import {
   tableHeadCellClass,
 } from "../ui";
 import { receivePurchaseOrder } from "./actions";
-import { formatQty } from "./format";
+import { formatMoney, formatQty } from "./format";
 
 // MWTS spec R1: receive a purchase order from its page. One step makes the
 // load (today, driver = you unless typed), the PO intake and its lines; each
@@ -293,6 +293,64 @@ export function ReceiptsPanel({ receipts, options, timeZone }: { receipts: Recei
               <span className="text-muted">Delivery note {r.delivery_note ?? "—"}</span>
               <span className="text-muted">Invoice {r.invoice_number ?? "—"}</span>
               <span className="ml-auto font-semibold tabular-nums text-ink">Qty {formatQty(r.qty)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+// Traceability: where this order's stock is now (batch by batch, per kit or
+// store) and where it was used (site, work order, value at the price paid).
+export function WhereItWentPanel({ rows, options, timeZone }: { rows: PoTraceRow[]; options: Options; timeZone: string }) {
+  const area = (id: string) => options.storageAreas.find((o) => o.value === id)?.label ?? "—";
+  const site = (id: string | null) => (id ? (options.sites.find((o) => o.value === id)?.label ?? "—") : null);
+  const item = (id: string) => options.items.find((o) => o.value === id)?.label ?? "—";
+  const onHand = rows.filter((r) => r.kind === "on_hand");
+  const used = rows.filter((r) => r.kind !== "on_hand");
+  const usedValue = used.reduce((s, r) => s + -(r.value ?? 0), 0);
+  const batch = (r: PoTraceRow) => [r.batch_number && `batch ${r.batch_number}`, r.expiry_date && `exp ${r.expiry_date}`].filter(Boolean).join(" · ");
+
+  return (
+    <section className="rounded-card border border-border bg-card">
+      <div className="px-5 py-4">
+        <h2 className={sectionHeadingClass}>Where it went</h2>
+        <p className="mt-1 text-xs text-muted">
+          Stock is used first-to-expire, then oldest first. Used so far: {formatMoney(usedValue)} exc. VAT.
+        </p>
+      </div>
+      {rows.length === 0 ? (
+        <p className="border-t border-border px-5 py-6 text-center text-sm text-muted">Nothing received yet.</p>
+      ) : (
+        <ul className="border-t border-border">
+          {onHand.map((r) => (
+            <li key={r.key} className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border px-5 py-2.5 text-sm last:border-b-0">
+              <span className="rounded-full bg-success/10 px-2 py-0.5 text-xs font-semibold text-success">On hand</span>
+              <span className="font-medium text-ink">{item(r.item_id)}</span>
+              <span className="text-muted">{area(r.storage_area_id)}</span>
+              {batch(r) && <span className="text-muted">{batch(r)}</span>}
+              <span className="ml-auto font-semibold tabular-nums text-ink">Qty {formatQty(r.qty)}</span>
+            </li>
+          ))}
+          {used.map((r) => (
+            <li key={r.key} className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border px-5 py-2.5 text-sm last:border-b-0">
+              <span className="rounded-full bg-muted/10 px-2 py-0.5 text-xs font-semibold text-muted">
+                {r.kind === "adjusted" ? "Stock take" : r.qty > 0 ? "Returned" : "Used"}
+              </span>
+              <span className="tabular-nums text-muted">{r.date ? formatDateTime(r.date, timeZone) : ""}</span>
+              <span className="font-medium text-ink">{item(r.item_id)}</span>
+              {site(r.location_id) && <span className="text-ink">at {site(r.location_id)}</span>}
+              {r.work_order_reference !== null && (
+                <Link href={`/admin/stock-manager/work-orders/${r.work_order_reference}`} className="font-semibold text-primary hover:text-primary-hover">
+                  {docNumber("work-orders", r.work_order_reference)}
+                </Link>
+              )}
+              <span className="text-muted">from {area(r.storage_area_id)}</span>
+              {batch(r) && <span className="text-muted">{batch(r)}</span>}
+              <span className="ml-auto tabular-nums text-ink">
+                Qty {formatQty(r.qty)} · {r.value === null ? "—" : formatMoney(r.value)}
+              </span>
             </li>
           ))}
         </ul>

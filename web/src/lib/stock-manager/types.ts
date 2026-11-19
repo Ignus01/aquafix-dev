@@ -30,6 +30,8 @@ export type StockRow = {
   qty: number;
   base_qty: number;
   base_uom: string;
+  // The earliest expiry of the batches still there.
+  next_expiry: string | null;
 };
 
 export type LedgerRow = {
@@ -43,10 +45,37 @@ export type LedgerRow = {
   storage_area_id: string;
 };
 
+// Where a ledger row's stock came from: one entry per batch it moved.
+export type BatchSource = {
+  purchase_order_reference: number | null;
+  source: string | null; // INTAKE, ADJUSTMENT, RETURN, UNTRACED; null = untraced
+  batch_number: string | null;
+  expiry_date: string | null;
+  qty: number;
+  value: number | null;
+};
+
 // The ledger rows of work-order usage carry the work order's site.
 export type LedgerRowWithSite = LedgerRow & {
   location_id: string | null;
   work_order_reference: number | null;
+  sources: BatchSource[];
+  value: number | null;
+};
+
+// What happened to one purchase order's stock (PO page, "Where it went").
+export type PoTraceRow = {
+  key: string;
+  kind: "on_hand" | "used" | "adjusted";
+  date: string | null;
+  item_id: string;
+  storage_area_id: string;
+  location_id: string | null;
+  work_order_reference: number | null;
+  batch_number: string | null;
+  expiry_date: string | null;
+  qty: number;
+  value: number | null;
 };
 
 // One intake of a purchase order (the PO page's Receipts panel).

@@ -208,7 +208,7 @@ const purchase_order_item = new Table(
 
 // ---- stock_on_hand: stock per item and storage area ---------------------------
 const storage_area_stock = new Table(
-  { item_id: text, storage_area_id: text, qty: real, base_qty: real },
+  { item_id: text, storage_area_id: text, qty: real, base_qty: real, next_expiry: text },
   { indexes: { by_area: ["storage_area_id"] } },
 );
 
