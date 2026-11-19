@@ -5,11 +5,12 @@
 import { Ionicons } from "@expo/vector-icons";
 import { usePowerSync } from "@powersync/react-native";
 import { router, useLocalSearchParams } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, View } from "react-native";
 import { newId } from "../../../commands/outbox";
 import { type Field, isStockKind, saveStockDocument, STOCK_CONFIG, type StockLineInput, validateFields } from "../../../commands/stock";
 import type { AttentionMessages, StockPayload } from "../../../commands/types";
+import { getSetting, LAST_SITE_KEY, setSetting } from "../../../db/database";
 import { nowIso, todayInZone } from "../../../domain/dates";
 import { canDoc } from "../../../domain/permissions";
 import { useApp } from "../../../state/app-context";
@@ -54,6 +55,24 @@ export default function NewStockDoc() {
   const [saving, setSaving] = useState(false);
   const [docId, setDocId] = useState<string | undefined>();
 
+  // Work orders: start at the last site; a service or incident is offered
+  // only from the chosen site.
+  useEffect(() => {
+    if (attention || !cfg.header.some((f) => f.key === "location_id")) return;
+    void getSetting(LAST_SITE_KEY).then((last) => {
+      if (last) setValues((v) => (v.location_id ? v : { ...v, location_id: last }));
+    });
+  }, [attention, cfg.header]);
+  const formOptions = useMemo(
+    () => ({
+      ...options,
+      sites: options.sites,
+      services: options.services.filter((o) => !!values.location_id && o.locationId === values.location_id),
+      incidents: options.incidents.filter((o) => !!values.location_id && o.locationId === values.location_id),
+    }),
+    [options, values.location_id],
+  );
+
   useEffect(() => {
     if (!attention) return;
     void (async () => {
@@ -91,6 +110,7 @@ export default function NewStockDoc() {
     setSaving(true);
     try {
       await saveStockDocument(db, kind, values, lines, { userId: user.id, docId, attentionId: attention ?? null });
+      if (values.location_id) await setSetting(LAST_SITE_KEY, values.location_id);
       toast(`${cfg.label} saved`);
       router.back();
     } catch (e) {
@@ -132,10 +152,14 @@ export default function NewStockDoc() {
                 key={f.key}
                 field={f}
                 value={values[f.key] ?? ""}
-                options={options}
+                options={formOptions}
                 error={errors[f.key]}
                 timeZone={timeZone}
-                onChange={(v) => setValues((prev) => ({ ...prev, [f.key]: v }))}
+                onChange={(v) =>
+                  setValues((prev) =>
+                    f.key === "location_id" ? { ...prev, location_id: v, service_id: "", incident_id: "" } : { ...prev, [f.key]: v },
+                  )
+                }
               />
             ))}
 

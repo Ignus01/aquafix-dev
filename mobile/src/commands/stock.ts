@@ -8,7 +8,7 @@ import { newId, queueCommand, resolveAttention } from "./outbox";
 import type { StockPayload } from "./types";
 
 export type FieldType = "text" | "textarea" | "number" | "date" | "datetime" | "select" | "bool";
-export type OptionsKey = "storageAreas" | "items" | "transferTypes";
+export type OptionsKey = "storageAreas" | "items" | "transferTypes" | "sites" | "services" | "incidents";
 
 export type Field = {
   key: string;
@@ -99,7 +99,11 @@ export const STOCK_CONFIG: Record<StockKind, StockConfig> = {
     newTitle: "New Work Order",
     prefix: "WO-",
     header: [
+      // MWTS spec R4: site first; a service or incident at that site is optional.
+      { key: "location_id", label: "Site", type: "select", options: "sites", required: true },
       { key: "storage_area_id", label: "Storage area", type: "select", options: "storageAreas", required: true },
+      { key: "service_id", label: "Service", type: "select", options: "services", hint: "Optional: the service at this site." },
+      { key: "incident_id", label: "Incident", type: "select", options: "incidents", hint: "Optional: the incident at this site." },
       { key: "order_date", label: "Date", type: "datetime", required: true },
       { key: "comment", label: "Comment", type: "textarea" },
     ],

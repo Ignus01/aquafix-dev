@@ -35,6 +35,7 @@ export default function StockList() {
     [data, cfg.dateKey, timeZone, start],
   );
   const area = new Map(options.storageAreas.map((o) => [o.value, o.label]));
+  const site = new Map(options.sites.map((o) => [o.value, o.label]));
 
   function subtitle(d: Doc): string {
     if (kind === "transfers") {
@@ -46,6 +47,7 @@ export default function StockList() {
         .join(" · ");
     }
     if (kind === "loads") return [d.driver, d.vehicle_reg_nr].filter(Boolean).join(" · ");
+    if (kind === "work-orders") return [site.get(String(d.location_id)), area.get(String(d.storage_area_id))].filter(Boolean).join(" · ");
     return area.get(String(d.storage_area_id)) ?? "";
   }
 

@@ -155,7 +155,17 @@ const transfer_main = new Table({
   created_by: text,
 });
 const transfer_item = new Table({ transfer_id: text, item_id: text, qty: real });
-const work_order = new Table({ reference: integer, order_date: text, storage_area_id: text, comment: text, created_by: text });
+const work_order = new Table({
+  reference: integer,
+  order_date: text,
+  storage_area_id: text,
+  // MWTS spec R4: the site, and optionally a service or incident there.
+  location_id: text,
+  service_id: text,
+  incident_id: text,
+  comment: text,
+  created_by: text,
+});
 const work_order_item = new Table({ work_order_id: text, item_id: text, qty: real, is_return: integer, transaction_date: text });
 const stock_take = new Table({ reference: integer, take_date: text, storage_area_id: text, comment: text, created_by: text });
 const stock_take_item = new Table({ stock_take_id: text, item_id: text, counted_qty: real, adjustment_qty: real });
@@ -168,6 +178,32 @@ const load = new Table({
   comment: text,
   created_by: text,
 });
+
+// ---- open_purchase_orders (MWTS spec R3: Collect) ------------------------------
+const purchase_order = new Table({
+  reference: integer,
+  order_date: text,
+  order_alias: text,
+  comment: text,
+  status: text,
+  supplier_id: text,
+  collector_user_id: text,
+  collect_from: text,
+  collect_from_area_id: text,
+  deliver_to_area_id: text,
+});
+const purchase_order_item = new Table(
+  {
+    purchase_order_id: text,
+    item_id: text,
+    qty_ordered: real,
+    qty_received: real,
+    qty_outstanding: real,
+    status: text,
+    created_at: text,
+  },
+  { indexes: { by_order: ["purchase_order_id"] } },
+);
 
 // ---- Local-only --------------------------------------------------------------
 // One row per Save. insertOnly: the row is never stored locally; it only
@@ -240,6 +276,8 @@ export const AppSchema = new Schema({
   stock_take,
   stock_take_item,
   load,
+  purchase_order,
+  purchase_order_item,
   outbox,
   needs_attention,
   photo_file,

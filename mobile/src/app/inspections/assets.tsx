@@ -4,8 +4,9 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@powersync/react-native";
 import { router, useLocalSearchParams } from "expo-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { FlatList, Text, View } from "react-native";
+import { LAST_SITE_KEY, setSetting } from "../../db/database";
 import { shortDateTime } from "../../domain/dates";
 import { useApp } from "../../state/app-context";
 import { Header, HomeBar, Row, Screen, SearchBox } from "../../ui/components";
@@ -25,6 +26,10 @@ export default function SelectAsset() {
     [location],
   );
   const [query, setQuery] = useState("");
+  // Remembered for a new stock usage (MWTS spec R4).
+  useEffect(() => {
+    if (location) void setSetting(LAST_SITE_KEY, location);
+  }, [location]);
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
     return q ? data.filter((a) => [a.name, a.code, a.asset_type_name].some((s) => (s ?? "").toLowerCase().includes(q))) : data;

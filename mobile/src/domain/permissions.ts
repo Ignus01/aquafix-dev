@@ -8,7 +8,9 @@ export type Role = "system_admin" | "admin" | "user" | "viewer";
 const WRITERS: Role[] = ["system_admin", "admin", "user"];
 const ADMINS: Role[] = ["system_admin", "admin"];
 const ALL: Role[] = ["system_admin", "admin", "user", "viewer"];
-const RECEIVERS: Role[] = ["system_admin"];
+// Receiving was system_admin-only; opened to admins and technicians for the
+// MWTS rollout (supabase/migrations/20261119120000_stock_mwts_rollout.sql).
+const RECEIVERS: Role[] = WRITERS;
 
 const hasAny = (roles: Role[], allowed: Role[]) => roles.some((r) => allowed.includes(r));
 
@@ -34,6 +36,9 @@ export const STOCK_DOC_RIGHTS: Record<StockKind, { read: Role[]; create: Role[] 
 
 export const canDoc = (roles: Role[], kind: StockKind, action: "read" | "create") =>
   hasAny(roles, STOCK_DOC_RIGHTS[kind][action]);
+
+// Collect (receive_purchase_order).
+export const canReceive = (roles: Role[]) => hasAny(roles, RECEIVERS);
 
 // IAC-R06: the inspector's own activities from today.
 export function canEditActivity(
