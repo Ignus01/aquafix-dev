@@ -107,14 +107,7 @@ update public.purchase_order_item set unit_cost_exc_vat = 50, unit_cost_inc_vat 
  where id = 'd1000000-0000-0000-57d0-000000000002';
 
 insert into public.load (id) values ('d2000000-0000-0000-57d0-000000000001');
-select throws_ok($$ insert into public.intake (load_id, storage_area_id, supplier_id, purchase_order_id, invoice_number) values
-  ('d2000000-0000-0000-57d0-000000000001', 'c8000000-0000-0000-57d0-000000000001',
-   'c5000000-0000-0000-57d0-000000000002', 'd0000000-0000-0000-57d0-000000000001', 'INV-1') $$,
-  'P0001', 'Delivery note is required.', 'a PO intake needs a delivery note');
-select throws_ok($$ insert into public.intake (load_id, storage_area_id, supplier_id, purchase_order_id, delivery_note, invoice_number) values
-  ('d2000000-0000-0000-57d0-000000000001', 'c8000000-0000-0000-57d0-000000000001',
-   'c5000000-0000-0000-57d0-000000000002', 'd0000000-0000-0000-57d0-000000000001', 'DN-1', '  ') $$,
-  'P0001', 'Invoice number is required.', 'and an invoice number');
+-- Delivery note and invoice number became optional (20261119120000, R2).
 insert into public.intake (id, load_id, storage_area_id, supplier_id, purchase_order_id, delivery_note, invoice_number) values
   ('d3000000-0000-0000-57d0-000000000001', 'd2000000-0000-0000-57d0-000000000001', 'c8000000-0000-0000-57d0-000000000001',
    'c5000000-0000-0000-57d0-000000000002', 'd0000000-0000-0000-57d0-000000000001', 'DN-1', 'INV-1');
@@ -404,7 +397,7 @@ select is(pg_temp.try($$ insert into public.purchase_order_item (purchase_order_
   values ('d0000000-0000-0000-57d0-000000000002', 'c7000000-0000-0000-57d0-000000000001', 1, 10, current_date) $$),
   '42501', 'user cannot add a purchase order line');
 select is(pg_temp.try($$ update public.purchase_order_item set eta = current_date $$), '2', 'user can edit purchase order lines');
-select is(pg_temp.try($$ insert into public.load default values $$), '42501', 'user cannot create a load');
+select is(pg_temp.try($$ insert into public.load default values $$), '1', 'user can create a load (receiving opened to users)');
 select is((select count(*) from public.stock_document), 0::bigint, 'user sees no documents');
 select is(pg_temp.try($$ insert into public.transfer_main (transfer_type, from_storage_area_id)
   values ('SEND', 'c8000000-0000-0000-57d0-000000000001') $$), '1', 'user can create a transfer');
@@ -419,7 +412,7 @@ select set_config('request.jwt.claims',
   '{"sub": "10000000-0000-0000-57d0-000000000002", "role": "authenticated"}', true);
 select is(pg_temp.try($$ insert into public.purchase_order (supplier_id) values ('c5000000-0000-0000-57d0-000000000002') $$),
   '1', 'admin can create a purchase order');
-select is(pg_temp.try($$ insert into public.load default values $$), '42501', 'admin cannot receive stock');
+select is(pg_temp.try($$ insert into public.load default values $$), '1', 'admin can receive stock');
 
 select set_config('request.jwt.claims',
   '{"sub": "10000000-0000-0000-57d0-000000000003", "role": "authenticated"}', true);

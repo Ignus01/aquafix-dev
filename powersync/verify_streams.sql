@@ -145,6 +145,20 @@ synced as (
   from public.load t
   join capture_user u on t.sync_user_id = u.user_id
 
+  -- open_purchase_orders
+  union all
+  select 'open_purchase_orders', 'purchase_order', t.id::text
+  from public.purchase_order t, capture_user
+  where t.status = 'new'
+  union all
+  select 'open_purchase_orders', 'purchase_order_item', t.id::text
+  from public.purchase_order_item t, capture_user
+  where t.status = 'new'
+  union all
+  select 'open_purchase_orders', 'organisation', t.id::text
+  from public.organisation t, capture_user
+  where t.is_supplier = true
+
   -- my_roles
   union all
   select 'my_roles', 'user_masterdata_roles', t.user_id::text || ':' || t.role::text

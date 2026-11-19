@@ -21,7 +21,7 @@
 #
 # Buckets: PowerSync allows 1,000 per user and makes one per value a stream
 # filters on. Every stream here filters on the user id or on nothing, so a
-# user gets 8 buckets (3 shared, 5 their own) however much they capture.
+# user gets 9 buckets (4 shared, 5 their own) however much they capture.
 # That is why child rows carry a copied sync_user_id or incident_open instead
 # of being filtered through their parent (see
 # 20261102120000_powersync_sync_window.sql).
@@ -273,6 +273,36 @@ streams:
       - |
         SELECT * FROM load
         WHERE sync_user_id = auth.user_id()
+          AND auth.user_id() IN capture_users
+
+  # --------------------------------------------------------------------------
+  # open_purchase_orders: every open purchase order (status new) with its open
+  # lines, and every supplier's name, for the Collect tile (MWTS stock spec
+  # R3). The phone lists the orders assigned to this user plus the unassigned
+  # ones; receiving them goes up through receive_purchase_order.
+  #
+  # Every stock role reads every purchase order in the web app (RLS
+  # purchase_order_select), so this is no wider. organisation sends id and
+  # name only, and only suppliers.
+  #
+  # Filters on no user: one bucket shared by all users.
+  # --------------------------------------------------------------------------
+  open_purchase_orders:
+    auto_subscribe: true
+    with:
+      capture_users: SELECT user_id FROM user_masterdata_roles WHERE role != 'viewer'
+    queries:
+      - |
+        SELECT * FROM purchase_order
+        WHERE status = 'new'
+          AND auth.user_id() IN capture_users
+      - |
+        SELECT * FROM purchase_order_item
+        WHERE status = 'new'
+          AND auth.user_id() IN capture_users
+      - |
+        SELECT id, name FROM organisation
+        WHERE is_supplier = true
           AND auth.user_id() IN capture_users
 
   # --------------------------------------------------------------------------
