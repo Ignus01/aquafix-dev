@@ -15,10 +15,20 @@ import { nowIso, todayInZone } from "../../../domain/dates";
 import { canDoc } from "../../../domain/permissions";
 import { useApp } from "../../../state/app-context";
 import { Button, ConfirmDialog, ErrorBox, FormFooter, Header, Screen, Sheet } from "../../../ui/components";
-import { FieldInput, useStockOptions } from "../../../ui/stock-fields";
+import { FieldInput, useMyKit, useOnHand, useStockOptions } from "../../../ui/stock-fields";
 import { colors } from "../../../ui/theme";
 
 type Values = Record<string, string>;
+
+const plain = (n: number) => String(Number(n.toFixed(4)));
+
+// The storage area stock is taken from: a transfer's From (not a RECEIVE),
+// a work order's (stock-usage) area, the area a stock take counts.
+function sourceArea(kind: string, values: Values): string | null {
+  if (kind === "transfers") return values.transfer_type === "RECEIVE" ? null : values.from_storage_area_id || null;
+  if (kind === "work-orders" || kind === "stock-takes") return values.storage_area_id || null;
+  return null;
+}
 
 // Starting values: today / now for dates, SEND for a transfer, else empty.
 function initial(fields: Field[], timeZone: string): Values {
@@ -54,6 +64,17 @@ export default function NewStockDoc() {
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [saving, setSaving] = useState(false);
   const [docId, setDocId] = useState<string | undefined>();
+  const onHand = useOnHand();
+  const myKit = useMyKit(user.id);
+
+  // New documents start at my kit: usage and stock takes from it, transfers out of it.
+  useEffect(() => {
+    if (attention || !myKit) return;
+    const key = kind === "transfers" ? "from_storage_area_id" : kind === "work-orders" || kind === "stock-takes" ? "storage_area_id" : null;
+    if (!key) return;
+    const t = setTimeout(() => setValues((v) => (v[key] ? v : { ...v, [key]: myKit })), 0);
+    return () => clearTimeout(t);
+  }, [attention, kind, myKit]);
 
   // Work orders: start at the last site; a service or incident is offered
   // only from the chosen site.
@@ -120,9 +141,25 @@ export default function NewStockDoc() {
     }
   }
 
+  // What the source area holds; taking stock out offers only what is there.
+  const source = sourceArea(kind, values);
+  const available = new Map(onHand.filter((r) => r.storage_area_id === source).map((r) => [r.item_id, Number(r.qty)]));
+  const takesOut = (line: Values | null) => !!source && kind !== "stock-takes" && line?.is_return !== "true";
+  const lineOptions = {
+    ...options,
+    items: options.items
+      .filter((o) => !takesOut(adding) || (available.get(o.value) ?? 0) > 0 || o.value === adding?.item_id)
+      .map((o) => (source ? { ...o, label: `${o.label} · ${plain(available.get(o.value) ?? 0)} ${kind === "stock-takes" ? "expected" : "in stock"}` } : o)),
+  };
+
   function addLine() {
     if (!lineCfg || !adding) return;
     const found = validateFields(lineCfg.fields, adding);
+    if (takesOut(adding) && adding.item_id && !found.qty) {
+      const have = available.get(adding.item_id) ?? 0;
+      const taken = lines.filter((l) => l.values.item_id === adding.item_id).reduce((s, l) => s + Number(l.values.qty), 0);
+      if (Number(adding.qty) > have - taken) found.qty = `Only ${plain(have - taken)} in stock there.`;
+    }
     setLineErrors(found);
     if (Object.keys(found).length > 0) return;
     setLines((prev) => [...prev, { key: newId(), values: adding }]);
@@ -239,7 +276,7 @@ export default function NewStockDoc() {
                   key={f.key}
                   field={f}
                   value={adding[f.key] ?? ""}
-                  options={options}
+                  options={lineOptions}
                   error={lineErrors[f.key]}
                   timeZone={timeZone}
                   onChange={(v) => setAdding((prev) => (prev ? { ...prev, [f.key]: v } : prev))}

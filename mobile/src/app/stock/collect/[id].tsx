@@ -17,7 +17,7 @@ import { discardFreshPhotos, type FormPhoto, payloadToFormPhotos } from "../../.
 import { useApp } from "../../../state/app-context";
 import { Button, ConfirmDialog, Empty, ErrorBox, FormFooter, Header, Input, Label, Screen, SelectField } from "../../../ui/components";
 import { PhotoSheet } from "../../../ui/photo-sheet";
-import { useStockOptions } from "../../../ui/stock-fields";
+import { useMyKit, useStockOptions } from "../../../ui/stock-fields";
 import { colors } from "../../../ui/theme";
 
 type Order = {
@@ -40,6 +40,7 @@ export default function CollectOrder() {
   const { id, attention } = useLocalSearchParams<{ id: string; attention?: string }>();
   const { user, roles, captureBlocked, toast } = useApp();
   const options = useStockOptions(true);
+  const myKit = useMyKit(user.id);
   const allOptions = useStockOptions(false);
 
   const { data: orders } = useQuery<Order>(
@@ -72,8 +73,8 @@ export default function CollectOrder() {
     [allLines, retryLineIds],
   );
 
-  // Starting values: the order's Deliver to and what is outstanding.
-  const area = areaTyped ?? order?.deliver_to_area_id ?? "";
+  // Starting values: the order's Deliver to (else my kit) and what is outstanding.
+  const area = areaTyped ?? order?.deliver_to_area_id ?? myKit ?? "";
   const qtyOf = (l: Line) => qty[l.id] ?? plain(Math.max(Number(l.qty_outstanding ?? 0), 0));
 
   // A refused collection: its values back on the form.
@@ -189,7 +190,12 @@ export default function CollectOrder() {
           </View>
 
           <Label style={{ marginTop: 16 }}>Goes into</Label>
-          <SelectField title="Goes into" value={area} options={options.storageAreas} onChange={setArea} />
+          <SelectField
+            title="Goes into"
+            value={area}
+            options={options.storageAreas.map((a) => (a.value === myKit ? { ...a, label: `My kit — ${a.label}` } : a))}
+            onChange={setArea}
+          />
 
           <Label style={{ marginTop: 16 }}>Delivery note (optional)</Label>
           <Input value={deliveryNote} onChangeText={setDeliveryNote} />

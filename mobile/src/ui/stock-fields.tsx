@@ -8,7 +8,20 @@ import { DateTimeField } from "./date-field";
 import { ErrorLine, Input, Label, SelectField } from "./components";
 import { colors } from "./theme";
 
-export type Option = { value: string; label: string; locationId?: string | null };
+export type Option = { value: string; label: string; locationId?: string | null; technicianUserId?: string | null };
+export type OnHandRow = { item_id: string; storage_area_id: string; qty: number };
+
+// Stock on hand per item and storage area (synced, and moved by each Save).
+export function useOnHand(): OnHandRow[] {
+  const { data } = useQuery<OnHandRow>("SELECT item_id, storage_area_id, qty FROM storage_area_stock WHERE qty != 0");
+  return data;
+}
+
+// The signed-in technician's kit, if they have one.
+export function useMyKit(userId: string): string | null {
+  const { data } = useQuery<{ id: string }>("SELECT id FROM storage_area WHERE technician_user_id = ? AND active = 1", [userId]);
+  return data[0]?.id ?? null;
+}
 export type Options = Record<OptionsKey, Option[]>;
 
 const SERVICE_TYPE_LABELS: Record<string, string> = { scheduled_maintenance: "Scheduled maintenance", repair: "Repair" };
@@ -16,8 +29,8 @@ const SERVICE_TYPE_LABELS: Record<string, string> = { scheduled_maintenance: "Sc
 // Forms offer active storage areas and items; lists and views name any.
 export function useStockOptions(activeOnly: boolean): Options {
   const where = activeOnly ? "WHERE active = 1" : "";
-  const { data: areas } = useQuery<{ id: string; name: string; code: string | null }>(
-    `SELECT id, name, code FROM storage_area ${where} ORDER BY name COLLATE NOCASE`,
+  const { data: areas } = useQuery<{ id: string; name: string; code: string | null; technician_user_id: string | null }>(
+    `SELECT id, name, code, technician_user_id FROM storage_area ${where} ORDER BY name COLLATE NOCASE`,
   );
   const { data: items } = useQuery<{ id: string; name: string; code: string | null }>(`SELECT id, name, code FROM item ${where} ORDER BY name COLLATE NOCASE`);
   const { data: sites } = useQuery<{ id: string; name: string }>(`SELECT id, name FROM location ${where} ORDER BY name COLLATE NOCASE`);
@@ -33,7 +46,7 @@ export function useStockOptions(activeOnly: boolean): Options {
       WHERE i.status != 'completed' ORDER BY i.incident_date DESC`,
   );
   return {
-    storageAreas: areas.map((a) => ({ value: a.id, label: a.code ? `${a.name} (${a.code})` : a.name })),
+    storageAreas: areas.map((a) => ({ value: a.id, label: a.code ? `${a.name} (${a.code})` : a.name, technicianUserId: a.technician_user_id })),
     items: items.map((i) => ({ value: i.id, label: i.code ? `${i.name} — ${i.code}` : i.name })),
     transferTypes: Object.entries(TRANSFER_TYPE_LABELS).map(([value, label]) => ({ value, label })),
     sites: sites.map((l) => ({ value: l.id, label: l.name })),

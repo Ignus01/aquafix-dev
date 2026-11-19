@@ -58,7 +58,8 @@ const inspection_cumulative_value = new Table(
 );
 const quality_parameter = new Table({ name: text });
 const incident_type = new Table({ name: text, is_image_required: integer, disables_location: integer, active: integer });
-const storage_area = new Table({ code: text, name: text, active: integer });
+// technician_user_id: whose kit it is (null for stores).
+const storage_area = new Table({ code: text, name: text, active: integer, technician_user_id: text });
 const item = new Table({ name: text, code: text, active: integer });
 const profiles = new Table({ username: text });
 const mobile_app_config = new Table({ min_app_version: text, updated_at: text });
@@ -205,6 +206,12 @@ const purchase_order_item = new Table(
   { indexes: { by_order: ["purchase_order_id"] } },
 );
 
+// ---- stock_on_hand: stock per item and storage area ---------------------------
+const storage_area_stock = new Table(
+  { item_id: text, storage_area_id: text, qty: real, base_qty: real },
+  { indexes: { by_area: ["storage_area_id"] } },
+);
+
 // ---- Local-only --------------------------------------------------------------
 // One row per Save. insertOnly: the row is never stored locally; it only
 // rides in the Save's upload transaction, where uploadData() reads it.
@@ -278,6 +285,7 @@ export const AppSchema = new Schema({
   load,
   purchase_order,
   purchase_order_item,
+  storage_area_stock,
   outbox,
   needs_attention,
   photo_file,

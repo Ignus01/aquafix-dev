@@ -43,6 +43,23 @@ export default function StockHome() {
             <Text style={{ fontSize: 19, fontWeight: "600", color: colors.ink }}>Collect</Text>
           </Pressable>
         )}
+        <Pressable
+          key="on-hand"
+          onPress={() => router.push("/stock/on-hand")}
+          style={({ pressed }) => ({
+            width: "48.5%",
+            alignItems: "center",
+            gap: 8,
+            borderRadius: 18,
+            backgroundColor: pressed ? colors.pressed : colors.white,
+            paddingVertical: 20,
+            borderWidth: 1,
+            borderColor: colors.line,
+          })}
+        >
+          <Ionicons name="layers-outline" size={60} color={colors.ink} />
+          <Text style={{ fontSize: 19, fontWeight: "600", color: colors.ink }}>On hand</Text>
+        </Pressable>
         {tiles.map((t) => (
           <Pressable
             key={t.kind}

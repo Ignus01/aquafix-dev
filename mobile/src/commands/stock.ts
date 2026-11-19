@@ -4,6 +4,7 @@
 import type { CommonPowerSyncDatabase } from "@powersync/react-native";
 import type { StockKind } from "../domain/permissions";
 import { nowIso } from "../domain/dates";
+import { addLocalStock, setLocalStock } from "./local-stock";
 import { newId, queueCommand, resolveAttention } from "./outbox";
 import type { StockPayload } from "./types";
 
@@ -224,6 +225,19 @@ export async function saveStockDocument(
           `INSERT INTO ${cfg.line.table} (${lineCols.join(", ")}) VALUES (${lineCols.map(() => "?").join(", ")})`,
           lineVals.map(sqlValue),
         );
+      }
+    }
+    // Stock on hand moves at once (see local-stock.ts).
+    for (const l of wireLines) {
+      const item = String(l.item_id ?? "");
+      if (kind === "transfers") {
+        const type = String(header.transfer_type ?? "");
+        if (type !== "RECEIVE") await addLocalStock(tx, item, header.from_storage_area_id as string | null, -Number(l.qty));
+        if (type !== "SEND") await addLocalStock(tx, item, header.to_storage_area_id as string | null, Number(l.qty));
+      } else if (kind === "work-orders") {
+        await addLocalStock(tx, item, header.storage_area_id as string | null, l.is_return ? Number(l.qty) : -Number(l.qty));
+      } else if (kind === "stock-takes") {
+        await setLocalStock(tx, item, header.storage_area_id as string | null, Number(l.counted_qty));
       }
     }
     await resolveAttention(tx, opts.attentionId);

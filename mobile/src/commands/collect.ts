@@ -9,6 +9,7 @@ import type { CommonPowerSyncDatabase } from "@powersync/react-native";
 import { STOCK_DOCUMENT_BUCKET } from "../config";
 import { nowIso } from "../domain/dates";
 import { type FormPhoto, recordFreshPhotos } from "../photos/photos";
+import { addLocalStock } from "./local-stock";
 import { newId, queueCommand, resolveAttention } from "./outbox";
 import type { CollectPayload } from "./types";
 
@@ -68,6 +69,10 @@ export async function collectPurchaseOrder(
           WHERE id = ?`,
         [l.qty, l.qty, l.qty, l.purchase_order_item_id],
       );
+    }
+    for (const l of payload.lines) {
+      const line = await tx.getOptional<{ item_id: string }>("SELECT item_id FROM purchase_order_item WHERE id = ?", [l.purchase_order_item_id]);
+      if (line) await addLocalStock(tx, line.item_id, input.storage_area_id, l.qty);
     }
     const open = await tx.getOptional("SELECT id FROM purchase_order_item WHERE purchase_order_id = ? AND status = 'new'", [
       input.purchase_order_id,
