@@ -230,6 +230,8 @@ export const DOC_CONFIG: Record<DocKind, DocConfig> = {
       fields: [
         { key: "item_id", label: "Item", type: "select", options: "items", readOnly: true },
         { key: "qty", label: "Qty received", type: "number", required: true },
+        { key: "batch_number", label: "Batch", type: "text" },
+        { key: "expiry_date", label: "Expiry", type: "date", hint: "Stock that expires first is used first." },
         { key: "transaction_date", label: "Date", type: "datetime", required: true },
       ],
       extras: [],

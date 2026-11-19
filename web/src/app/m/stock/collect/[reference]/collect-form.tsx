@@ -31,6 +31,9 @@ export function CollectForm({
     Object.fromEntries(order.lines.map((l) => [l.id, plain(Math.max(Number(l.qty_outstanding), 0))])),
   );
   const [area, setArea] = useState(order.deliver_to_area_id ?? myKit ?? "");
+  // Optional per line: the batch number and expiry printed on the pack.
+  const [batch, setBatch] = useState<Record<string, { batch_number: string; expiry_date: string }>>({});
+  const batchOf = (id: string) => batch[id] ?? { batch_number: "", expiry_date: "" };
   const [deliveryNote, setDeliveryNote] = useState("");
   const [photos, setPhotos] = useState<File[]>([]);
   const camera = useRef<HTMLInputElement>(null);
@@ -57,7 +60,7 @@ export function CollectForm({
         purchase_order_id: order.id,
         storage_area_id: area,
         delivery_note: deliveryNote,
-        lines: order.lines.map((l) => ({ purchase_order_item_id: l.id, qty: qty[l.id] ?? "" })),
+        lines: order.lines.map((l) => ({ purchase_order_item_id: l.id, qty: qty[l.id] ?? "", ...batchOf(l.id) })),
         documents: uploaded,
       });
       if (res.error) {
@@ -113,6 +116,24 @@ export function CollectForm({
                 value={qty[l.id] ?? ""}
                 disabled={isPending}
                 onChange={(e) => setQty((q) => ({ ...q, [l.id]: e.target.value.replace(",", ".") }))}
+              />
+            </div>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <input
+                aria-label={`Batch: ${itemName(l.item_id)}`}
+                placeholder="Batch (optional)"
+                className={`${mInput} !text-[16px]`}
+                value={batchOf(l.id).batch_number}
+                disabled={isPending}
+                onChange={(e) => setBatch((b) => ({ ...b, [l.id]: { ...batchOf(l.id), batch_number: e.target.value } }))}
+              />
+              <input
+                aria-label={`Expiry: ${itemName(l.item_id)}`}
+                type="date"
+                className={`${mInput} !text-[16px]`}
+                value={batchOf(l.id).expiry_date}
+                disabled={isPending}
+                onChange={(e) => setBatch((b) => ({ ...b, [l.id]: { ...batchOf(l.id), expiry_date: e.target.value } }))}
               />
             </div>
           </li>

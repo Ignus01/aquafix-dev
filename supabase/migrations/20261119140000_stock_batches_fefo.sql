@@ -251,10 +251,21 @@ create trigger purchase_order_item_cost_changed
   after update of unit_cost_exc_vat on public.purchase_order_item
   for each row when (old.unit_cost_exc_vat is distinct from new.unit_cost_exc_vat)
   execute function public.stock_lot_inputs_changed();
+create function public.item_tracking_method_changed()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  perform public.stock_lot_replay(new.id);
+  return null;
+end;
+$$;
 create trigger item_tracking_method_changed
   after update of item_tracking_method on public.item
   for each row when (old.item_tracking_method is distinct from new.item_tracking_method)
-  execute function public.stock_lot_inputs_changed();
+  execute function public.item_tracking_method_changed();
 
 -- ============================================================================
 -- receive_purchase_order (20261119120000) with batch_number and expiry_date

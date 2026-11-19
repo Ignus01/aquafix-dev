@@ -554,7 +554,7 @@ export type ReceiveInput = {
   delivery_note?: string;
   invoice_number?: string;
   comment?: string;
-  lines: { purchase_order_item_id: string; qty: string }[];
+  lines: { purchase_order_item_id: string; qty: string; batch_number?: string; expiry_date?: string }[];
   documents?: { name: string; storage_path: string; mime_type: string | null; size_bytes: number }[];
 };
 
@@ -578,7 +578,12 @@ export async function receivePurchaseOrder(
     const raw = l.qty.trim().replace(",", ".");
     const qty = raw === "" ? 0 : Number(raw);
     if (!Number.isFinite(qty) || qty < 0) return { error: "Each quantity must be a number of 0 or more." };
-    lines.push({ purchase_order_item_id: l.purchase_order_item_id, qty });
+    lines.push({
+      purchase_order_item_id: l.purchase_order_item_id,
+      qty,
+      batch_number: l.batch_number?.trim() || null,
+      expiry_date: l.expiry_date?.trim() || null,
+    });
   }
   if (!lines.some((l) => l.qty > 0)) return { error: "Enter a quantity for at least one line." };
 

@@ -40,6 +40,8 @@ export function ReceivePanel({
   const [qty, setQty] = useState<Record<string, string>>(() =>
     Object.fromEntries(open.map((l) => [l.id, String(Number(l.qty_outstanding))])),
   );
+  const [batch, setBatch] = useState<Record<string, { batch_number: string; expiry_date: string }>>({});
+  const batchOf = (id: string) => batch[id] ?? { batch_number: "", expiry_date: "" };
   const [area, setArea] = useState<string>(purchaseOrder.deliver_to_area_id ?? "");
   const [fields, setFields] = useState({ driver: defaultDriver, vehicle_reg_nr: "", delivery_note: "", invoice_number: "" });
   const [files, setFiles] = useState<File[]>([]);
@@ -66,7 +68,7 @@ export function ReceivePanel({
         purchase_order_id: purchaseOrder.id,
         storage_area_id: area,
         ...fields,
-        lines: open.map((l) => ({ purchase_order_item_id: l.id, qty: qty[l.id] ?? "" })),
+        lines: open.map((l) => ({ purchase_order_item_id: l.id, qty: qty[l.id] ?? "", ...batchOf(l.id) })),
         documents: uploaded,
       });
       if (res.error) {
@@ -209,6 +211,8 @@ export function ReceivePanel({
                 <th className={`${tableHeadCellClass} text-right`}>Ordered</th>
                 <th className={`${tableHeadCellClass} text-right`}>Received</th>
                 <th className={`${tableHeadCellClass} text-right`}>Outstanding</th>
+                <th className={`${tableHeadCellClass} w-36`}>Batch</th>
+                <th className={`${tableHeadCellClass} w-40`}>Expiry</th>
                 <th className={`${tableHeadCellClass} w-36 text-right`}>Receive now</th>
               </tr>
             </thead>
@@ -219,6 +223,25 @@ export function ReceivePanel({
                   <td className="py-2 pr-3 text-right tabular-nums">{formatQty(l.qty_ordered)}</td>
                   <td className="py-2 pr-3 text-right tabular-nums">{formatQty(l.qty_received)}</td>
                   <td className="py-2 pr-3 text-right tabular-nums">{formatQty(l.qty_outstanding)}</td>
+                  <td className="py-2 pr-3">
+                    <input
+                      aria-label={`Batch: ${itemLabel(l.item_id)}`}
+                      className={`${inputClass} w-32`}
+                      value={batchOf(l.id).batch_number}
+                      disabled={isPending}
+                      onChange={(e) => setBatch((b) => ({ ...b, [l.id]: { ...batchOf(l.id), batch_number: e.target.value } }))}
+                    />
+                  </td>
+                  <td className="py-2 pr-3">
+                    <input
+                      aria-label={`Expiry: ${itemLabel(l.item_id)}`}
+                      type="date"
+                      className={`${inputClass} w-40`}
+                      value={batchOf(l.id).expiry_date}
+                      disabled={isPending}
+                      onChange={(e) => setBatch((b) => ({ ...b, [l.id]: { ...batchOf(l.id), expiry_date: e.target.value } }))}
+                    />
+                  </td>
                   <td className="py-2 text-right">
                     <input
                       aria-label={`Receive now: ${itemLabel(l.item_id)}`}

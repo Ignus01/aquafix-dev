@@ -72,15 +72,15 @@ select lives_ok($$ select public.receive_purchase_order(jsonb_build_object(
   'captured_at', now() - interval '3 days',
   'lines', jsonb_build_array(jsonb_build_object('purchase_order_item_id', 'd1000000-0000-0000-ba7c-000000000002', 'qty', 3,
     'batch_number', 'B-SOON', 'expiry_date', (current_date + 30)::text)))) $$, 'PO 2 received');
+select throws_ok($$ select public.receive_purchase_order(jsonb_build_object(
+  'purchase_order_id', 'd0000000-0000-0000-ba7c-000000000003', 'storage_area_id', 'c8000000-0000-0000-ba7c-000000000001',
+  'lines', jsonb_build_array(jsonb_build_object('purchase_order_item_id', 'd1000000-0000-0000-ba7c-000000000003', 'qty', 1,
+    'expiry_date', '31/02/2027')))) $$, 'P0001', 'Line 1: the expiry date isn''t a valid date.', 'a bad expiry is refused');
 select lives_ok($$ select public.receive_purchase_order(jsonb_build_object(
   'purchase_order_id', 'd0000000-0000-0000-ba7c-000000000003', 'storage_area_id', 'c8000000-0000-0000-ba7c-000000000001',
   'captured_at', now() - interval '2 days',
   'lines', jsonb_build_array(jsonb_build_object('purchase_order_item_id', 'd1000000-0000-0000-ba7c-000000000003', 'qty', 2)))) $$,
   'PO 3 received without batch or expiry');
-select throws_ok($$ select public.receive_purchase_order(jsonb_build_object(
-  'purchase_order_id', 'd0000000-0000-0000-ba7c-000000000003', 'storage_area_id', 'c8000000-0000-0000-ba7c-000000000001',
-  'lines', jsonb_build_array(jsonb_build_object('purchase_order_item_id', 'd1000000-0000-0000-ba7c-000000000003', 'qty', 1,
-    'expiry_date', '31/02/2027')))) $$, 'P0001', 'Line 1: the expiry date isn''t a valid date.', 'a bad expiry is refused');
 
 select is((select count(*) from public.stock_lot where item_id = 'c7000000-0000-0000-ba7c-000000000001'), 3::bigint,
   'one batch per receipt line');
@@ -131,8 +131,8 @@ select lives_ok($$ select public.receive_purchase_order(jsonb_build_object(
   'captured_at', now() - interval '6 days',
   'lines', jsonb_build_array(jsonb_build_object('purchase_order_item_id', 'd1000000-0000-0000-ba7c-000000000004', 'qty', 4,
     'expiry_date', (current_date + 10)::text)))) $$, 'a receipt dated before everything else');
-select is(pg_temp.lot_qty('d1000000-0000-0000-ba7c-000000000004', 'c8000000-0000-0000-ba7c-000000000002'), 4::numeric,
-  'the transfer now sends that batch first');
+select is(pg_temp.lot_qty('d1000000-0000-0000-ba7c-000000000004', 'c8000000-0000-0000-ba7c-000000000002'), 2::numeric,
+  'the transfer now sends that batch first (4 sent, 2 since used)');
 select is(pg_temp.came_from(pg_temp.wo_tx('e1000000-0000-0000-ba7c-000000000001')), '4×2@90',
   'and Jonifas''s usage now traces to it');
 
