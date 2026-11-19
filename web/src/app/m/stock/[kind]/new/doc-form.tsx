@@ -1,13 +1,14 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { isoToZonedInput, todayInZone, zonedInputToIso } from "@/lib/inspections/dates";
 import { DOC_CONFIG, fieldOptions, type DocKind, type Field } from "@/lib/stock-manager/docs";
 import type { Options } from "@/lib/stock-manager/docs";
 import { saveHeader, saveLine } from "../../../../admin/stock-manager/actions";
 import { ConfirmDialog, Sheet } from "../../../components";
 import { PlusIcon, XIcon } from "../../../icons";
+import { getLastSite, setLastSite } from "../../../last-site";
 import { ErrorLine, FormFooter, mBtnDark, mBtnGreen, mBtnLight, mInput, mLabel } from "../../../ui";
 
 type Values = Record<string, string>;
@@ -123,6 +124,14 @@ export function DocForm({ kind, options, timeZone }: { kind: DocKind; options: O
   const lineCfg = cfg.line && !cfg.line.noAdd ? cfg.line : null;
 
   const [values, setValues] = useState<Values>(() => initial(cfg.header, timeZone));
+  // Stock usage starts at the site the technician last opened (MWTS spec R4).
+  // Read after mounting: the browser's storage isn't there on the server.
+  useEffect(() => {
+    if (!cfg.header.some((f) => f.key === "location_id")) return;
+    const last = getLastSite();
+    if (!options.sites.some((o) => o.value === last && !o.inactive)) return;
+    setTimeout(() => setValues((v) => (v.location_id ? v : { ...v, location_id: last })), 0);
+  }, [cfg.header, options.sites]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [lines, setLines] = useState<Line[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -155,6 +164,7 @@ export function DocForm({ kind, options, timeZone }: { kind: DocKind; options: O
         }
         id = res.id;
         setDocId(id);
+        if (values.location_id) setLastSite(values.location_id);
       }
       if (lineCfg) {
         const remaining = [...lines];

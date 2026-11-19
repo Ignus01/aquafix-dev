@@ -31,6 +31,7 @@ export default async function StockListPage(props: PageProps<"/m/stock/[kind]">)
     getCurrentUserRoles(),
   ]);
   const areaName = new Map(options.storageAreas.map((o) => [o.value, o.label]));
+  const siteName = new Map(options.sites.map((o) => [o.value, o.label]));
   const typeLabel = new Map(options.transferTypes.map((o) => [o.value, o.label]));
   const date = DATE_KEY[kind];
 
@@ -52,6 +53,8 @@ export default async function StockListPage(props: PageProps<"/m/stock/[kind]">)
                 ]
                   .filter(Boolean)
                   .join(" · ");
+              } else if (kind === "work-orders") {
+                subtitle = [siteName.get(d.location_id), areaName.get(d.storage_area_id)].filter(Boolean).join(" · ");
               } else if (kind === "loads") {
                 subtitle = [d.driver, d.vehicle_reg_nr].filter(Boolean).join(" · ");
               } else {

@@ -16,7 +16,12 @@ export type OptionsKey =
   | "items"
   | "purchaseOrders"
   | "transferTypes"
-  | "poStatuses";
+  | "poStatuses"
+  | "collectors"
+  | "collectFrom"
+  | "sites"
+  | "services"
+  | "incidents";
 
 export type Option = {
   value: string;
@@ -26,6 +31,8 @@ export type Option = {
   inactive?: boolean;
   // Storage areas: how the location they belong to handles transfers.
   transferType?: "AUTO" | "MANUAL";
+  // Services and incidents: the site (location) they are at.
+  locationId?: string;
 };
 export type Options = Record<OptionsKey, Option[]>;
 type Values = Record<string, string>;
@@ -123,8 +130,31 @@ export const DOC_CONFIG: Record<DocKind, DocConfig> = {
     header: [
       { key: "supplier_id", label: "Supplier", type: "select", options: "suppliers", required: true },
       { key: "order_date", label: "Order date", type: "date", required: true },
-      { key: "order_alias", label: "Alias", type: "text" },
+      { key: "order_alias", label: "Alias", type: "text", hint: "The Odoo PO number." },
       { key: "comment", label: "Comment", type: "textarea" },
+      {
+        key: "collector_user_id",
+        label: "Collector",
+        type: "select",
+        options: "collectors",
+        hint: "Shows the order on this person's phone under Collect. Leave empty and any technician can collect it.",
+      },
+      { key: "collect_from", label: "Collect from", type: "select", options: "collectFrom" },
+      {
+        key: "collect_from_area_id",
+        label: "Collect from storage area",
+        type: "select",
+        options: "storageAreas",
+        required: true,
+        showWhen: (v) => v.collect_from === "STORAGE_AREA",
+      },
+      {
+        key: "deliver_to_area_id",
+        label: "Deliver to",
+        type: "select",
+        options: "storageAreas",
+        hint: "The storage area it is received into when collected.",
+      },
     ],
     headerExtras: [
       { key: "status", label: "Status", kind: "status" },
@@ -167,8 +197,8 @@ export const DOC_CONFIG: Record<DocKind, DocConfig> = {
     prefix: "LD-",
     header: [
       { key: "load_date", label: "Date", type: "date", required: true },
-      { key: "driver", label: "Driver", type: "text", required: true },
-      { key: "vehicle_reg_nr", label: "Vehicle reg nr", type: "text", required: true },
+      { key: "driver", label: "Driver", type: "text", hint: "Leave empty to use your own name." },
+      { key: "vehicle_reg_nr", label: "Vehicle reg nr", type: "text" },
       { key: "comment", label: "Comment", type: "textarea" },
     ],
     headerExtras: [],
@@ -184,8 +214,8 @@ export const DOC_CONFIG: Record<DocKind, DocConfig> = {
       { key: "purchase_order_id", label: "Purchase order", type: "select", options: "purchaseOrders", required: true, createOnly: true },
       { key: "storage_area_id", label: "Receiving storage area", type: "select", options: "storageAreas", required: true },
       { key: "intake_date", label: "Intake date", type: "datetime", required: true },
-      { key: "delivery_note", label: "Delivery note", type: "text", required: true },
-      { key: "invoice_number", label: "Invoice number", type: "text", required: true },
+      { key: "delivery_note", label: "Delivery note", type: "text" },
+      { key: "invoice_number", label: "Invoice number", type: "text", hint: "Can be added later; changing it moves no stock." },
       { key: "comment", label: "Comment", type: "textarea" },
     ],
     headerExtras: [],
@@ -261,11 +291,31 @@ export const DOC_CONFIG: Record<DocKind, DocConfig> = {
     plural: "Work orders",
     prefix: "WO-",
     header: [
+      { key: "location_id", label: "Site", type: "select", options: "sites", required: true },
       { key: "storage_area_id", label: "Storage area", type: "select", options: "storageAreas", required: true },
+      {
+        key: "service_id",
+        label: "Service",
+        type: "select",
+        options: "services",
+        optionFilter: (o, v) => !!v.location_id && o.locationId === v.location_id,
+        hint: "Optional: the service at this site the stock was used on.",
+      },
+      {
+        key: "incident_id",
+        label: "Incident",
+        type: "select",
+        options: "incidents",
+        optionFilter: (o, v) => !!v.location_id && o.locationId === v.location_id,
+        hint: "Optional: the incident at this site the stock was used on.",
+      },
       { key: "order_date", label: "Date", type: "datetime", required: true },
       { key: "comment", label: "Comment", type: "textarea" },
     ],
     headerExtras: [],
+    // A service or incident belongs to one site: changing the site clears them.
+    derive: (values, _options, changed) =>
+      changed === "location_id" ? { ...values, service_id: "", incident_id: "" } : values,
     line: {
       table: "work_order_item",
       fk: "work_order_id",
@@ -317,6 +367,11 @@ export const TRANSFER_TYPE_LABELS: Record<string, string> = {
   SEND: "Send",
   RECEIVE: "Receive",
   BOTH: "Send and receive",
+};
+
+export const COLLECT_FROM_LABELS: Record<string, string> = {
+  SUPPLIER: "Supplier",
+  STORAGE_AREA: "A storage area",
 };
 
 export const PO_STATUS_LABELS: Record<string, string> = {

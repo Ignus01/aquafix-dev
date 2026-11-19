@@ -42,3 +42,46 @@ export type LedgerRow = {
   item_id: string;
   storage_area_id: string;
 };
+
+// The ledger rows of work-order usage carry the work order's site.
+export type LedgerRowWithSite = LedgerRow & {
+  location_id: string | null;
+  work_order_reference: number | null;
+};
+
+// One intake of a purchase order (the PO page's Receipts panel).
+export type Receipt = {
+  id: string;
+  reference: number;
+  intake_date: string;
+  storage_area_id: string;
+  delivery_note: string | null;
+  invoice_number: string | null;
+  load_reference: number | null;
+  driver: string | null;
+  qty: number;
+};
+
+// An open purchase order on the phone's Collect list.
+export type CollectableOrder = {
+  id: string;
+  reference: number;
+  order_date: string;
+  order_alias: string | null;
+  comment: string | null;
+  collector_user_id: string | null;
+  collect_from: "SUPPLIER" | "STORAGE_AREA" | null;
+  collect_from_area_id: string | null;
+  deliver_to_area_id: string | null;
+  supplier_name: string;
+  assigned_to_me: boolean;
+  lines: {
+    id: string;
+    item_id: string;
+    qty_ordered: number;
+    qty_received: number;
+    qty_outstanding: number;
+    status: string;
+    created_at: string;
+  }[];
+};
