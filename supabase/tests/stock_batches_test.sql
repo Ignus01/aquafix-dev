@@ -172,5 +172,27 @@ delete from public.work_order where id = 'e1000000-0000-0000-ba7c-000000000002';
 select is(pg_temp.lot_qty('d1000000-0000-0000-ba7c-000000000001', 'c8000000-0000-0000-ba7c-000000000001'), 2::numeric,
   'deleting a usage returns the batch it had taken');
 
+-- Same minute: a transfer dated 13:09 (forms drop the seconds) saved after a
+-- receipt stamped 13:09:30 still takes from that receipt.
+reset role;
+insert into public.purchase_order (id, supplier_id) values ('d0000000-0000-0000-ba7c-000000000005', 'c5000000-0000-0000-ba7c-000000000002');
+insert into public.purchase_order_item (id, purchase_order_id, item_id, qty_ordered, unit_cost_exc_vat, eta) values
+  ('d1000000-0000-0000-ba7c-000000000005', 'd0000000-0000-0000-ba7c-000000000005', 'c7000000-0000-0000-ba7c-000000000001', 1, 70, current_date);
+insert into public.storage_area (id, code, name, location_id) values
+  ('c8000000-0000-0000-ba7c-000000000003', 'B-KIT-X', 'B empty kit', 'c6000000-0000-0000-ba7c-000000000001');
+set local role authenticated;
+select lives_ok($$ select public.receive_purchase_order(jsonb_build_object(
+  'purchase_order_id', 'd0000000-0000-0000-ba7c-000000000005', 'storage_area_id', 'c8000000-0000-0000-ba7c-000000000003',
+  'captured_at', date_trunc('minute', now() - interval '1 hour') + interval '30 seconds',
+  'lines', jsonb_build_array(jsonb_build_object('purchase_order_item_id', 'd1000000-0000-0000-ba7c-000000000005', 'qty', 1)))) $$,
+  'received at hh:mm:30');
+select lives_ok($$ select public.save_stock_document(jsonb_build_object('kind', 'transfers',
+  'header', jsonb_build_object('transfer_type', 'BOTH', 'transfer_date', date_trunc('minute', now() - interval '1 hour'),
+    'from_storage_area_id', 'c8000000-0000-0000-ba7c-000000000003', 'to_storage_area_id', 'c8000000-0000-0000-ba7c-000000000002'),
+  'lines', jsonb_build_array(jsonb_build_object('item_id', 'c7000000-0000-0000-ba7c-000000000001', 'qty', 1)))) $$,
+  'then sent on, dated hh:mm:00');
+select is(pg_temp.lot_qty('d1000000-0000-0000-ba7c-000000000005', 'c8000000-0000-0000-ba7c-000000000002'), 1::numeric,
+  'the transfer carried that receipt''s batch');
+
 select * from finish();
 rollback;

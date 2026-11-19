@@ -13,7 +13,8 @@
 --   * stock that appears without a receipt (a stock-take surplus, a return
 --     to stock, a manual receive with no send) gets its own batch with no
 --     PO, valued at the item's latest unit cost received before it.
--- The allocations are rebuilt for the whole item, in date order, whenever
+-- The allocations are rebuilt for the whole item, in date order (to the
+-- minute, then the order saved), whenever
 -- one of its ledger rows changes. Back-dated documents and phones that sync
 -- late therefore re-allocate correctly. The ledger is unchanged and stays
 -- the source of the quantities; this only explains them.
@@ -125,7 +126,10 @@ begin
            t.intake_item_id, t.transfer_item_id, t.transfer_leg
       from public.item_transaction t
      where t.item_id = p_item
-     order by t.transaction_date, t.reference
+     -- Forms record times to the minute: within one minute, the order the
+     -- movements were saved in (a transfer typed at 13:09 right after a
+     -- receipt stamped 13:09:30 comes after it).
+     order by date_trunc('minute', t.transaction_date), t.reference
   loop
     if r.qty > 0 then
       if r.intake_item_id is not null then
