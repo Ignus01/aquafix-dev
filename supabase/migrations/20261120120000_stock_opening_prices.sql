@@ -45,7 +45,8 @@ begin
     insert into public.stock_lot (item_id, source, intake_item_id, purchase_order_item_id, received_at,
                                   batch_number, expiry_date, unit_cost_exc_vat)
     select ii.item_id, 'INTAKE', ii.id, ii.purchase_order_item_id, ii.transaction_date,
-           ii.batch_number, ii.expiry_date, poi.unit_cost_exc_vat
+           ii.batch_number, ii.expiry_date,
+           coalesce(nullif(poi.unit_cost_exc_vat, 0), public.stock_fallback_cost(ii.item_id, ii.transaction_date))
       from public.intake_item ii
       left join public.purchase_order_item poi on poi.id = ii.purchase_order_item_id
      where ii.id = r.intake_item_id
@@ -74,11 +75,7 @@ begin
         from public.stock_take_item where id = r.stock_take_item_id;
     end if;
     if v_cost is null then
-      select unit_cost_exc_vat into v_cost
-        from public.stock_lot
-       where item_id = r.item_id and source = 'INTAKE' and received_at <= r.transaction_date
-       order by received_at desc, reference desc
-       limit 1;
+      v_cost := public.stock_fallback_cost(r.item_id, r.transaction_date);
     end if;
     insert into public.stock_lot (item_id, source, item_transaction_id, received_at,
                                   batch_number, expiry_date, unit_cost_exc_vat)

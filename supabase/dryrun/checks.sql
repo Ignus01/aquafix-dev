@@ -107,7 +107,37 @@ update public.work_order set comment = 'edited after migration'
 select 'PASS' as result, 'an old usage document without a site can still be edited' as check;
 -- Reports and month end run on the full history.
 select count(*) as cost_per_site_rows from public.stock_cost_per_site(current_date - 800, current_date);
-select count(*) as missing_stock_rows, coalesce(sum(qty), 0) as qty_missing from public.stock_missing_by_technician(current_date - 800, current_date);
+-- Missing stock: link two kits to technicians, then report their shortfalls.
+insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at) values
+  ('d7a00000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'dry-tech1@example.test', '', now(), now(), now()),
+  ('d7a00000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'dry-tech2@example.test', '', now(), now(), now());
+update public.storage_area set technician_user_id = 'd7a00000-0000-0000-0000-000000000001' where code = 'DRY-KIT-1';
+update public.storage_area set technician_user_id = 'd7a00000-0000-0000-0000-000000000002' where code = 'DRY-KIT-2';
+select count(*) as missing_stock_rows, coalesce(sum(qty), 0) as qty_missing, coalesce(sum(value_exc_vat), 0) as value_missing,
+       coalesce(sum(untraced_qty), 0) as missing_untraced
+  from public.stock_missing_by_technician(current_date - 800, current_date);
+select case when count(*) = (select count(*) from public.stock_take_item sti join public.stock_take st on st.id = sti.stock_take_id
+                              join public.storage_area sa on sa.id = st.storage_area_id
+                             where sa.code in ('DRY-KIT-1', 'DRY-KIT-2') and sti.adjustment_qty < 0)
+            then 'PASS' else 'CHECK' end as result,
+       'every shortfall in a technician''s kit is in the Missing stock report' as check
+  from public.item_transaction t join public.storage_area sa on sa.id = t.storage_area_id
+ where t.stock_take_item_id is not null and t.qty < 0 and sa.code in ('DRY-KIT-1', 'DRY-KIT-2');
+-- Month end on the full history: close last month, then an edit in it is refused.
+select set_config('request.jwt.claims', '{"sub": "d7a00000-0000-0000-0000-000000000001", "role": "authenticated"}', true);
+insert into public.user_masterdata_roles (user_id, role) values ('d7a00000-0000-0000-0000-000000000001', 'admin');
+set local role authenticated;
+select public.close_stock_month((date_trunc('month', now()) - interval '1 month')::date);
+reset role;
+do $$
+begin
+  update public.work_order_item set qty = qty + 1
+   where id = (select wi.id from public.work_order_item wi join public.item_transaction t on t.work_order_item_id = wi.id
+                where t.transaction_date < date_trunc('month', now()) - interval '2 months' and not wi.is_return limit 1);
+  raise notice 'FAIL: an edit in a closed month went through';
+exception when others then
+  raise notice 'PASS: an edit in a closed month is refused (%)', left(sqlerrm, 60);
+end $$;
 rollback;
 
 \echo '=== 8. Size'

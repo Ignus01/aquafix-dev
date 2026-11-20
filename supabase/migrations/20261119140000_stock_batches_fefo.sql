@@ -14,7 +14,9 @@
 --     an item set to LIFO);
 --   * stock that appears without a receipt (a stock-take surplus, a return
 --     to stock, a manual receive with no send) gets its own batch with no
---     PO, valued at the item's latest unit cost received before it.
+--     PO, valued at the item's latest real price received before it (else
+--     the first one after it). A receipt with no price (no PO line, or a PO
+--     line priced 0 as some older lines are) is valued the same way.
 -- A choice is never revisited because of other movements: a late phone sync
 -- or a back-dated document takes from what is there when it arrives. Only a
 -- change to the row itself (its quantity or storage area) re-decides that
@@ -109,6 +111,26 @@ as $$
 $$;
 revoke execute on function public.stock_next_expiry_refresh(uuid, uuid) from public, anon, authenticated;
 
+-- The price for stock that came in without one (no PO line, a PO line
+-- priced 0 as some older lines are, a return, stock found by a count): the
+-- latest real price received before it, else the first one after it.
+create function public.stock_fallback_cost(p_item uuid, p_at timestamptz)
+returns numeric
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select coalesce(
+    (select l.unit_cost_exc_vat from public.stock_lot l
+      where l.item_id = p_item and l.source = 'INTAKE' and l.unit_cost_exc_vat > 0 and l.received_at <= p_at
+      order by l.received_at desc, l.reference desc limit 1),
+    (select l.unit_cost_exc_vat from public.stock_lot l
+      where l.item_id = p_item and l.source = 'INTAKE' and l.unit_cost_exc_vat > 0 and l.received_at > p_at
+      order by l.received_at, l.reference limit 1));
+$$;
+revoke execute on function public.stock_fallback_cost(uuid, timestamptz) from public, anon, authenticated;
+
 create function public.stock_allocate(p_tx uuid)
 returns void
 language plpgsql
@@ -136,7 +158,8 @@ begin
     insert into public.stock_lot (item_id, source, intake_item_id, purchase_order_item_id, received_at,
                                   batch_number, expiry_date, unit_cost_exc_vat)
     select ii.item_id, 'INTAKE', ii.id, ii.purchase_order_item_id, ii.transaction_date,
-           ii.batch_number, ii.expiry_date, poi.unit_cost_exc_vat
+           ii.batch_number, ii.expiry_date,
+           coalesce(nullif(poi.unit_cost_exc_vat, 0), public.stock_fallback_cost(ii.item_id, ii.transaction_date))
       from public.intake_item ii
       left join public.purchase_order_item poi on poi.id = ii.purchase_order_item_id
      where ii.id = r.intake_item_id
@@ -156,12 +179,8 @@ begin
      where s.transfer_item_id = r.transfer_item_id and s.transfer_leg = 'send';
 
   elsif r.qty > 0 then
-    -- Stock with no receipt: its own batch at the latest cost received before it.
-    select unit_cost_exc_vat into v_cost
-      from public.stock_lot
-     where item_id = r.item_id and source = 'INTAKE' and received_at <= r.transaction_date
-     order by received_at desc, reference desc
-     limit 1;
+    -- Stock with no receipt: its own batch at the latest price received.
+    v_cost := public.stock_fallback_cost(r.item_id, r.transaction_date);
     insert into public.stock_lot (item_id, source, item_transaction_id, received_at, unit_cost_exc_vat)
     values (r.item_id,
             case r.transaction_type when 'STOCK_ADJUSTMENT' then 'ADJUSTMENT'
@@ -449,13 +468,18 @@ end;
 $$;
 
 -- ============================================================================
--- Backfill: decide the existing ledger's batches, in the order it happened.
+-- Backfill: decide the existing ledger's batches in the order the rows were
+-- saved (reference), as new rows are decided when they are saved. In date
+-- order, usage entered late with an earlier date ran ahead of the stock that
+-- was there when it was saved and ended up untraced (dry run: 2.7% of all
+-- stock taken out); in save order the negative-stock check guarantees the
+-- stock was there.
 -- ============================================================================
 do $$
 declare
   v_tx uuid;
 begin
-  for v_tx in select id from public.item_transaction order by transaction_date, reference loop
+  for v_tx in select id from public.item_transaction order by reference loop
     perform public.stock_allocate(v_tx);
   end loop;
 end;
