@@ -84,7 +84,7 @@ begin
       v_n := 1 + floor(random() * 4)::int;
       for i in 1 .. v_n loop
         v_item := ('d7800000-0000-0000-0000-' || lpad((1 + floor(random() * 40))::int::text, 12, '0'))::uuid;
-        v_price := round((50 + (abs(hashtext(v_item::text)) % 900)) * (1 + d * 0.0004) * (0.95 + random() * 0.1), 2);
+        v_price := round(((50 + (abs(hashtext(v_item::text)) % 900)) * (1 + d * 0.0004) * (0.95 + random() * 0.1))::numeric, 2);
         if random() < 0.05 then
           -- A Mendix-era line priced 0 (before the "cost > 0" rule existed).
           alter table public.purchase_order_item disable trigger purchase_order_item_before;
