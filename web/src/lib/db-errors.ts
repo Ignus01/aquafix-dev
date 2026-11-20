@@ -25,6 +25,8 @@ const UNIQUE_MESSAGES: Record<string, string> = {
   pack_type_name_key: "Must be unique — a pack type with that name already exists.",
   storage_area_code_key: "Must be unique — a storage area with that code already exists.",
   storage_area_name_key: "Must be unique — a storage area with that name already exists.",
+  storage_area_one_kit_per_technician:
+    "That technician is already linked to another storage area. Unlink them there first — a technician has one storage area.",
   item_product_pack_type_key: "That product already has an item in that pack type.",
   barcode_barcode_key: "That barcode already belongs to an item.",
   supplier_item_item_supplier_key: "Already added — that supplier already supplies this item.",
