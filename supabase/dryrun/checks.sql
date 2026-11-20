@@ -66,7 +66,7 @@ select case when count(*) = 0 then 'PASS' else 'FAIL' end, 'each receive leg car
      except
      select lot_id, sum(qty) from public.stock_allocation where item_transaction_id = r.id group by 1);
 
-\echo '=== 6. Backfill order: by date (as migrated) vs. in the order rows were saved'
+\echo '=== 6. Backfill again from scratch in save order (repeatable, and how long it takes)'
 \timing on
 begin;
 create temporary table by_date as
@@ -80,7 +80,7 @@ begin
     perform public.stock_allocate(v);
   end loop;
 end $$;
-select (select untraced from by_date) as untraced_when_backfilled_by_date,
+select (select untraced from by_date) as untraced_as_migrated,
        coalesce(sum(-qty), 0) as untraced_when_backfilled_in_save_order
   from public.stock_allocation where lot_id is null;
 rollback;
