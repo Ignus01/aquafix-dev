@@ -40,6 +40,17 @@ const stockGrid: GridSpec = {
     { key: "area", label: "Storage area", filter: "choice" },
     { key: "qty", label: "On hand (packs)", filter: "number" },
     { key: "base", label: "On hand (default unit)", filter: "number" },
+    { key: "min", label: "Minimum", filter: "number" },
+    {
+      key: "level",
+      label: "Level",
+      filter: "choice",
+      options: [
+        { value: "low", label: "Low" },
+        { value: "ok", label: "OK" },
+        { value: "none", label: "No minimum" },
+      ],
+    },
     { key: "expiry", label: "Next expiry", filter: "date" },
   ],
   defaultSort: { key: "item", desc: false },
@@ -63,6 +74,19 @@ export function StockSummary({ rows, options, timeZone }: { rows: StockRow[]; op
       value: (r) => r.qty,
     },
     { key: "base", align: "right", render: (r) => `${formatQty(r.base_qty)} ${r.base_uom}`, value: (r) => r.base_qty },
+    { key: "min", align: "right", render: (r) => (r.min_qty === null ? <Dash /> : formatQty(r.min_qty)), value: (r) => r.min_qty },
+    {
+      key: "level",
+      render: (r) =>
+        r.is_low ? (
+          <span className="inline-flex items-center rounded-full bg-danger-bg px-2.5 py-0.5 text-xs font-semibold text-danger">Low</span>
+        ) : r.min_qty === null ? (
+          <Dash />
+        ) : (
+          <span className="text-xs text-muted">OK</span>
+        ),
+      value: (r) => (r.is_low ? "low" : r.min_qty === null ? "none" : "ok"),
+    },
     {
       key: "expiry",
       render: (r) =>

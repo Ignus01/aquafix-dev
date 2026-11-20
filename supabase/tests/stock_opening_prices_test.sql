@@ -1,9 +1,15 @@
 -- Tests for 20261120120000_stock_opening_prices.sql: a counted line's price,
--- batch and expiry become the batch of the stock found (opening stock).
+-- batch and expiry become the batch of the stock found (opening stock); and
+-- 20261120150000_stock_reports.sql (cost per site, missing stock).
 -- Run with: npx supabase test db
 begin;
 create extension if not exists pgtap with schema extensions;
 select no_plan();
+
+insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
+values ('40000000-0000-0000-0f15-000000000001', '00000000-0000-0000-0f15-000000000000', 'authenticated', 'authenticated',
+        'o-office@example.test', '', now(), now(), now());
+insert into public.user_masterdata_roles (user_id, role) values ('40000000-0000-0000-0f15-000000000001', 'user');
 
 insert into public.unit_of_measure (id, code, name, uom_type) values ('c0000000-0000-0000-0f15-000000000001', 'OTAB', 'O Tablet', 'NODIM');
 insert into public.product_type (id, code, name) values ('c1000000-0000-0000-0f15-000000000001', 'OREAG', 'O Reagent');
@@ -19,8 +25,9 @@ insert into public.organisation (id, name, is_supplier) values
   ('c5000000-0000-0000-0f15-000000000002', 'O-SUPPLIER', true);
 insert into public.location (id, name, region_id, organisation_id) values
   ('c6000000-0000-0000-0f15-000000000001', 'O-Base', 'c4000000-0000-0000-0f15-000000000001', 'c5000000-0000-0000-0f15-000000000001');
+insert into public.storage_area (id, code, name, location_id, technician_user_id) values
+  ('c8000000-0000-0000-0f15-000000000001', 'O-KIT', 'O kit', 'c6000000-0000-0000-0f15-000000000001', '40000000-0000-0000-0f15-000000000001');
 insert into public.storage_area (id, code, name, location_id) values
-  ('c8000000-0000-0000-0f15-000000000001', 'O-KIT', 'O kit', 'c6000000-0000-0000-0f15-000000000001'),
   ('c8000000-0000-0000-0f15-000000000002', 'O-STORE', 'O store', 'c6000000-0000-0000-0f15-000000000001');
 
 create function pg_temp.lot_of(p_line text) returns public.stock_lot language sql as $$
@@ -67,11 +74,14 @@ select is((select count(*)::int from public.stock_allocation a join public.item_
 insert into public.purchase_order (id, supplier_id) values ('d0000000-0000-0000-0f15-000000000001', 'c5000000-0000-0000-0f15-000000000002');
 insert into public.purchase_order_item (id, purchase_order_id, item_id, qty_ordered, unit_cost_exc_vat, eta) values
   ('d1000000-0000-0000-0f15-000000000001', 'd0000000-0000-0000-0f15-000000000001', 'c7000000-0000-0000-0f15-000000000001', 2, 100, current_date);
+select set_config('request.jwt.claims', '{"sub": "40000000-0000-0000-0f15-000000000001", "role": "authenticated"}', true);
+set local role authenticated;
 select lives_ok($$ select public.receive_purchase_order(jsonb_build_object(
   'purchase_order_id', 'd0000000-0000-0000-0f15-000000000001', 'storage_area_id', 'c8000000-0000-0000-0f15-000000000002',
   'captured_at', now() - interval '1 day',
   'lines', jsonb_build_array(jsonb_build_object('purchase_order_item_id', 'd1000000-0000-0000-0f15-000000000001', 'qty', 2)))) $$,
   'store receives 2 at R100');
+reset role;
 insert into public.stock_take (id, storage_area_id, take_date) values
   ('e0000000-0000-0000-0f15-000000000002', 'c8000000-0000-0000-0f15-000000000002', now());
 insert into public.stock_take_item (id, stock_take_id, item_id, counted_qty) values
@@ -97,6 +107,18 @@ select throws_ok($$ update public.stock_take_item set unit_cost_exc_vat = -1 whe
 -- Office staff can enter the price (column grants).
 select ok(has_column_privilege('authenticated', 'public.stock_take_item', 'unit_cost_exc_vat', 'UPDATE'), 'price can be edited');
 select ok(has_column_privilege('authenticated', 'public.stock_take_item', 'expiry_date', 'INSERT'), 'expiry can be entered');
+
+-- Reports, as an office user.
+select set_config('request.jwt.claims', '{"sub": "40000000-0000-0000-0f15-000000000001", "role": "authenticated"}', true);
+set local role authenticated;
+select results_eq($$ select site, item, qty, value_exc_vat, untraced_qty from public.stock_cost_per_site(current_date - 40, current_date + 1) $$,
+  $$ values ('O-Base'::text, 'O DPD1'::text, 4::numeric, 240.00::numeric, 0::numeric) $$,
+  'cost per site: 4 used at O-Base, R240 at the batch price');
+select results_eq($$ select storage_area, technician_user_id, qty, value_exc_vat from public.stock_missing_by_technician(current_date - 40, current_date + 1) $$,
+  $$ values ('O KIT'::text, '40000000-0000-0000-0f15-000000000001'::uuid, 2::numeric, 120.00::numeric) $$,
+  'missing stock: 2 short in the technician''s kit, R120');
+select is((select count(*)::int from public.stock_cost_per_site(current_date + 2, current_date + 30)), 0, 'nothing outside the dates');
+reset role;
 
 select * from finish();
 rollback;

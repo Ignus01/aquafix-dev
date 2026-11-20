@@ -220,7 +220,7 @@ export async function getDocument(kind: DocKind, reference: number): Promise<Doc
 export async function listStock(): Promise<StockRow[]> {
   await requireRole(STOCK_READERS);
   const supabase = await createClient();
-  const [stock, items, areas, expiries] = await Promise.all([
+  const [stock, items, areas, expiries, mins] = await Promise.all([
     selectAll(() =>
       supabase
         .from("storage_area_item_stock")
@@ -231,12 +231,22 @@ export async function listStock(): Promise<StockRow[]> {
     selectAll(() => supabase.from("item").select("id, name, code, product:product_id(uom:uom_id(code))").order("id")),
     selectAll(() => supabase.from("storage_area").select("id, name, code").order("id")),
     selectAll(() => supabase.from("storage_area_stock").select("item_id, storage_area_id, next_expiry").not("next_expiry", "is", null).order("id")),
+    selectAll(() => supabase.from("stock_min_level").select("item_id, storage_area_id, min_qty").order("id")),
   ]);
   const expiry = new Map(expiries.map((e) => [`${e.item_id}:${e.storage_area_id}`, e.next_expiry as string]));
 
   const itemById = new Map((items as unknown as { id: string; name: string; code: string | null; product: { uom: { code: string } | null } | null }[]).map((i) => [i.id, i]));
   const areaById = new Map(areas.map((a) => [a.id, a]));
-  return stock
+  const minByKey = new Map(mins.map((m) => [`${m.item_id}:${m.storage_area_id}`, Number(m.min_qty)]));
+  // A minimum where nothing has ever been held still shows (on hand 0).
+  const held = new Set(stock.map((s) => `${s.item_id}:${s.storage_area_id}`));
+  const rows = [
+    ...stock,
+    ...mins
+      .filter((m) => !held.has(`${m.item_id}:${m.storage_area_id}`))
+      .map((m) => ({ item_id: m.item_id, storage_area_id: m.storage_area_id, qty: 0, base_qty: 0 })),
+  ];
+  return rows
     .map((s) => {
       const item = itemById.get(s.item_id);
       const area = areaById.get(s.storage_area_id);
@@ -250,6 +260,8 @@ export async function listStock(): Promise<StockRow[]> {
         base_qty: Number(s.base_qty),
         base_uom: item?.product?.uom?.code ?? "",
         next_expiry: expiry.get(`${s.item_id}:${s.storage_area_id}`) ?? null,
+        min_qty: minByKey.get(`${s.item_id}:${s.storage_area_id}`) ?? null,
+        is_low: minByKey.has(`${s.item_id}:${s.storage_area_id}`) && Number(s.qty) < (minByKey.get(`${s.item_id}:${s.storage_area_id}`) ?? 0),
       };
     })
     .sort((a, b) => a.item_name.localeCompare(b.item_name) || a.storage_area_name.localeCompare(b.storage_area_name));
@@ -766,4 +778,119 @@ export async function listPurchaseOrderTrace(purchaseOrderId: string): Promise<P
     });
   }
   return rows.sort((a, b) => (a.kind === "on_hand" ? 0 : 1) - (b.kind === "on_hand" ? 0 : 1) || String(b.date).localeCompare(String(a.date)));
+}
+
+// --- Reports (MWTS R8 and Missing stock) ------------------------------------
+// Values are at the actual price of the batches the stock came from.
+
+export type CostPerSiteRow = {
+  month: string;
+  location_id: string | null;
+  site: string;
+  item_id: string;
+  item: string;
+  qty: number;
+  value_exc_vat: number | null;
+  untraced_qty: number;
+};
+
+export type MissingStockRow = {
+  month: string;
+  storage_area_id: string;
+  storage_area: string;
+  technician: string;
+  item_id: string;
+  item: string;
+  qty: number;
+  value_exc_vat: number | null;
+  untraced_qty: number;
+};
+
+const isDay = (v: string) => /^\d{4}-\d{2}-\d{2}$/.test(v);
+
+export async function listCostPerSite(from: string, to: string): Promise<CostPerSiteRow[]> {
+  await requireRole(STOCK_READERS);
+  if (!isDay(from) || !isDay(to)) return [];
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("stock_cost_per_site", { p_from: from, p_to: to });
+  if (error) throw error;
+  return ((data ?? []) as Record<string, unknown>[]).map((r) => ({
+    month: String(r.month),
+    location_id: (r.location_id as string | null) ?? null,
+    site: String(r.site),
+    item_id: String(r.item_id),
+    item: String(r.item),
+    qty: Number(r.qty),
+    value_exc_vat: r.value_exc_vat === null ? null : Number(r.value_exc_vat),
+    untraced_qty: Number(r.untraced_qty),
+  }));
+}
+
+export async function listMissingStock(from: string, to: string): Promise<MissingStockRow[]> {
+  await requireRole(STOCK_READERS);
+  if (!isDay(from) || !isDay(to)) return [];
+  const supabase = await createClient();
+  const [{ data, error }, { data: people }] = await Promise.all([
+    supabase.rpc("stock_missing_by_technician", { p_from: from, p_to: to }),
+    supabase.rpc("list_stock_collectors"),
+  ]);
+  if (error) throw error;
+  const names = new Map(((people ?? []) as { id: string; name: string }[]).map((p) => [p.id, p.name]));
+  return ((data ?? []) as Record<string, unknown>[]).map((r) => ({
+    month: String(r.month),
+    storage_area_id: String(r.storage_area_id),
+    storage_area: String(r.storage_area),
+    technician: names.get(String(r.technician_user_id)) ?? "—",
+    item_id: String(r.item_id),
+    item: String(r.item),
+    qty: Number(r.qty),
+    value_exc_vat: r.value_exc_vat === null ? null : Number(r.value_exc_vat),
+    untraced_qty: Number(r.untraced_qty),
+  }));
+}
+
+// --- Month end -------------------------------------------------------------
+
+export type StockPeriod = {
+  closed_through: string | null;
+  log: { action: "close" | "reopen"; month: string; created_at: string; by: string }[];
+};
+
+export async function getStockPeriod(): Promise<StockPeriod> {
+  await requireRole(STOCK_READERS);
+  const supabase = await createClient();
+  const [{ data: period }, { data: log }] = await Promise.all([
+    supabase.from("stock_period").select("closed_through").eq("id", 1).maybeSingle(),
+    supabase.from("stock_period_log").select("action, month, created_at, created_by").order("id", { ascending: false }).limit(12),
+  ]);
+  const rows = (log ?? []) as { action: "close" | "reopen"; month: string; created_at: string; created_by: string | null }[];
+  const ids = [...new Set(rows.map((r) => r.created_by).filter((v): v is string => !!v))];
+  const names = new Map<string, string>();
+  if (ids.length > 0) {
+    const { data } = await supabase.rpc("get_user_names", { p_ids: ids });
+    for (const n of (data ?? []) as { id: string; name: string }[]) names.set(n.id, n.name);
+  }
+  return {
+    closed_through: (period?.closed_through as string | null) ?? null,
+    log: rows.map((r) => ({ action: r.action, month: r.month, created_at: r.created_at, by: names.get(r.created_by ?? "") ?? "—" })),
+  };
+}
+
+export async function closeStockMonth(month: string): Promise<Result> {
+  await requireRole(["system_admin", "admin"]);
+  if (!isDay(month)) return { error: "Choose the month to close." };
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("close_stock_month", { p_month: month });
+  if (error) return { error: friendlyError(error) };
+  revalidate();
+  return { error: null };
+}
+
+export async function reopenStockMonth(): Promise<Result> {
+  await requireRole(["system_admin", "admin"]);
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("reopen_stock_month");
+  if (error) return { error: friendlyError(error) };
+  revalidate();
+  return { error: null };
 }

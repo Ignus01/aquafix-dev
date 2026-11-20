@@ -9,7 +9,8 @@ export type StockEntity =
   | "item"
   | "barcode"
   | "supplier_item"
-  | "unit_of_measure_conversion";
+  | "unit_of_measure_conversion"
+  | "stock_min_level";
 
 type Action = "read" | "create" | "update" | "delete";
 
@@ -34,6 +35,8 @@ export const STOCK_PERMISSIONS: Record<StockEntity, Record<Action, MasterdataRol
   storage_area: { read: ALL, create: WRITERS, update: WRITERS, delete: ADMINS },
   // `user` edits existing items, but can't create or delete them.
   item: { read: ALL, create: ADMINS, update: WRITERS, delete: ADMINS },
+  // Minimum levels (MWTS R6): office staff set them, admins delete them.
+  stock_min_level: { read: ALL, create: WRITERS, update: WRITERS, delete: ADMINS },
 };
 
 export function canStock(roles: MasterdataRole[], entity: StockEntity, action: Action): boolean {

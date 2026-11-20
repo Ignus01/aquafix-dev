@@ -7,8 +7,19 @@ import { PageHeader } from "../page-header";
 import { PlusIcon } from "../icons";
 import { inputClass, secondaryButtonClass } from "../ui";
 import { getAppTimeZone } from "../services/actions";
-import { getOptions, listDocuments, listStock, listTransactions } from "./actions";
+import { todayInZone } from "@/lib/inspections/dates";
+import {
+  getOptions,
+  getStockPeriod,
+  listCostPerSite,
+  listDocuments,
+  listMissingStock,
+  listStock,
+  listTransactions,
+} from "./actions";
 import { DocList, StockSummary, Transactions } from "./lists";
+import { MonthEnd } from "./month-end";
+import { CostPerSite, MissingStock } from "./reports";
 
 const TABS: { key: string; label: string; kind?: DocKind }[] = [
   { key: "summary", label: "Stock summary" },
@@ -19,7 +30,21 @@ const TABS: { key: string; label: string; kind?: DocKind }[] = [
   { key: "work-orders", label: "Stock usage", kind: "work-orders" },
   { key: "stock-takes", label: "Stock takes", kind: "stock-takes" },
   { key: "transactions", label: "Transactions" },
+  { key: "cost-per-site", label: "Cost per site" },
+  { key: "missing", label: "Missing stock" },
+  { key: "month-end", label: "Month end" },
 ];
+
+// "2026-11" → first and last day of that month.
+const firstDay = (month: string) => `${month}-01`;
+function lastDay(month: string): string {
+  const [y, m] = month.split("-").map(Number);
+  return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+}
+function previousMonth(month: string): string {
+  const [y, m] = month.split("-").map(Number);
+  return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, "0")}`;
+}
 
 // Stock manager: stock on hand (the sum of the ledger) and the documents that
 // move it. Tabs a role can't read are left out.
@@ -35,6 +60,12 @@ export default async function StockManagerPage(props: PageProps<"/admin/stock-ma
   const kind = tab.kind;
   // Intakes are created from a load, so only the others get a New button.
   const canCreate = kind && kind !== "intakes" && canDoc(roles, kind, "create");
+
+  const today = todayInZone(timeZone);
+  const isMonth = (v: string | undefined) => !!v && /^\d{4}-\d{2}$/.test(v);
+  const toMonth = isMonth(one(params.to)) ? (one(params.to) as string) : today.slice(0, 7);
+  const fromMonth = isMonth(one(params.from)) ? (one(params.from) as string) : previousMonth(toMonth);
+  const isReport = tab.key === "cost-per-site" || tab.key === "missing";
 
   const itemFilter = one(params.item) ?? "";
   const areaFilter = one(params.area) ?? "";
@@ -111,6 +142,41 @@ export default async function StockManagerPage(props: PageProps<"/admin/stock-ma
             />
             <p className="mt-2 text-xs text-muted">Showing the latest 300 movements.</p>
           </>
+        )}
+
+        {isReport && (
+          <form method="get" className="mb-4 flex flex-wrap items-end gap-3">
+            <input type="hidden" name="tab" value={tab.key} />
+            <label className="flex flex-col gap-1 text-xs font-medium text-muted">
+              From month
+              <input type="month" name="from" defaultValue={fromMonth} className={inputClass} />
+            </label>
+            <label className="flex flex-col gap-1 text-xs font-medium text-muted">
+              To month
+              <input type="month" name="to" defaultValue={toMonth} className={inputClass} />
+            </label>
+            <button type="submit" className={secondaryButtonClass}>
+              Show
+            </button>
+            <p className="pb-2 text-xs text-muted">Valued at the price paid for the batches the stock came from. Export opens in Excel.</p>
+          </form>
+        )}
+        {tab.key === "cost-per-site" && (
+          <CostPerSite rows={await listCostPerSite(firstDay(fromMonth), lastDay(toMonth))} timeZone={timeZone} />
+        )}
+        {tab.key === "missing" && (
+          <>
+            <MissingStock rows={await listMissingStock(firstDay(fromMonth), lastDay(toMonth))} timeZone={timeZone} />
+            <p className="mt-1 text-xs text-muted">Shortfalls found by stock takes of storage areas linked to a technician.</p>
+          </>
+        )}
+        {tab.key === "month-end" && (
+          <MonthEnd
+            period={await getStockPeriod()}
+            canManage={roles.includes("system_admin") || roles.includes("admin")}
+            today={today}
+            timeZone={timeZone}
+          />
         )}
 
         {kind && (

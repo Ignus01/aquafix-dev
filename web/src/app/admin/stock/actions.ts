@@ -590,3 +590,86 @@ export async function deleteSupplierItem(id: string): Promise<ActionResult> {
   if (error) return { error: friendlyError(error) };
   return { error: null };
 }
+
+// --- Minimum levels (MWTS R6) ----------------------------------------------
+// One minimum (and optional reorder qty) per item per storage area, in the
+// item's pack units. Stock below its minimum shows Low in the stock summary
+// and goes in the daily low-stock email.
+
+export type MinLevel = {
+  id: string;
+  item_id: string;
+  storage_area_id: string;
+  min_qty: number;
+  reorder_qty: number | null;
+  updated_at: string;
+  updated_by: string | null;
+};
+
+export async function listMinLevels(): Promise<MinLevel[]> {
+  await requireAnyRole();
+  const supabase = await createClient();
+  const data = await selectAll(() =>
+    supabase
+      .from("stock_min_level")
+      .select("id, item_id, storage_area_id, min_qty, reorder_qty, updated_at, updated_by")
+      .order("id"),
+  );
+  return data as unknown as MinLevel[];
+}
+
+export async function listItemOptions(): Promise<{ value: string; label: string }[]> {
+  await requireAnyRole();
+  const supabase = await createClient();
+  const data = await selectAll(() => supabase.from("item").select("id, name, active").order("name").order("id"));
+  return (data as { id: string; name: string; active: boolean }[])
+    .filter((i) => i.active !== false)
+    .map((i) => ({ value: i.id, label: i.name }));
+}
+
+function minLevelValues(v: Record<string, string>): { row?: Record<string, unknown>; error?: string } {
+  if (!v.item_id) return { error: "Item is required." };
+  if (!v.storage_area_id) return { error: "Storage area is required." };
+  const min = v.min_qty === undefined || v.min_qty.trim() === "" ? NaN : Number(v.min_qty);
+  if (!Number.isFinite(min) || min < 0) return { error: "Minimum must be 0 or more." };
+  const hasReorder = v.reorder_qty !== undefined && v.reorder_qty.trim() !== "";
+  const reorder = hasReorder ? Number(v.reorder_qty) : null;
+  if (hasReorder && !(Number.isFinite(reorder) && (reorder as number) > 0)) return { error: "Reorder qty must be more than 0." };
+  return { row: { item_id: v.item_id, storage_area_id: v.storage_area_id, min_qty: min, reorder_qty: reorder } };
+}
+
+export async function createMinLevel(v: Record<string, string>): Promise<CreateResult> {
+  await requireAnyRole();
+  const { row, error: invalid } = minLevelValues(v);
+  if (invalid || !row) return { error: invalid ?? "Not valid." };
+  const supabase = await createClient();
+  const { data, error } = await supabase.from("stock_min_level").insert(row).select("id").single();
+  if (error) return { error: friendlyError(error) };
+  revalidatePath(PATH);
+  revalidatePath("/admin/stock-manager");
+  return { error: null, id: data.id };
+}
+
+export async function updateMinLevel(id: string, v: Record<string, string>): Promise<ActionResult> {
+  await requireAnyRole();
+  const { row, error: invalid } = minLevelValues(v);
+  if (invalid || !row) return { error: invalid ?? "Not valid." };
+  const supabase = await createClient();
+  const { data, error } = await supabase.from("stock_min_level").update(row).eq("id", id).select("id");
+  if (error) return { error: friendlyError(error) };
+  if (!data || data.length === 0) return { error: "You don't have permission to change this." };
+  revalidatePath(PATH);
+  revalidatePath("/admin/stock-manager");
+  return { error: null };
+}
+
+export async function deleteMinLevel(id: string): Promise<ActionResult> {
+  await requireAnyRole();
+  const supabase = await createClient();
+  const { data, error } = await supabase.from("stock_min_level").delete().eq("id", id).select("id");
+  if (error) return { error: friendlyError(error) };
+  if (!data || data.length === 0) return { error: "You don't have permission to delete this." };
+  revalidatePath(PATH);
+  revalidatePath("/admin/stock-manager");
+  return { error: null };
+}

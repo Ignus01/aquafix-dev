@@ -67,8 +67,10 @@ select throws_like($$ update public.work_order_item set qty = 6 where id = 'e300
   'Stock up to the end of % is closed%', 'usage in a closed month can''t be edited');
 select throws_like($$ delete from public.work_order where id = 'e2000000-0000-0000-c105-000000000001' $$,
   'Stock up to the end of % is closed%', 'usage in a closed month can''t be deleted');
+insert into public.work_order (id, storage_area_id, location_id, order_date) values
+  ('e2000000-0000-0000-c105-000000000003', 'c8000000-0000-0000-c105-000000000001', 'c6000000-0000-0000-c105-000000000001', pg_temp.last_month(20));
 select throws_like($$ insert into public.work_order_item (work_order_id, item_id, qty, transaction_date) values
-  ('e2000000-0000-0000-c105-000000000001', 'c7000000-0000-0000-c105-000000000001', 1, pg_temp.last_month(20)) $$,
+  ('e2000000-0000-0000-c105-000000000003', 'c7000000-0000-0000-c105-000000000001', 1, pg_temp.last_month(20)) $$,
   'Stock up to the end of % is closed%', 'new usage dated in a closed month is refused');
 select throws_like($$ update public.stock_take_item set unit_cost_exc_vat = 210 where id = 'e1000000-0000-0000-c105-000000000001' $$,
   'Stock up to the end of % is closed%', 'the price behind closed figures can''t change');
@@ -139,7 +141,7 @@ select is(public.queue_low_stock_alerts(), 2, 'one email per person');
 select is(public.queue_low_stock_alerts(), 0, 'running again the same day queues nothing more');
 select is((select recipient_email from public.email_outbox where template = 'low-stock' order by recipient_email limit 1),
           'c-admin@example.test', 'addresses lower-cased');
-select is((select payload -> 'lines' -> 0 ->> 'item' from public.email_outbox where template = 'low-stock' limit 1), 'C Salt 25', 'the low item is listed');
+select is((select payload -> 'lines' -> 0 ->> 'item' from public.email_outbox where template = 'low-stock' limit 1), 'C SALT 25', 'the low item is listed');
 select is((select payload -> 'lines' -> 0 ->> 'qty' from public.email_outbox where template = 'low-stock' limit 1), '17', 'with what is on hand');
 select is((select payload -> 'lines' -> 0 ->> 'min_qty' from public.email_outbox where template = 'low-stock' limit 1), '20', 'and its minimum');
 

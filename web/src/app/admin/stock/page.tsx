@@ -8,6 +8,8 @@ import {
   listProducts,
   listProductTypes,
   listStorageAreas,
+  listItemOptions,
+  listMinLevels,
   listTechnicians,
   listUnitsOfMeasure,
 } from "./actions";
@@ -17,15 +19,16 @@ export default async function StockPage(props: PageProps<"/admin/stock">) {
   const roles = await requireRole(["system_admin", "admin", "user", "viewer"]);
   const { tab } = await props.searchParams;
 
-  const [[products, packTypes, productTypes, storageAreas, unitsOfMeasure], locations, organisations, timeZone, technicians] =
+  const [[products, packTypes, productTypes, storageAreas, unitsOfMeasure, minLevels], locations, organisations, timeZone, technicians, itemOptions] =
     await Promise.all([
-      Promise.all([listProducts(), listPackTypes(), listProductTypes(), listStorageAreas(), listUnitsOfMeasure()]).then(
+      Promise.all([listProducts(), listPackTypes(), listProductTypes(), listStorageAreas(), listUnitsOfMeasure(), listMinLevels()]).then(
         (lists) => withChanged(...lists),
       ),
       listLocations(),
       listOrganisations(),
       getAppTimeZone(),
       listTechnicians(),
+      listItemOptions(),
     ]);
 
   return (
@@ -41,6 +44,8 @@ export default async function StockPage(props: PageProps<"/admin/stock">) {
         locations={locations}
         organisations={organisations}
         technicians={technicians}
+        minLevels={minLevels}
+        itemOptions={itemOptions}
         timeZone={timeZone}
         initialTab={typeof tab === "string" ? tab : undefined}
       />

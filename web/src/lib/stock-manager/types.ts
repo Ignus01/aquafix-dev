@@ -32,6 +32,9 @@ export type StockRow = {
   base_uom: string;
   // The earliest expiry of the batches still there.
   next_expiry: string | null;
+  // Minimum level set for this item here (MWTS R6); low when on hand < min.
+  min_qty: number | null;
+  is_low: boolean;
 };
 
 export type LedgerRow = {

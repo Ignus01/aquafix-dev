@@ -33,6 +33,7 @@ const UNIQUE_MESSAGES: Record<string, string> = {
   uom_conversion_from_to_key: "A conversion between those two units already exists.",
   // Stock manager: one line per item on a document.
   transfer_item_once: "That item is already on this transfer. Edit its line instead.",
+  stock_min_level_once: "This item already has a minimum in that storage area. Edit that one instead.",
   work_order_item_once: "That item is already on this stock usage record. Edit its line instead.",
   stock_take_item_once: "That item has already been counted on this stock take. Edit its line instead.",
   intake_item_po_line_once: "That purchase order line is already on this intake. Edit its line instead.",
@@ -40,6 +41,9 @@ const UNIQUE_MESSAGES: Record<string, string> = {
 
 // Check constraints with a message that says which value is wrong.
 const CHECK_MESSAGES: Record<string, string> = {
+  stock_take_item_unit_cost_check: "Unit price can't be negative.",
+  stock_min_level_min_check: "Minimum must be 0 or more.",
+  stock_min_level_reorder_check: "Reorder qty must be more than 0.",
   purchase_order_item_qty_positive: "Qty ordered must be greater than 0.",
   purchase_order_item_cost_positive: "Unit cost can't be negative.",
   intake_item_qty_positive: "Qty received must be greater than 0.",

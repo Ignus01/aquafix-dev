@@ -105,11 +105,14 @@ export function SettingsView({
   emailLog,
   audit,
   odataConfigured,
+  stockAlerts,
 }: {
   settings: SystemSettings;
   emailLog: EmailLogRow[];
   audit: SettingsAuditRow[];
   odataConfigured: boolean;
+  // The low-stock email list (its own section, below Stock).
+  stockAlerts?: React.ReactNode;
 }) {
   const tz = settings.time_zone;
   const [form, setForm] = useState<SettingsForm>({
@@ -428,6 +431,8 @@ export function SettingsView({
           </button>
         </div>
       </section>
+
+      {stockAlerts}
 
       <HydrusPassword settings={settings} />
 
