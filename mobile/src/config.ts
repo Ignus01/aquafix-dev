@@ -16,6 +16,7 @@ export const APP_VERSION: string = Constants.expoConfig?.version ?? "0.0.0";
 
 export const INSPECTION_BUCKET = "inspection-images";
 export const INCIDENT_BUCKET = "incident-images";
+export const STOCK_DOCUMENT_BUCKET = "stock-documents";
 
 export function missingConfig(): string[] {
   const missing: string[] = [];

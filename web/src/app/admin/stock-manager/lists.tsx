@@ -12,7 +12,7 @@ import {
   type DocKind,
   type Options,
 } from "@/lib/stock-manager/docs";
-import type { DocRow, LedgerRow, StockRow } from "@/lib/stock-manager/types";
+import type { BatchSource, DocRow, LedgerRowWithSite, StockRow } from "@/lib/stock-manager/types";
 import { changedByOptions, changedColumns, Dash, type Changed, type GridColumn } from "../grid/columns";
 import { Grid } from "../grid/grid";
 import type { RowMenuItem } from "../grid/row-menu";
@@ -40,6 +40,18 @@ const stockGrid: GridSpec = {
     { key: "area", label: "Storage area", filter: "choice" },
     { key: "qty", label: "On hand (packs)", filter: "number" },
     { key: "base", label: "On hand (default unit)", filter: "number" },
+    { key: "min", label: "Minimum", filter: "number" },
+    {
+      key: "level",
+      label: "Level",
+      filter: "choice",
+      options: [
+        { value: "low", label: "Low" },
+        { value: "ok", label: "OK" },
+        { value: "none", label: "No minimum" },
+      ],
+    },
+    { key: "expiry", label: "Next expiry", filter: "date" },
   ],
   defaultSort: { key: "item", desc: false },
   changedException: "Stock on hand is a sum of the ledger, not a record anyone edits.",
@@ -62,6 +74,31 @@ export function StockSummary({ rows, options, timeZone }: { rows: StockRow[]; op
       value: (r) => r.qty,
     },
     { key: "base", align: "right", render: (r) => `${formatQty(r.base_qty)} ${r.base_uom}`, value: (r) => r.base_qty },
+    { key: "min", align: "right", render: (r) => (r.min_qty === null ? <Dash /> : formatQty(r.min_qty)), value: (r) => r.min_qty },
+    {
+      key: "level",
+      render: (r) =>
+        r.is_low ? (
+          <span className="inline-flex items-center rounded-full bg-danger-bg px-2.5 py-0.5 text-xs font-semibold text-danger">Low</span>
+        ) : r.min_qty === null ? (
+          <Dash />
+        ) : (
+          <span className="text-xs text-muted">OK</span>
+        ),
+      value: (r) => (r.is_low ? "low" : r.min_qty === null ? "none" : "ok"),
+    },
+    {
+      key: "expiry",
+      render: (r) =>
+        r.next_expiry ? (
+          <span className={r.next_expiry < new Date().toISOString().slice(0, 10) ? "font-semibold text-danger" : undefined}>
+            {formatDate(r.next_expiry, timeZone)}
+          </span>
+        ) : (
+          <Dash />
+        ),
+      value: (r) => r.next_expiry,
+    },
   ];
   return (
     <Grid
@@ -91,15 +128,18 @@ const transactionsGrid: GridSpec = {
     { key: "type", label: "Type", filter: "choice", options: toOptions(TRANSACTION_TYPE_LABELS) },
     { key: "item", label: "Item", filter: "choice" },
     { key: "area", label: "Storage area", filter: "choice" },
+    { key: "site", label: "Site", filter: "choice" },
     { key: "qty", label: "Qty", filter: "number" },
-    { key: "base", label: "Qty (default unit)", filter: "number" },
+    { key: "base", label: "Qty (default unit)", filter: "number", hideable: true },
+    { key: "from", label: "Came from", filter: "text" },
+    { key: "value", label: "Value exc. VAT", filter: "number" },
   ],
   defaultSort: { key: "date", desc: true },
   changedException: "Ledger rows are written once when a document posts and never change.",
 };
 
-export function Transactions({ rows, options, timeZone }: { rows: LedgerRow[]; options: Options; timeZone: string }) {
-  const columns: GridColumn<LedgerRow>[] = [
+export function Transactions({ rows, options, timeZone }: { rows: LedgerRowWithSite[]; options: Options; timeZone: string }) {
+  const columns: GridColumn<LedgerRowWithSite>[] = [
     { key: "reference", render: (r) => r.reference, value: (r) => r.reference },
     {
       key: "date",
@@ -125,6 +165,20 @@ export function Transactions({ rows, options, timeZone }: { rows: LedgerRow[]; o
       sortValue: (r) => labelOf(options, "storageAreas", r.storage_area_id),
     },
     {
+      // Work-order usage and returns: the work order's site (MWTS spec R4).
+      key: "site",
+      render: (r) =>
+        r.location_id ? (
+          <Link href={`/admin/stock-manager/work-orders/${r.work_order_reference}`} className="text-primary hover:text-primary-hover">
+            {labelOf(options, "sites", r.location_id)}
+          </Link>
+        ) : (
+          <Dash />
+        ),
+      value: (r) => r.location_id,
+      sortValue: (r) => (r.location_id ? labelOf(options, "sites", r.location_id) : null),
+    },
+    {
       key: "qty",
       align: "right",
       render: (r) => (
@@ -136,6 +190,30 @@ export function Transactions({ rows, options, timeZone }: { rows: LedgerRow[]; o
       value: (r) => r.qty,
     },
     { key: "base", align: "right", render: (r) => formatQty(r.base_qty), value: (r) => r.base_qty },
+    {
+      // The batches this movement took or brought, oldest batch first.
+      key: "from",
+      render: (r) =>
+        r.sources.length === 0 ? (
+          <Dash />
+        ) : (
+          <span className="flex flex-col gap-0.5">
+            {r.sources.map((s, i) => (
+              <span key={i} className="whitespace-nowrap">
+                {sourceLabel(s)}
+                {r.sources.length > 1 && <span className="text-muted"> × {formatQty(Math.abs(s.qty))}</span>}
+              </span>
+            ))}
+          </span>
+        ),
+      value: (r) => r.sources.map(sourceLabel),
+    },
+    {
+      key: "value",
+      align: "right",
+      render: (r) => (r.value === null ? <Dash /> : formatMoney(r.value)),
+      value: (r) => r.value,
+    },
   ];
   return (
     <Grid
@@ -147,10 +225,23 @@ export function Transactions({ rows, options, timeZone }: { rows: LedgerRow[]; o
       title="Movements"
       timeZone={timeZone}
       rowLabel={(r) => `movement ${r.reference}`}
-      options={{ item: options.items, area: options.storageAreas }}
+      options={{ item: options.items, area: options.storageAreas, site: options.sites }}
       emptyLabel="No stock movements."
     />
   );
+}
+
+// "PO-00004 · batch B12 · exp 31 Jan 2027"; stock with no receipt says why.
+export function sourceLabel(s: BatchSource): string {
+  const origin =
+    s.purchase_order_reference !== null
+      ? docNumber("purchase-orders", s.purchase_order_reference)
+      : s.source === "ADJUSTMENT"
+        ? "Stock-take surplus"
+        : s.source === "RETURN"
+          ? "Returned to stock"
+          : "Untraced";
+  return [origin, s.batch_number && `batch ${s.batch_number}`, s.expiry_date && `exp ${s.expiry_date}`].filter(Boolean).join(" · ");
 }
 
 type Doc = DocRow & Changed;
@@ -214,6 +305,14 @@ export function DocList({
     },
   };
   const area = (key: string, label: string) => lookup(key, label, "storageAreas");
+  const createdBy: DocCol = {
+    field: { key: "created_by_name", label: "Created by", filter: "text" },
+    column: {
+      key: "created_by_name",
+      render: (r) => (r.created_by_name as string | null) ?? <Dash />,
+      value: (r) => (r.created_by_name as string | null) ?? null,
+    },
+  };
   const supplier = lookup("supplier_id", "Supplier", "suppliers");
 
   const byKind: Record<DocKind, DocCol[]> = {
@@ -225,6 +324,7 @@ export function DocList({
         field: { key: "alias", label: "Alias", filter: "text" },
         column: { key: "alias", render: (r) => (r.order_alias as string) || <Dash />, value: (r) => r.order_alias as string | null },
       },
+      lookup("collector_user_id", "Collector", "collectors"),
       {
         field: { key: "status", label: "Status", filter: "choice", options: options.poStatuses },
         column: { key: "status", render: (r) => <PoStatusBadge status={r.status as string} />, value: (r) => r.status as string },
@@ -243,7 +343,15 @@ export function DocList({
         },
       },
     ],
-    loads: [number, date("load_date", "Date", false), comment],
+    loads: [
+      number,
+      date("load_date", "Date", false),
+      {
+        field: { key: "driver", label: "Driver", filter: "text" },
+        column: { key: "driver", render: (r) => (r.driver as string) || <Dash />, value: (r) => r.driver as string | null },
+      },
+      comment,
+    ],
     intakes: [
       number,
       {
@@ -261,8 +369,17 @@ export function DocList({
           value: (r) => (r.load as { reference: number }).reference,
         },
       },
+      date("intake_date", "Date", true),
       area("storage_area_id", "Storage area"),
       supplier,
+      {
+        field: { key: "delivery_note", label: "Delivery note", filter: "text", hideable: true },
+        column: { key: "delivery_note", render: (r) => (r.delivery_note as string) || <Dash />, value: (r) => r.delivery_note as string | null },
+      },
+      {
+        field: { key: "invoice_number", label: "Invoice", filter: "text", hideable: true },
+        column: { key: "invoice_number", render: (r) => (r.invoice_number as string) || <Dash />, value: (r) => r.invoice_number as string | null },
+      },
     ],
     transfers: [
       number,
@@ -278,7 +395,14 @@ export function DocList({
       area("from_storage_area_id", "From"),
       area("to_storage_area_id", "To"),
     ],
-    "work-orders": [number, date("order_date", "Date", true), area("storage_area_id", "Storage area"), comment],
+    "work-orders": [
+      number,
+      date("order_date", "Date", true),
+      lookup("location_id", "Site", "sites"),
+      area("storage_area_id", "Storage area"),
+      createdBy,
+      comment,
+    ],
     "stock-takes": [number, date("take_date", "Date", true), area("storage_area_id", "Storage area"), comment],
   };
 
@@ -306,6 +430,8 @@ export function DocList({
         storage_area_id: options.storageAreas,
         from_storage_area_id: options.storageAreas,
         to_storage_area_id: options.storageAreas,
+        location_id: options.sites,
+        collector_user_id: options.collectors,
         changed_by: changedByOptions(rows),
       }}
       emptyLabel={`No ${cfg.plural.toLowerCase()} yet.`}

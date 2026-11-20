@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { getAppTimeZone, listLocationAssets } from "../../../../admin/inspections/actions";
+import { RememberSite } from "../../../last-site";
 import { Header } from "../../../ui";
 import { AssetPicker } from "./asset-picker";
 
@@ -14,6 +15,7 @@ export default async function SelectAssetPage(props: PageProps<"/m/inspections/n
   return (
     <>
       <Header title="New Inspection" backHref="/m/inspections/new" />
+      <RememberSite locationId={locationId} />
       <AssetPicker
         location={location}
         assets={assets}

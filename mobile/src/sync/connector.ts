@@ -47,6 +47,9 @@ async function callRpc(cmd: Command): Promise<Outcome> {
       case "save_stock_document":
         response = await supabase.rpc("save_stock_document", { p_doc: cmd.payload });
         break;
+      case "receive_purchase_order":
+        response = await supabase.rpc("receive_purchase_order", { p: cmd.payload });
+        break;
       case "add_incident_note":
       case "advance_incident_status":
         response = await supabase.rpc(cmd.command, cmd.payload);

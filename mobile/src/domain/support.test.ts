@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { addDays, isoToZonedInput, sevenDayWindowStart, shortDate, startOfTodayIso, zonedInputToIso } from "./dates";
-import { canDoc } from "./permissions";
+import { canDoc, canReceive } from "./permissions";
 import { classifyRpcFailure, isAlreadyUploaded } from "./upload-errors";
 import { compareVersions, isBelowMinimum } from "./version";
 
@@ -68,9 +68,13 @@ describe("dates in the app time zone", () => {
 });
 
 describe("stock rights", () => {
-  it("loads are system_admin only", () => {
-    expect(canDoc(["admin"], "loads", "create")).toBe(false);
+  it("receiving is open to admins and technicians, not viewers (MWTS rollout)", () => {
+    expect(canDoc(["user"], "loads", "create")).toBe(true);
+    expect(canDoc(["admin"], "loads", "create")).toBe(true);
     expect(canDoc(["system_admin"], "loads", "create")).toBe(true);
+    expect(canDoc(["viewer"], "loads", "create")).toBe(false);
+    expect(canReceive(["user"])).toBe(true);
+    expect(canReceive(["viewer"])).toBe(false);
     expect(canDoc(["viewer"], "work-orders", "read")).toBe(true);
     expect(canDoc(["viewer"], "work-orders", "create")).toBe(false);
   });

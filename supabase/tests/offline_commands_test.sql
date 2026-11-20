@@ -571,9 +571,9 @@ select throws_like(
       'from_storage_area_id', 'c8000000-0000-0000-0ff1-000000000001'),
     'lines', jsonb_build_array(jsonb_build_object('item_id', 'c7000000-0000-0000-0ff1-000000000001', 'qty', 1000))))$$,
   'Not enough stock:%', 'stock: negative stock is raised by the call itself');
-select throws_ok(
+select lives_ok(
   $$select public.save_stock_document('{"kind": "loads", "header": {"load_date": "2026-11-01"}, "lines": []}')$$,
-  '42501', 'You don''t have permission to save this document.', 'stock: a user cannot save a load (RLS)');
+  'stock: a user can save a load (receiving opened to users, 20261119120000)');
 
 select pg_temp.as_user(3);
 select throws_ok(
@@ -586,7 +586,7 @@ select throws_ok(
     "lines": [{"item_id": "c7000000-0000-0000-0ff1-000000000001", "qty": 1}]}')$$,
   '42501', 'You don''t have permission to save this document.', 'stock: a user without a role is refused (RLS)');
 
--- Loads: system_admin.
+-- Loads: system_admin (and, since 20261119120000, admin and user).
 select pg_temp.as_user(4);
 insert into r values ('LD', public.save_stock_document(jsonb_build_object(
   'command_id', 'e0000000-0000-0000-0ff1-000000000034',

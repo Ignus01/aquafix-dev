@@ -18,11 +18,14 @@ export function DocumentsPanel({
   files,
   timeZone,
   canEdit,
+  canDelete,
 }: {
   parent: { kind: "loads" | "intakes"; id: string };
   files: DocFile[];
   timeZone: string;
   canEdit: boolean;
+  // Removing a file stays with the admins (MWTS rollout).
+  canDelete: boolean;
 }) {
   const router = useRouter();
   const input = useRef<HTMLInputElement>(null);
@@ -99,7 +102,7 @@ export function DocumentsPanel({
               <button type="button" onClick={() => download(f.id)} disabled={isPending} className={linkButtonClass}>
                 Download
               </button>
-              {canEdit && (
+              {canDelete && (
                 <button type="button" onClick={() => remove(f)} disabled={isPending} className={dangerLinkButtonClass}>
                   Delete
                 </button>

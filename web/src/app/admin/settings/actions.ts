@@ -281,3 +281,53 @@ export async function resendEmail(logId: number): Promise<ActionResult> {
   revalidate();
   return { error: null };
 }
+
+// --- Stock alert list (MWTS R6) --------------------------------------------
+// Who gets the daily low-stock email.
+
+export type StockAlertPeople = {
+  recipients: { id: string; name: string }[];
+  candidates: { id: string; name: string }[];
+};
+
+export async function listStockAlertPeople(): Promise<StockAlertPeople> {
+  await requireSystemAdmin();
+  const supabase = await createClient();
+  const [{ data: rows, error }, { data: people, error: peopleError }] = await Promise.all([
+    supabase.from("stock_alert_recipient").select("user_id").order("created_at"),
+    supabase.rpc("list_stock_collectors"),
+  ]);
+  if (error) throw error;
+  if (peopleError) throw peopleError;
+  const all = (people ?? []) as { id: string; name: string }[];
+  const ids = ((rows ?? []) as { user_id: string }[]).map((r) => r.user_id);
+  const names = new Map(all.map((p) => [p.id, p.name]));
+  const missing = ids.filter((id) => !names.has(id));
+  if (missing.length > 0) {
+    const { data } = await supabase.rpc("get_user_names", { p_ids: missing });
+    for (const n of (data ?? []) as { id: string; name: string }[]) names.set(n.id, n.name);
+  }
+  return {
+    recipients: ids.map((id) => ({ id, name: names.get(id) ?? "—" })),
+    candidates: all.filter((p) => !ids.includes(p.id)),
+  };
+}
+
+export async function addStockAlertRecipient(userId: string): Promise<ActionResult> {
+  await requireSystemAdmin();
+  if (!userId) return { error: "Choose a person." };
+  const supabase = await createClient();
+  const { error } = await supabase.from("stock_alert_recipient").insert({ user_id: userId });
+  if (error) return { error: error.code === "23505" ? "That person is already on the list." : friendlyError(error) };
+  revalidatePath("/admin/settings");
+  return { error: null };
+}
+
+export async function removeStockAlertRecipient(userId: string): Promise<ActionResult> {
+  await requireSystemAdmin();
+  const supabase = await createClient();
+  const { error } = await supabase.from("stock_alert_recipient").delete().eq("user_id", userId);
+  if (error) return { error: friendlyError(error) };
+  revalidatePath("/admin/settings");
+  return { error: null };
+}

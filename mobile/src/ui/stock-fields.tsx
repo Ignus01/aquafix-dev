@@ -8,19 +8,70 @@ import { DateTimeField } from "./date-field";
 import { ErrorLine, Input, Label, SelectField } from "./components";
 import { colors } from "./theme";
 
-export type Options = Record<OptionsKey, { value: string; label: string }[]>;
+export type Option = { value: string; label: string; locationId?: string | null; technicianUserId?: string | null };
+export type OnHandRow = { item_id: string; storage_area_id: string; qty: number };
+
+// Stock on hand per item and storage area (synced, and moved by each Save).
+export function useOnHand(): OnHandRow[] {
+  const { data } = useQuery<OnHandRow>("SELECT item_id, storage_area_id, qty FROM storage_area_stock WHERE qty != 0");
+  return data;
+}
+
+// The signed-in technician's kit, if they have one.
+export function useMyKit(userId: string): string | null {
+  const { data } = useQuery<{ id: string }>("SELECT id FROM storage_area WHERE technician_user_id = ? AND active = 1", [userId]);
+  return data[0]?.id ?? null;
+}
+export type Options = Record<OptionsKey, Option[]>;
+
+const SERVICE_TYPE_LABELS: Record<string, string> = { scheduled_maintenance: "Scheduled maintenance", repair: "Repair" };
 
 // Forms offer active storage areas and items; lists and views name any.
 export function useStockOptions(activeOnly: boolean): Options {
   const where = activeOnly ? "WHERE active = 1" : "";
-  const { data: areas } = useQuery<{ id: string; name: string; code: string | null }>(
-    `SELECT id, name, code FROM storage_area ${where} ORDER BY name COLLATE NOCASE`,
+  // A technician's kit is named after the technician and listed first, so a
+  // transfer reads as "to Jonifas"; general storage areas follow.
+  const { data: areas } = useQuery<{ id: string; name: string; code: string | null; technician_user_id: string | null; technician: string | null }>(
+    `SELECT sa.id, sa.name, sa.code, sa.technician_user_id, nullif(trim(p.username), '') AS technician
+       FROM storage_area sa LEFT JOIN profiles p ON p.id = sa.technician_user_id
+       ${activeOnly ? "WHERE sa.active = 1" : ""}
+      ORDER BY sa.technician_user_id IS NULL, coalesce(nullif(trim(p.username), ''), sa.name) COLLATE NOCASE, sa.name COLLATE NOCASE`,
   );
   const { data: items } = useQuery<{ id: string; name: string; code: string | null }>(`SELECT id, name, code FROM item ${where} ORDER BY name COLLATE NOCASE`);
+  const { data: sites } = useQuery<{ id: string; name: string }>(`SELECT id, name FROM location ${where} ORDER BY name COLLATE NOCASE`);
+  // Open services and incidents (the only ones the phone has), by site.
+  const { data: services } = useQuery<{ id: string; service_type: string; due_date: string; asset_name: string | null; location_id: string | null }>(
+    `SELECT s.id, s.service_type, s.due_date, a.name AS asset_name, a.location_id
+       FROM service s LEFT JOIN asset a ON a.id = s.asset_id
+      WHERE s.is_completed = 0 ORDER BY s.due_date`,
+  );
+  const { data: incidents } = useQuery<{ id: string; reference: number | null; comment: string | null; location_id: string | null; type_name: string | null }>(
+    `SELECT i.id, i.reference, i.comment, i.location_id, t.name AS type_name
+       FROM incident i LEFT JOIN incident_type t ON t.id = i.incident_type_id
+      WHERE i.status != 'completed' ORDER BY i.incident_date DESC`,
+  );
   return {
-    storageAreas: areas.map((a) => ({ value: a.id, label: a.code ? `${a.name} (${a.code})` : a.name })),
+    storageAreas: areas.map((a) => ({
+      value: a.id,
+      label: a.technician ? `${a.technician} (${a.name})` : a.code ? `${a.name} (${a.code})` : a.name,
+      technicianUserId: a.technician_user_id,
+    })),
     items: items.map((i) => ({ value: i.id, label: i.code ? `${i.name} — ${i.code}` : i.name })),
     transferTypes: Object.entries(TRANSFER_TYPE_LABELS).map(([value, label]) => ({ value, label })),
+    sites: sites.map((l) => ({ value: l.id, label: l.name })),
+    services: services.map((s) => ({
+      value: s.id,
+      label: `${s.asset_name ?? "—"} · ${SERVICE_TYPE_LABELS[s.service_type] ?? s.service_type} · due ${String(s.due_date).slice(0, 10)}`,
+      locationId: s.location_id,
+    })),
+    incidents: incidents.map((i) => {
+      const comment = i.comment ?? "";
+      return {
+        value: i.id,
+        label: `${i.reference ? `#${i.reference}` : "New"} · ${i.type_name ?? "Incident"} · ${comment.length > 40 ? `${comment.slice(0, 40)}…` : comment}`,
+        locationId: i.location_id,
+      };
+    }),
   };
 }
 

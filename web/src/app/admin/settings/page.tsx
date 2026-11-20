@@ -1,8 +1,9 @@
 import { requireRole } from "@/lib/auth";
 import { odataConfigured } from "@/lib/odata/client";
 import { PageHeader } from "../page-header";
-import { getSettings, listEmailLog, listSettingsAudit } from "./actions";
+import { getSettings, listEmailLog, listSettingsAudit, listStockAlertPeople } from "./actions";
 import { SettingsView } from "./settings-view";
+import { StockAlerts } from "./stock-alerts";
 
 // The data migration server action runs under this route's time limit.
 export const maxDuration = 300;
@@ -12,16 +13,23 @@ export const maxDuration = 300;
 export default async function SettingsPage() {
   await requireRole(["system_admin"]);
   const odataReady = odataConfigured();
-  const [settings, emailLog, audit] = await Promise.all([
+  const [settings, emailLog, audit, stockAlertPeople] = await Promise.all([
     getSettings(),
     listEmailLog(),
     listSettingsAudit(),
+    listStockAlertPeople(),
   ]);
 
   return (
     <div className="flex flex-1 flex-col">
       <PageHeader breadcrumb="Admin / System Settings" title="System Settings" />
-      <SettingsView settings={settings} emailLog={emailLog} audit={audit} odataConfigured={odataReady} />
+      <SettingsView
+        settings={settings}
+        emailLog={emailLog}
+        audit={audit}
+        odataConfigured={odataReady}
+        stockAlerts={<StockAlerts people={stockAlertPeople} emailEnabled={settings.email_enabled} />}
+      />
     </div>
   );
 }

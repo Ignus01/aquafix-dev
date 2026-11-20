@@ -7,7 +7,9 @@ import { requireRole } from "@/lib/auth";
 import { friendlyError } from "@/lib/db-errors";
 import { todayInZone } from "@/lib/inspections/dates";
 import { STOCK_READERS, STOCK_DOC_RIGHTS } from "@/lib/stock-manager/permissions";
+import { SERVICE_TYPE_LABELS, type ServiceType } from "@/lib/services/types";
 import {
+  COLLECT_FROM_LABELS,
   DOC_CONFIG,
   PO_STATUS_LABELS,
   TRANSFER_TYPE_LABELS,
@@ -17,10 +19,14 @@ import {
   type Options,
 } from "@/lib/stock-manager/docs";
 import type {
+  CollectableOrder,
   DocData,
   DocFile,
   DocRow,
   LedgerRow,
+  LedgerRowWithSite,
+  PoTraceRow,
+  Receipt,
   StockRow,
 } from "@/lib/stock-manager/types";
 
@@ -49,30 +55,52 @@ async function requireKind(kind: string, action: "read" | "create" | "update" | 
 export async function getOptions(): Promise<Options> {
   await requireRole(STOCK_READERS);
   const supabase = await createClient();
-  const [suppliers, areas, items, pos] = await Promise.all([
+  const [suppliers, areas, items, pos, collectors, sites, services, incidents] = await Promise.all([
     supabase.from("organisation").select("id, name, active").eq("is_supplier", true).order("name"),
-    supabase.from("storage_area").select("id, code, name, active, location:location_id(transfer_type)").order("name"),
+    supabase.from("storage_area").select("id, code, name, active, technician_user_id, location:location_id(transfer_type)").order("name"),
     supabase.from("item").select("id, name, code, active").order("name"),
     supabase
       .from("purchase_order")
       .select("id, reference, status, supplier:supplier_id(name)")
       .order("reference", { ascending: false })
       .limit(500),
+    supabase.rpc("list_stock_collectors"),
+    supabase.from("location").select("id, name, active").order("name"),
+    // Open services and incidents, for linking a work order to one (R4).
+    supabase
+      .from("service")
+      .select("id, reference, service_type, due_date, asset:asset_id(name, location_id)")
+      .eq("is_completed", false)
+      .order("due_date")
+      .limit(1000),
+    supabase
+      .from("incident")
+      .select("id, reference, comment, location_id, type:incident_type_id(name)")
+      .neq("status", "completed")
+      .order("reference", { ascending: false })
+      .limit(1000),
   ]);
-  for (const r of [suppliers, areas, items, pos]) if (r.error) throw r.error;
+  for (const r of [suppliers, areas, items, pos, collectors, sites, services, incidents]) if (r.error) throw r.error;
+  const collectorName = new Map(((collectors.data ?? []) as { id: string; name: string }[]).map((u) => [u.id, u.name]));
 
   return {
     // Inactive records stay in the lists so documents that use them still show
     // their names; the forms only offer the active ones (Mendix: [Active]).
     suppliers: (suppliers.data ?? []).map((o) => ({ value: o.id, label: o.name, inactive: !o.active })),
-    storageAreas: ((areas.data ?? []) as unknown as { id: string; code: string; name: string; active: boolean; location: { transfer_type: "AUTO" | "MANUAL" } | null }[]).map(
-      (a) => ({
-        value: a.id,
-        label: `${a.name} (${a.code})`,
-        inactive: !a.active,
-        transferType: a.location?.transfer_type,
-      }),
-    ),
+    // A technician's kit is named after the technician and listed first, so a
+    // transfer reads as "to Jonifas"; general storage areas follow.
+    storageAreas: ((areas.data ?? []) as unknown as { id: string; code: string; name: string; active: boolean; technician_user_id: string | null; location: { transfer_type: "AUTO" | "MANUAL" } | null }[])
+      .map((a) => {
+        const technician = a.technician_user_id ? collectorName.get(a.technician_user_id) : undefined;
+        return {
+          value: a.id,
+          label: technician ? `${technician} (${a.name})` : `${a.name} (${a.code})`,
+          inactive: !a.active,
+          transferType: a.location?.transfer_type,
+          technicianUserId: a.technician_user_id,
+        };
+      })
+      .sort((x, y) => Number(!x.technicianUserId) - Number(!y.technicianUserId) || x.label.localeCompare(y.label)),
     items: (items.data ?? []).map((i) => ({
       value: i.id,
       label: i.code ? `${i.name} — ${i.code}` : i.name,
@@ -88,6 +116,23 @@ export async function getOptions(): Promise<Options> {
     ),
     transferTypes: Object.entries(TRANSFER_TYPE_LABELS).map(([value, label]) => ({ value, label })),
     poStatuses: Object.entries(PO_STATUS_LABELS).map(([value, label]) => ({ value, label })),
+    collectors: ((collectors.data ?? []) as { id: string; name: string }[]).map((u) => ({ value: u.id, label: u.name })),
+    collectFrom: Object.entries(COLLECT_FROM_LABELS).map(([value, label]) => ({ value, label })),
+    sites: (sites.data ?? []).map((l) => ({ value: l.id, label: l.name, inactive: !l.active })),
+    services: ((services.data ?? []) as unknown as { id: string; reference: number; service_type: ServiceType; due_date: string; asset: { name: string; location_id: string } | null }[]).map(
+      (sv) => ({
+        value: sv.id,
+        label: `${sv.asset?.name ?? "—"} · ${SERVICE_TYPE_LABELS[sv.service_type] ?? sv.service_type} · due ${sv.due_date.slice(0, 10)}`,
+        locationId: sv.asset?.location_id,
+      }),
+    ),
+    incidents: ((incidents.data ?? []) as unknown as { id: string; reference: number; comment: string; location_id: string; type: { name: string } | null }[]).map(
+      (i) => ({
+        value: i.id,
+        label: `#${i.reference} · ${i.type?.name ?? "Incident"} · ${i.comment.length > 40 ? `${i.comment.slice(0, 40)}…` : i.comment}`,
+        locationId: i.location_id,
+      }),
+    ),
   };
 }
 
@@ -101,7 +146,16 @@ export async function listDocuments(kind: DocKind): Promise<DocRow[]> {
     .order("reference", { ascending: false })
     .limit(500);
   if (error) throw error;
-  return data as unknown as DocRow[];
+  const rows = data as unknown as DocRow[];
+  // Who made each document ("Created by" in the lists and exports).
+  const ids = [...new Set(rows.map((r) => r.created_by as string | null).filter((v): v is string => !!v))];
+  if (ids.length > 0) {
+    const { data: names, error: namesError } = await supabase.rpc("get_user_names", { p_ids: ids });
+    if (namesError) throw namesError;
+    const byId = new Map(((names ?? []) as { id: string; name: string }[]).map((n) => [n.id, n.name]));
+    for (const r of rows) r.created_by_name = r.created_by ? (byId.get(r.created_by as string) ?? null) : null;
+  }
+  return rows;
 }
 
 async function listFiles(column: "load_id" | "intake_id", id: string): Promise<DocFile[]> {
@@ -172,7 +226,7 @@ export async function getDocument(kind: DocKind, reference: number): Promise<Doc
 export async function listStock(): Promise<StockRow[]> {
   await requireRole(STOCK_READERS);
   const supabase = await createClient();
-  const [stock, items, areas] = await Promise.all([
+  const [stock, items, areas, expiries, mins] = await Promise.all([
     selectAll(() =>
       supabase
         .from("storage_area_item_stock")
@@ -182,11 +236,23 @@ export async function listStock(): Promise<StockRow[]> {
     ),
     selectAll(() => supabase.from("item").select("id, name, code, product:product_id(uom:uom_id(code))").order("id")),
     selectAll(() => supabase.from("storage_area").select("id, name, code").order("id")),
+    selectAll(() => supabase.from("storage_area_stock").select("item_id, storage_area_id, next_expiry").not("next_expiry", "is", null).order("id")),
+    selectAll(() => supabase.from("stock_min_level").select("item_id, storage_area_id, min_qty").order("id")),
   ]);
+  const expiry = new Map(expiries.map((e) => [`${e.item_id}:${e.storage_area_id}`, e.next_expiry as string]));
 
   const itemById = new Map((items as unknown as { id: string; name: string; code: string | null; product: { uom: { code: string } | null } | null }[]).map((i) => [i.id, i]));
   const areaById = new Map(areas.map((a) => [a.id, a]));
-  return stock
+  const minByKey = new Map(mins.map((m) => [`${m.item_id}:${m.storage_area_id}`, Number(m.min_qty)]));
+  // A minimum where nothing has ever been held still shows (on hand 0).
+  const held = new Set(stock.map((s) => `${s.item_id}:${s.storage_area_id}`));
+  const rows = [
+    ...stock,
+    ...mins
+      .filter((m) => !held.has(`${m.item_id}:${m.storage_area_id}`))
+      .map((m) => ({ item_id: m.item_id, storage_area_id: m.storage_area_id, qty: 0, base_qty: 0 })),
+  ];
+  return rows
     .map((s) => {
       const item = itemById.get(s.item_id);
       const area = areaById.get(s.storage_area_id);
@@ -199,18 +265,23 @@ export async function listStock(): Promise<StockRow[]> {
         qty: Number(s.qty),
         base_qty: Number(s.base_qty),
         base_uom: item?.product?.uom?.code ?? "",
+        next_expiry: expiry.get(`${s.item_id}:${s.storage_area_id}`) ?? null,
+        min_qty: minByKey.get(`${s.item_id}:${s.storage_area_id}`) ?? null,
+        is_low: minByKey.has(`${s.item_id}:${s.storage_area_id}`) && Number(s.qty) < (minByKey.get(`${s.item_id}:${s.storage_area_id}`) ?? 0),
       };
     })
     .sort((a, b) => a.item_name.localeCompare(b.item_name) || a.storage_area_name.localeCompare(b.storage_area_name));
 }
 
 // The ledger itself, newest first. Spec: "no per-item stock ledger page".
-export async function listTransactions(filter: { item?: string; area?: string }): Promise<LedgerRow[]> {
+export async function listTransactions(filter: { item?: string; area?: string }): Promise<LedgerRowWithSite[]> {
   await requireRole(STOCK_READERS);
   const supabase = await createClient();
   let q = supabase
     .from("item_transaction")
-    .select("id, reference, transaction_type, qty, base_qty, transaction_date, item_id, storage_area_id")
+    .select(
+      "id, reference, transaction_type, qty, base_qty, transaction_date, item_id, storage_area_id, work_order_item:work_order_item_id(work_order:work_order_id(reference, location_id)), allocations:stock_allocation(qty, lot:lot_id(source, batch_number, expiry_date, unit_cost_exc_vat, po_item:purchase_order_item_id(purchase_order:purchase_order_id(reference))))",
+    )
     .order("transaction_date", { ascending: false })
     .order("reference", { ascending: false })
     .limit(300);
@@ -218,7 +289,37 @@ export async function listTransactions(filter: { item?: string; area?: string })
   if (filter.area) q = q.eq("storage_area_id", filter.area);
   const { data, error } = await q;
   if (error) throw error;
-  return data as LedgerRow[];
+  type Alloc = {
+    qty: number;
+    lot: {
+      source: string;
+      batch_number: string | null;
+      expiry_date: string | null;
+      unit_cost_exc_vat: number | null;
+      po_item: { purchase_order: { reference: number } | null } | null;
+    } | null;
+  };
+  return ((data ?? []) as unknown as (LedgerRow & {
+    work_order_item: { work_order: { reference: number; location_id: string | null } | null } | null;
+    allocations: Alloc[];
+  })[]).map(({ work_order_item, allocations, ...r }) => {
+    const sources = allocations.map((a) => ({
+      purchase_order_reference: a.lot?.po_item?.purchase_order?.reference ?? null,
+      source: a.lot?.source ?? null,
+      batch_number: a.lot?.batch_number ?? null,
+      expiry_date: a.lot?.expiry_date ?? null,
+      qty: Number(a.qty),
+      // Valued at the batch's cost (a PO price correction flows through).
+      value: a.lot?.unit_cost_exc_vat == null ? null : Math.round(Number(a.qty) * Number(a.lot.unit_cost_exc_vat) * 100) / 100,
+    }));
+    return {
+      ...r,
+      location_id: work_order_item?.work_order?.location_id ?? null,
+      work_order_reference: work_order_item?.work_order?.reference ?? null,
+      sources,
+      value: sources.some((x) => x.value === null) ? null : sources.reduce((s, x) => s + (x.value ?? 0), 0),
+    };
+  });
 }
 
 // ============================================================================
@@ -445,12 +546,357 @@ export async function getDocumentFileUrl(fileId: string): Promise<Result & { url
 }
 
 export async function deleteDocumentFile(fileId: string): Promise<Result> {
-  await requireRole(STOCK_DOC_RIGHTS.intakes.update);
+  await requireRole(STOCK_DOC_RIGHTS.intakes.delete);
   const supabase = await createClient();
   const { data, error } = await supabase.from("stock_document").delete().eq("id", fileId).select("storage_path");
   if (error) return { error: friendlyError(error) };
   if (!data || data.length === 0) return { error: "You don't have permission to delete this file." };
   await supabase.storage.from(BUCKET).remove(data.map((f) => f.storage_path));
+  revalidate();
+  return { error: null };
+}
+
+// ============================================================================
+// Receiving a purchase order (MWTS spec R1, R3)
+// ============================================================================
+
+// The intakes of one purchase order, newest first, with what each received.
+export async function listReceipts(purchaseOrderId: string): Promise<Receipt[]> {
+  await requireRole(STOCK_DOC_RIGHTS.intakes.read);
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("intake")
+    .select("id, reference, intake_date, storage_area_id, delivery_note, invoice_number, load:load_id(reference, driver), lines:intake_item(qty)")
+    .eq("purchase_order_id", purchaseOrderId)
+    .order("intake_date", { ascending: false });
+  if (error) throw error;
+  return ((data ?? []) as unknown as {
+    id: string;
+    reference: number;
+    intake_date: string;
+    storage_area_id: string;
+    delivery_note: string | null;
+    invoice_number: string | null;
+    load: { reference: number; driver: string | null } | null;
+    lines: { qty: number }[];
+  }[]).map((r) => ({
+    id: r.id,
+    reference: r.reference,
+    intake_date: r.intake_date,
+    storage_area_id: r.storage_area_id,
+    delivery_note: r.delivery_note,
+    invoice_number: r.invoice_number,
+    load_reference: r.load?.reference ?? null,
+    driver: r.load?.driver ?? null,
+    qty: r.lines.reduce((sum, l) => sum + Number(l.qty), 0),
+  }));
+}
+
+export type ReceiveInput = {
+  purchase_order_id: string;
+  storage_area_id: string;
+  driver?: string;
+  vehicle_reg_nr?: string;
+  delivery_note?: string;
+  invoice_number?: string;
+  comment?: string;
+  lines: { purchase_order_item_id: string; qty: string; batch_number?: string; expiry_date?: string }[];
+  documents?: { name: string; storage_path: string; mime_type: string | null; size_bytes: number }[];
+};
+
+// The signed-in user's name, as the driver of a load they receive.
+export async function getCurrentUserDisplayName(): Promise<string> {
+  await requireRole(STOCK_READERS);
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("current_user_display_name");
+  if (error) throw error;
+  return (data as string | null) ?? "";
+}
+
+// One call makes the load, the PO intake and its lines (receive_purchase_order).
+export async function receivePurchaseOrder(
+  input: ReceiveInput,
+): Promise<Result & { intakeReference?: number; loadReference?: number; status?: string }> {
+  await requireRole(STOCK_DOC_RIGHTS.intakes.create);
+  if (!input.storage_area_id) return { error: "Choose the storage area it goes into." };
+  const lines = [];
+  for (const l of input.lines) {
+    const raw = l.qty.trim().replace(",", ".");
+    const qty = raw === "" ? 0 : Number(raw);
+    if (!Number.isFinite(qty) || qty < 0) return { error: "Each quantity must be a number of 0 or more." };
+    lines.push({
+      purchase_order_item_id: l.purchase_order_item_id,
+      qty,
+      batch_number: l.batch_number?.trim() || null,
+      expiry_date: l.expiry_date?.trim() || null,
+    });
+  }
+  if (!lines.some((l) => l.qty > 0)) return { error: "Enter a quantity for at least one line." };
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("receive_purchase_order", {
+    p: {
+      purchase_order_id: input.purchase_order_id,
+      storage_area_id: input.storage_area_id,
+      driver: input.driver?.trim() || null,
+      vehicle_reg_nr: input.vehicle_reg_nr?.trim() || null,
+      delivery_note: input.delivery_note?.trim() || null,
+      invoice_number: input.invoice_number?.trim() || null,
+      comment: input.comment?.trim() || null,
+      lines,
+      documents: input.documents ?? [],
+    },
+  });
+  if (error) {
+    if (input.documents?.length) await supabase.storage.from(BUCKET).remove(input.documents.map((d) => d.storage_path));
+    return { error: friendlyError(error) };
+  }
+  revalidate();
+  revalidatePath("/m/stock", "layout");
+  const res = data as { intake_reference: number; load_reference: number; purchase_order_status: string };
+  return { error: null, intakeReference: res.intake_reference, loadReference: res.load_reference, status: res.purchase_order_status };
+}
+
+// Phone: open purchase orders this user can collect — assigned to them, or to
+// nobody — with their open lines.
+export async function listCollectable(): Promise<CollectableOrder[]> {
+  await requireRole(STOCK_DOC_RIGHTS.intakes.create);
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return [];
+  const { data, error } = await supabase
+    .from("purchase_order")
+    .select(
+      "id, reference, order_date, order_alias, comment, collector_user_id, collect_from, collect_from_area_id, deliver_to_area_id, supplier:supplier_id(name), lines:purchase_order_item(id, item_id, qty_ordered, qty_received, qty_outstanding, status, created_at)",
+    )
+    .eq("status", "new")
+    .or(`collector_user_id.eq.${user.id},collector_user_id.is.null`)
+    .order("reference");
+  if (error) throw error;
+  return ((data ?? []) as unknown as (Omit<CollectableOrder, "supplier_name" | "assigned_to_me"> & { supplier: { name: string } | null })[]).map(
+    ({ supplier, lines, ...po }) => ({
+      ...po,
+      supplier_name: supplier?.name ?? "—",
+      assigned_to_me: po.collector_user_id === user.id,
+      lines: lines
+        .filter((l) => l.status === "new")
+        .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at))),
+    }),
+  );
+}
+
+// ============================================================================
+// Stock on hand for the phone (storage_area_stock, the ledger's running sum)
+// ============================================================================
+export type OnHand = { item_id: string; storage_area_id: string; qty: number; base_qty: number; next_expiry: string | null };
+
+export async function listOnHand(): Promise<OnHand[]> {
+  await requireRole(STOCK_READERS);
+  const supabase = await createClient();
+  const rows = await selectAll(() =>
+    supabase.from("storage_area_stock").select("item_id, storage_area_id, qty, base_qty, next_expiry").neq("qty", 0).order("id"),
+  );
+  return rows.map((r) => ({ ...r, qty: Number(r.qty), base_qty: Number(r.base_qty) }));
+}
+
+// The signed-in user's id (to find their kit among the storage areas).
+export async function getCurrentUserId(): Promise<string | null> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  return user?.id ?? null;
+}
+
+// ============================================================================
+// Traceability: where one purchase order's stock is now, and where it was used
+// ============================================================================
+export async function listPurchaseOrderTrace(purchaseOrderId: string): Promise<PoTraceRow[]> {
+  await requireRole(STOCK_READERS);
+  const supabase = await createClient();
+  const { data: lots, error } = await supabase
+    .from("stock_lot")
+    .select("id, item_id, batch_number, expiry_date, unit_cost_exc_vat, po_item:purchase_order_item_id!inner(purchase_order_id)")
+    .eq("po_item.purchase_order_id", purchaseOrderId);
+  if (error) throw error;
+  const lotById = new Map(
+    ((lots ?? []) as unknown as { id: string; item_id: string; batch_number: string | null; expiry_date: string | null; unit_cost_exc_vat: number | null }[]).map(
+      (l) => [l.id, l],
+    ),
+  );
+  if (lotById.size === 0) return [];
+  const ids = [...lotById.keys()];
+
+  const [balances, moves] = await Promise.all([
+    supabase.from("stock_lot_balance").select("lot_id, storage_area_id, qty, value_exc_vat").in("lot_id", ids).neq("qty", 0),
+    supabase
+      .from("stock_allocation")
+      .select(
+        "id, lot_id, storage_area_id, qty, tx:item_transaction_id!inner(transaction_type, transaction_date, work_order_item:work_order_item_id(work_order:work_order_id(reference, location_id)))",
+      )
+      .in("lot_id", ids)
+      .in("tx.transaction_type", ["WORK_ORDER_USAGE", "WORK_ORDER_RETURN", "STOCK_ADJUSTMENT"]),
+  ]);
+  if (balances.error) throw balances.error;
+  if (moves.error) throw moves.error;
+
+  const rows: PoTraceRow[] = [];
+  for (const b of (balances.data ?? []) as { lot_id: string; storage_area_id: string; qty: number; value_exc_vat: number | null }[]) {
+    const lot = lotById.get(b.lot_id)!;
+    rows.push({
+      key: `on:${b.lot_id}:${b.storage_area_id}`,
+      kind: "on_hand",
+      date: null,
+      item_id: lot.item_id,
+      storage_area_id: b.storage_area_id,
+      location_id: null,
+      work_order_reference: null,
+      batch_number: lot.batch_number,
+      expiry_date: lot.expiry_date,
+      qty: Number(b.qty),
+      value: b.value_exc_vat === null ? null : Number(b.value_exc_vat),
+    });
+  }
+  type Move = {
+    id: string;
+    lot_id: string;
+    storage_area_id: string;
+    qty: number;
+    tx: { transaction_type: string; transaction_date: string; work_order_item: { work_order: { reference: number; location_id: string | null } | null } | null };
+  };
+  for (const m of (moves.data ?? []) as unknown as Move[]) {
+    const lot = lotById.get(m.lot_id)!;
+    const wo = m.tx.work_order_item?.work_order ?? null;
+    rows.push({
+      key: m.id,
+      kind: m.tx.transaction_type === "STOCK_ADJUSTMENT" ? "adjusted" : "used",
+      date: m.tx.transaction_date,
+      item_id: lot.item_id,
+      storage_area_id: m.storage_area_id,
+      location_id: wo?.location_id ?? null,
+      work_order_reference: wo?.reference ?? null,
+      batch_number: lot.batch_number,
+      expiry_date: lot.expiry_date,
+      qty: Number(m.qty),
+      value: lot.unit_cost_exc_vat == null ? null : Math.round(Number(m.qty) * Number(lot.unit_cost_exc_vat) * 100) / 100,
+    });
+  }
+  return rows.sort((a, b) => (a.kind === "on_hand" ? 0 : 1) - (b.kind === "on_hand" ? 0 : 1) || String(b.date).localeCompare(String(a.date)));
+}
+
+// --- Reports (MWTS R8 and Missing stock) ------------------------------------
+// Values are at the actual price of the batches the stock came from.
+
+export type CostPerSiteRow = {
+  month: string;
+  location_id: string | null;
+  site: string;
+  item_id: string;
+  item: string;
+  qty: number;
+  value_exc_vat: number | null;
+  untraced_qty: number;
+};
+
+export type MissingStockRow = {
+  month: string;
+  storage_area_id: string;
+  storage_area: string;
+  technician: string;
+  item_id: string;
+  item: string;
+  qty: number;
+  value_exc_vat: number | null;
+  untraced_qty: number;
+};
+
+const isDay = (v: string) => /^\d{4}-\d{2}-\d{2}$/.test(v);
+
+export async function listCostPerSite(from: string, to: string): Promise<CostPerSiteRow[]> {
+  await requireRole(STOCK_READERS);
+  if (!isDay(from) || !isDay(to)) return [];
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("stock_cost_per_site", { p_from: from, p_to: to });
+  if (error) throw error;
+  return ((data ?? []) as Record<string, unknown>[]).map((r) => ({
+    month: String(r.month),
+    location_id: (r.location_id as string | null) ?? null,
+    site: String(r.site),
+    item_id: String(r.item_id),
+    item: String(r.item),
+    qty: Number(r.qty),
+    value_exc_vat: r.value_exc_vat === null ? null : Number(r.value_exc_vat),
+    untraced_qty: Number(r.untraced_qty),
+  }));
+}
+
+export async function listMissingStock(from: string, to: string): Promise<MissingStockRow[]> {
+  await requireRole(STOCK_READERS);
+  if (!isDay(from) || !isDay(to)) return [];
+  const supabase = await createClient();
+  const [{ data, error }, { data: people }] = await Promise.all([
+    supabase.rpc("stock_missing_by_technician", { p_from: from, p_to: to }),
+    supabase.rpc("list_stock_collectors"),
+  ]);
+  if (error) throw error;
+  const names = new Map(((people ?? []) as { id: string; name: string }[]).map((p) => [p.id, p.name]));
+  return ((data ?? []) as Record<string, unknown>[]).map((r) => ({
+    month: String(r.month),
+    storage_area_id: String(r.storage_area_id),
+    storage_area: String(r.storage_area),
+    technician: names.get(String(r.technician_user_id)) ?? "—",
+    item_id: String(r.item_id),
+    item: String(r.item),
+    qty: Number(r.qty),
+    value_exc_vat: r.value_exc_vat === null ? null : Number(r.value_exc_vat),
+    untraced_qty: Number(r.untraced_qty),
+  }));
+}
+
+// --- Month end -------------------------------------------------------------
+
+export type StockPeriod = {
+  closed_through: string | null;
+  log: { action: "close" | "reopen"; month: string; created_at: string; by: string }[];
+};
+
+export async function getStockPeriod(): Promise<StockPeriod> {
+  await requireRole(STOCK_READERS);
+  const supabase = await createClient();
+  const [{ data: period }, { data: log }] = await Promise.all([
+    supabase.from("stock_period").select("closed_through").eq("id", 1).maybeSingle(),
+    supabase.from("stock_period_log").select("action, month, created_at, created_by").order("id", { ascending: false }).limit(12),
+  ]);
+  const rows = (log ?? []) as { action: "close" | "reopen"; month: string; created_at: string; created_by: string | null }[];
+  const ids = [...new Set(rows.map((r) => r.created_by).filter((v): v is string => !!v))];
+  const names = new Map<string, string>();
+  if (ids.length > 0) {
+    const { data } = await supabase.rpc("get_user_names", { p_ids: ids });
+    for (const n of (data ?? []) as { id: string; name: string }[]) names.set(n.id, n.name);
+  }
+  return {
+    closed_through: (period?.closed_through as string | null) ?? null,
+    log: rows.map((r) => ({ action: r.action, month: r.month, created_at: r.created_at, by: names.get(r.created_by ?? "") ?? "—" })),
+  };
+}
+
+export async function closeStockMonth(month: string): Promise<Result> {
+  await requireRole(["system_admin", "admin"]);
+  if (!isDay(month)) return { error: "Choose the month to close." };
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("close_stock_month", { p_month: month });
+  if (error) return { error: friendlyError(error) };
+  revalidate();
+  return { error: null };
+}
+
+export async function reopenStockMonth(): Promise<Result> {
+  await requireRole(["system_admin", "admin"]);
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("reopen_stock_month");
+  if (error) return { error: friendlyError(error) };
   revalidate();
   return { error: null };
 }
