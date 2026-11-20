@@ -262,7 +262,7 @@ export async function listTransactions(filter: { item?: string; area?: string })
   let q = supabase
     .from("item_transaction")
     .select(
-      "id, reference, transaction_type, qty, base_qty, transaction_date, item_id, storage_area_id, work_order_item:work_order_item_id(work_order:work_order_id(reference, location_id)), allocations:stock_allocation(qty, value_exc_vat, lot:lot_id(source, batch_number, expiry_date, po_item:purchase_order_item_id(purchase_order:purchase_order_id(reference))))",
+      "id, reference, transaction_type, qty, base_qty, transaction_date, item_id, storage_area_id, work_order_item:work_order_item_id(work_order:work_order_id(reference, location_id)), allocations:stock_allocation(qty, lot:lot_id(source, batch_number, expiry_date, unit_cost_exc_vat, po_item:purchase_order_item_id(purchase_order:purchase_order_id(reference))))",
     )
     .order("transaction_date", { ascending: false })
     .order("reference", { ascending: false })
@@ -273,8 +273,13 @@ export async function listTransactions(filter: { item?: string; area?: string })
   if (error) throw error;
   type Alloc = {
     qty: number;
-    value_exc_vat: number | null;
-    lot: { source: string; batch_number: string | null; expiry_date: string | null; po_item: { purchase_order: { reference: number } | null } | null } | null;
+    lot: {
+      source: string;
+      batch_number: string | null;
+      expiry_date: string | null;
+      unit_cost_exc_vat: number | null;
+      po_item: { purchase_order: { reference: number } | null } | null;
+    } | null;
   };
   return ((data ?? []) as unknown as (LedgerRow & {
     work_order_item: { work_order: { reference: number; location_id: string | null } | null } | null;
@@ -286,7 +291,8 @@ export async function listTransactions(filter: { item?: string; area?: string })
       batch_number: a.lot?.batch_number ?? null,
       expiry_date: a.lot?.expiry_date ?? null,
       qty: Number(a.qty),
-      value: a.value_exc_vat === null ? null : Number(a.value_exc_vat),
+      // Valued at the batch's cost (a PO price correction flows through).
+      value: a.lot?.unit_cost_exc_vat == null ? null : Math.round(Number(a.qty) * Number(a.lot.unit_cost_exc_vat) * 100) / 100,
     }));
     return {
       ...r,
@@ -694,10 +700,14 @@ export async function listPurchaseOrderTrace(purchaseOrderId: string): Promise<P
   const supabase = await createClient();
   const { data: lots, error } = await supabase
     .from("stock_lot")
-    .select("id, item_id, batch_number, expiry_date, po_item:purchase_order_item_id!inner(purchase_order_id)")
+    .select("id, item_id, batch_number, expiry_date, unit_cost_exc_vat, po_item:purchase_order_item_id!inner(purchase_order_id)")
     .eq("po_item.purchase_order_id", purchaseOrderId);
   if (error) throw error;
-  const lotById = new Map(((lots ?? []) as unknown as { id: string; item_id: string; batch_number: string | null; expiry_date: string | null }[]).map((l) => [l.id, l]));
+  const lotById = new Map(
+    ((lots ?? []) as unknown as { id: string; item_id: string; batch_number: string | null; expiry_date: string | null; unit_cost_exc_vat: number | null }[]).map(
+      (l) => [l.id, l],
+    ),
+  );
   if (lotById.size === 0) return [];
   const ids = [...lotById.keys()];
 
@@ -706,7 +716,7 @@ export async function listPurchaseOrderTrace(purchaseOrderId: string): Promise<P
     supabase
       .from("stock_allocation")
       .select(
-        "id, lot_id, storage_area_id, qty, value_exc_vat, tx:item_transaction_id!inner(transaction_type, transaction_date, work_order_item:work_order_item_id(work_order:work_order_id(reference, location_id)))",
+        "id, lot_id, storage_area_id, qty, tx:item_transaction_id!inner(transaction_type, transaction_date, work_order_item:work_order_item_id(work_order:work_order_id(reference, location_id)))",
       )
       .in("lot_id", ids)
       .in("tx.transaction_type", ["WORK_ORDER_USAGE", "WORK_ORDER_RETURN", "STOCK_ADJUSTMENT"]),
@@ -736,7 +746,6 @@ export async function listPurchaseOrderTrace(purchaseOrderId: string): Promise<P
     lot_id: string;
     storage_area_id: string;
     qty: number;
-    value_exc_vat: number | null;
     tx: { transaction_type: string; transaction_date: string; work_order_item: { work_order: { reference: number; location_id: string | null } | null } | null };
   };
   for (const m of (moves.data ?? []) as unknown as Move[]) {
@@ -753,7 +762,7 @@ export async function listPurchaseOrderTrace(purchaseOrderId: string): Promise<P
       batch_number: lot.batch_number,
       expiry_date: lot.expiry_date,
       qty: Number(m.qty),
-      value: m.value_exc_vat === null ? null : Number(m.value_exc_vat),
+      value: lot.unit_cost_exc_vat == null ? null : Math.round(Number(m.qty) * Number(lot.unit_cost_exc_vat) * 100) / 100,
     });
   }
   return rows.sort((a, b) => (a.kind === "on_hand" ? 0 : 1) - (b.kind === "on_hand" ? 0 : 1) || String(b.date).localeCompare(String(a.date)));

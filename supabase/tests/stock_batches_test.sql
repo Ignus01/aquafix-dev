@@ -1,6 +1,7 @@
 -- Tests for 20261119140000_stock_batches_fefo.sql: batches from receipts,
--- first-to-expire / first-in allocation, batches following transfers, cost,
--- back-dated documents and stock-take differences.
+-- first-to-expire / first-in allocation decided when a movement is saved,
+-- batches following transfers, cost, and what does (and doesn't) change a
+-- choice already made.
 -- Run with: npx supabase test db
 begin;
 create extension if not exists pgtap with schema extensions;
@@ -42,7 +43,7 @@ insert into public.purchase_order_item (id, purchase_order_id, item_id, qty_orde
 
 -- Where a ledger row's stock came from: "PO line ×qty @cost" sorted.
 create function pg_temp.came_from(p_tx uuid) returns text language sql as $$
-  select string_agg(coalesce(right(l.purchase_order_item_id::text, 1), l.source) || '×' || (-a.qty)::text || '@' || coalesce(a.unit_cost_exc_vat::numeric(10,0)::text, '?'),
+  select string_agg(coalesce(right(l.purchase_order_item_id::text, 1), l.source, 'untraced') || '×' || (-a.qty)::text || '@' || coalesce(l.unit_cost_exc_vat::numeric(10,0)::text, '?'),
                     ' + ' order by l.reference)
     from public.stock_allocation a left join public.stock_lot l on l.id = a.lot_id
    where a.item_transaction_id = p_tx;
@@ -109,7 +110,8 @@ select lives_ok($$ select public.save_stock_document(jsonb_build_object('kind', 
   'lines', jsonb_build_array(jsonb_build_object('item_id', 'c7000000-0000-0000-ba7c-000000000001', 'qty', 2)))) $$, 'usage at Selby');
 select is(pg_temp.came_from(pg_temp.wo_tx('e1000000-0000-0000-ba7c-000000000001')), '2×2@120',
   'usage traces to PO 2 at R120');
-select is((select sum(value_exc_vat) from public.stock_allocation where item_transaction_id = pg_temp.wo_tx('e1000000-0000-0000-ba7c-000000000001')),
+select is((select sum(a.qty * l.unit_cost_exc_vat) from public.stock_allocation a join public.stock_lot l on l.id = a.lot_id
+            where a.item_transaction_id = pg_temp.wo_tx('e1000000-0000-0000-ba7c-000000000001')),
   -240::numeric, 'and is valued at R240');
 
 -- Ryan uses 3 (no expiry date set on what is left except PO 1's 2): PO 1's 2 then PO 3's 1.
@@ -119,8 +121,9 @@ select lives_ok($$ select public.save_stock_document(jsonb_build_object('kind', 
 select is(pg_temp.came_from(pg_temp.wo_tx('e1000000-0000-0000-ba7c-000000000002')), '1×2@100 + 3×1@150',
   'dated stock first, then the batch with no expiry');
 
--- A back-dated receipt (before all of the above) of a batch expiring sooner
--- than everything re-allocates the earlier movements.
+-- A back-dated receipt (dated before all of the above) of a batch expiring
+-- sooner than everything: choices already made stay as they were; it is
+-- simply there for what comes next.
 reset role;
 insert into public.purchase_order (id, supplier_id) values ('d0000000-0000-0000-ba7c-000000000004', 'c5000000-0000-0000-ba7c-000000000002');
 insert into public.purchase_order_item (id, purchase_order_id, item_id, qty_ordered, unit_cost_exc_vat, eta) values
@@ -131,16 +134,23 @@ select lives_ok($$ select public.receive_purchase_order(jsonb_build_object(
   'captured_at', now() - interval '6 days',
   'lines', jsonb_build_array(jsonb_build_object('purchase_order_item_id', 'd1000000-0000-0000-ba7c-000000000004', 'qty', 4,
     'expiry_date', (current_date + 10)::text)))) $$, 'a receipt dated before everything else');
-select is(pg_temp.lot_qty('d1000000-0000-0000-ba7c-000000000004', 'c8000000-0000-0000-ba7c-000000000002'), 2::numeric,
-  'the transfer now sends that batch first (4 sent, 2 since used)');
-select is(pg_temp.came_from(pg_temp.wo_tx('e1000000-0000-0000-ba7c-000000000001')), '4×2@90',
-  'and Jonifas''s usage now traces to it');
+select is(pg_temp.came_from(pg_temp.wo_tx('e1000000-0000-0000-ba7c-000000000001')), '2×2@120',
+  'Jonifas''s usage keeps the batch chosen when it was saved');
+select is(pg_temp.lot_qty('d1000000-0000-0000-ba7c-000000000004', 'c8000000-0000-0000-ba7c-000000000001'), 4::numeric,
+  'the new batch is in Ryan''s kit');
 
--- Changing an expiry re-orders: PO 4's batch now expires last.
+-- Correcting an expiry changes the batch, not past choices.
 update public.intake_item set expiry_date = current_date + 365
  where purchase_order_item_id = 'd1000000-0000-0000-ba7c-000000000004';
-select is(pg_temp.came_from(pg_temp.wo_tx('e1000000-0000-0000-ba7c-000000000001')), '2×2@120',
-  'a later expiry hands the first place back');
+select is((select expiry_date from public.stock_lot where purchase_order_item_id = 'd1000000-0000-0000-ba7c-000000000004'),
+  current_date + 365, 'the batch takes the corrected expiry');
+select is(pg_temp.came_from(pg_temp.wo_tx('e1000000-0000-0000-ba7c-000000000001')), '2×2@120', 'past choices are unchanged');
+
+-- Correcting the PO price revalues everything that used the batch.
+reset role;
+update public.purchase_order_item set unit_cost_exc_vat = 125 where id = 'd1000000-0000-0000-ba7c-000000000002';
+set local role authenticated;
+select is(pg_temp.came_from(pg_temp.wo_tx('e1000000-0000-0000-ba7c-000000000001')), '2×2@125', 'a price correction flows through');
 
 -- Stock take: a shortfall takes the batch expiring first; a surplus gets its own batch.
 select lives_ok($$ select public.save_stock_document(jsonb_build_object('kind', 'stock-takes',
@@ -148,7 +158,7 @@ select lives_ok($$ select public.save_stock_document(jsonb_build_object('kind', 
   'lines', jsonb_build_array(jsonb_build_object('item_id', 'c7000000-0000-0000-ba7c-000000000001', 'counted_qty', 1)))) $$,
   'Jonifas counts 1 of 2');
 select is((select pg_temp.came_from(t.id) from public.item_transaction t join public.stock_take_item si on si.id = t.stock_take_item_id
-            where si.stock_take_id = 'e2000000-0000-0000-ba7c-000000000001'), '2×1@120', 'the shortfall is the batch expiring first');
+            where si.stock_take_id = 'e2000000-0000-0000-ba7c-000000000001'), '2×1@125', 'the shortfall is the batch expiring first');
 select lives_ok($$ select public.save_stock_document(jsonb_build_object('kind', 'stock-takes',
   'header', jsonb_build_object('id', 'e2000000-0000-0000-ba7c-000000000002', 'storage_area_id', 'c8000000-0000-0000-ba7c-000000000002'),
   'lines', jsonb_build_array(jsonb_build_object('item_id', 'c7000000-0000-0000-ba7c-000000000001', 'counted_qty', 3)))) $$,
@@ -162,18 +172,24 @@ select is((select sum(qty) from public.stock_lot_balance where item_id = 'c70000
   (select sum(qty) from public.storage_area_stock where item_id = 'c7000000-0000-0000-ba7c-000000000001'),
   'batch balances equal stock on hand');
 select is((select count(*) from public.stock_allocation where lot_id is null), 0::bigint, 'nothing untraced');
+
+-- Editing a usage line re-decides only that line.
+reset role;
+update public.work_order_item set qty = 1 where work_order_id = 'e1000000-0000-0000-ba7c-000000000001';
+set local role authenticated;
+select is(pg_temp.came_from(pg_temp.wo_tx('e1000000-0000-0000-ba7c-000000000001')), '2×1@125', 'an edited usage keeps its batch');
 select throws_ok($$ delete from public.stock_allocation $$, '42501', null, 'nobody writes allocations directly');
 
 -- Deleting the usage puts its batches back.
 select is(pg_temp.lot_qty('d1000000-0000-0000-ba7c-000000000001', 'c8000000-0000-0000-ba7c-000000000001'), 0::numeric,
-  'Ryan''s usage took PO 1''s batch (expiring before PO 4''s)');
+  'Ryan''s usage had taken PO 1''s batch');
 reset role;
 delete from public.work_order where id = 'e1000000-0000-0000-ba7c-000000000002';
 select is(pg_temp.lot_qty('d1000000-0000-0000-ba7c-000000000001', 'c8000000-0000-0000-ba7c-000000000001'), 2::numeric,
   'deleting a usage returns the batch it had taken');
 
 -- Same minute: a transfer dated 13:09 (forms drop the seconds) saved after a
--- receipt stamped 13:09:30 still takes from that receipt.
+-- receipt stamped 13:09:30 takes from that receipt (what is there when saved).
 reset role;
 insert into public.purchase_order (id, supplier_id) values ('d0000000-0000-0000-ba7c-000000000005', 'c5000000-0000-0000-ba7c-000000000002');
 insert into public.purchase_order_item (id, purchase_order_id, item_id, qty_ordered, unit_cost_exc_vat, eta) values
@@ -193,6 +209,15 @@ select lives_ok($$ select public.save_stock_document(jsonb_build_object('kind', 
   'then sent on, dated hh:mm:00');
 select is(pg_temp.lot_qty('d1000000-0000-0000-ba7c-000000000005', 'c8000000-0000-0000-ba7c-000000000002'), 1::numeric,
   'the transfer carried that receipt''s batch');
+
+-- Deleting a receipt whose batch was moved on leaves the later movements
+-- untraced; it doesn't change them.
+reset role;
+delete from public.intake where purchase_order_id = 'd0000000-0000-0000-ba7c-000000000005';
+select is((select count(*) from public.stock_allocation a join public.item_transaction t on t.id = a.item_transaction_id
+            where t.transfer_leg is not null and a.lot_id is null and t.storage_area_id in
+              ('c8000000-0000-0000-ba7c-000000000003', 'c8000000-0000-0000-ba7c-000000000002')), 2::bigint,
+  'the transfer that carried it is now untraced, send and receive');
 
 select * from finish();
 rollback;

@@ -317,7 +317,7 @@ export function WhereItWentPanel({ rows, options, timeZone }: { rows: PoTraceRow
       <div className="px-5 py-4">
         <h2 className={sectionHeadingClass}>Where it went</h2>
         <p className="mt-1 text-xs text-muted">
-          Stock is used first-to-expire, then oldest first. Used so far: {formatMoney(usedValue)} exc. VAT.
+          Each movement takes the batch expiring first (then the oldest) when it is saved. Used so far: {formatMoney(usedValue)} exc. VAT.
         </p>
       </div>
       {rows.length === 0 ? (
