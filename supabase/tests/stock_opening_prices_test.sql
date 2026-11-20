@@ -88,6 +88,15 @@ insert into public.stock_take_item (id, stock_take_id, item_id, counted_qty) val
   ('e1000000-0000-0000-0f15-000000000002', 'e0000000-0000-0000-0f15-000000000002', 'c7000000-0000-0000-0f15-000000000001', 5);
 select is((pg_temp.lot_of('e1000000-0000-0000-0f15-000000000002')).unit_cost_exc_vat, 100.0000::numeric(15,4), 'no price: latest purchase price');
 
+-- Stock received with no price (another facility, no PO) takes the latest real price.
+insert into public.load (id) values ('e4000000-0000-0000-0f15-000000000001');
+insert into public.intake (id, intake_type, load_id, storage_area_id) values
+  ('e5000000-0000-0000-0f15-000000000001', 'FACILITY_TRANSFER', 'e4000000-0000-0000-0f15-000000000001', 'c8000000-0000-0000-0f15-000000000002');
+insert into public.intake_item (id, intake_id, item_id, qty) values
+  ('e6000000-0000-0000-0f15-000000000001', 'e5000000-0000-0000-0f15-000000000001', 'c7000000-0000-0000-0f15-000000000001', 1);
+select is((select unit_cost_exc_vat from public.stock_lot where intake_item_id = 'e6000000-0000-0000-0f15-000000000001'),
+          100.0000::numeric(15,4), 'a receipt with no price takes the latest purchase price');
+
 -- A shortfall is a loss, not a new batch, whatever price is typed.
 insert into public.stock_take (id, storage_area_id, take_date) values
   ('e0000000-0000-0000-0f15-000000000003', 'c8000000-0000-0000-0f15-000000000001', now());
