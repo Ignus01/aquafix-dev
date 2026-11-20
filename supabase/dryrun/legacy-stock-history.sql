@@ -204,7 +204,8 @@ begin
   end loop;
 
   -- One whole usage document deleted later.
-  delete from public.work_order where id = (select id from public.work_order order by random() limit 1);
+  delete from public.work_order where id = (select w.id from public.work_order w
+    where not exists (select 1 from public.work_order_item wi where wi.work_order_id = w.id and wi.is_return) order by random() limit 1);
 end;
 $$;
 
