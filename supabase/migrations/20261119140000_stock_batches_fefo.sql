@@ -484,3 +484,13 @@ begin
   end loop;
 end;
 $$;
+
+-- History only: a batch that came in with no price before the item's first
+-- priced receipt couldn't see that price while backfilling (it didn't exist
+-- yet). With every batch in place, give those the item's nearest real price.
+update public.stock_lot l
+   set unit_cost_exc_vat = public.stock_fallback_cost(l.item_id, l.received_at)
+ where coalesce(l.unit_cost_exc_vat, 0) = 0
+   and (l.purchase_order_item_id is null
+        or exists (select 1 from public.purchase_order_item poi
+                    where poi.id = l.purchase_order_item_id and poi.unit_cost_exc_vat = 0));
