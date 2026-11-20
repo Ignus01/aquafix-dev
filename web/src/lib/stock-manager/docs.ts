@@ -380,7 +380,8 @@ export const COLLECT_FROM_LABELS: Record<string, string> = {
 
 export const PO_STATUS_LABELS: Record<string, string> = {
   new: "New",
-  completed: "Completed",
+  // Shown as "Collected" (MWTS): the stored value stays "completed".
+  completed: "Collected",
   closed: "Closed",
 };
 
