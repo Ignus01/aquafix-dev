@@ -52,9 +52,16 @@ select round(sum(b.value_exc_vat), 2) as on_hand_value,
 select l.source, count(*) as batches, count(*) filter (where l.unit_cost_exc_vat is null) as unpriced,
        count(*) filter (where l.unit_cost_exc_vat = 0) as priced_zero
   from public.stock_lot l group by 1 order by 1;
-select case when count(*) = 0 then 'PASS' else 'FAIL' end, 'every PO receipt batch carries its PO line price', count(*)
+select case when count(*) = 0 then 'PASS' else 'FAIL' end, 'every PO receipt batch carries its PO line price (lines priced 0 excepted)', count(*)
   from public.stock_lot l join public.purchase_order_item poi on poi.id = l.purchase_order_item_id
- where l.unit_cost_exc_vat is distinct from poi.unit_cost_exc_vat;
+ where poi.unit_cost_exc_vat > 0 and l.unit_cost_exc_vat is distinct from poi.unit_cost_exc_vat;
+select case when count(*) = 0 then 'PASS' else 'FAIL' end, 'PO lines priced 0 take a real purchase price', count(*)
+  from public.stock_lot l join public.purchase_order_item poi on poi.id = l.purchase_order_item_id
+ where poi.unit_cost_exc_vat = 0 and coalesce(l.unit_cost_exc_vat, 0) = 0
+   and exists (select 1 from public.stock_lot x where x.item_id = l.item_id and x.unit_cost_exc_vat > 0);
+select i.name as item_never_bought_with_a_price, count(*) as batches
+  from public.stock_lot l join public.item i on i.id = l.item_id
+ where l.unit_cost_exc_vat is null group by 1 order by 1;
 
 \echo '=== 5. Batches follow transfers'
 select case when count(*) = 0 then 'PASS' else 'FAIL' end, 'each receive leg carries the same batches as its send leg', count(*)
