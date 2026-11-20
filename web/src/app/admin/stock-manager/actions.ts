@@ -81,20 +81,26 @@ export async function getOptions(): Promise<Options> {
       .limit(1000),
   ]);
   for (const r of [suppliers, areas, items, pos, collectors, sites, services, incidents]) if (r.error) throw r.error;
+  const collectorName = new Map(((collectors.data ?? []) as { id: string; name: string }[]).map((u) => [u.id, u.name]));
 
   return {
     // Inactive records stay in the lists so documents that use them still show
     // their names; the forms only offer the active ones (Mendix: [Active]).
     suppliers: (suppliers.data ?? []).map((o) => ({ value: o.id, label: o.name, inactive: !o.active })),
-    storageAreas: ((areas.data ?? []) as unknown as { id: string; code: string; name: string; active: boolean; technician_user_id: string | null; location: { transfer_type: "AUTO" | "MANUAL" } | null }[]).map(
-      (a) => ({
-        value: a.id,
-        label: `${a.name} (${a.code})`,
-        inactive: !a.active,
-        transferType: a.location?.transfer_type,
-        technicianUserId: a.technician_user_id,
-      }),
-    ),
+    // A technician's kit is named after the technician and listed first, so a
+    // transfer reads as "to Jonifas"; general storage areas follow.
+    storageAreas: ((areas.data ?? []) as unknown as { id: string; code: string; name: string; active: boolean; technician_user_id: string | null; location: { transfer_type: "AUTO" | "MANUAL" } | null }[])
+      .map((a) => {
+        const technician = a.technician_user_id ? collectorName.get(a.technician_user_id) : undefined;
+        return {
+          value: a.id,
+          label: technician ? `${technician} (${a.name})` : `${a.name} (${a.code})`,
+          inactive: !a.active,
+          transferType: a.location?.transfer_type,
+          technicianUserId: a.technician_user_id,
+        };
+      })
+      .sort((x, y) => Number(!x.technicianUserId) - Number(!y.technicianUserId) || x.label.localeCompare(y.label)),
     items: (items.data ?? []).map((i) => ({
       value: i.id,
       label: i.code ? `${i.name} — ${i.code}` : i.name,

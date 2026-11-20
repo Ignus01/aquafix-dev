@@ -21,7 +21,8 @@ function initial(fields: Field[], timeZone: string): Values {
     if (f.type === "date") v[f.key] = todayInZone(timeZone);
     else if (f.type === "datetime") v[f.key] = isoToZonedInput(new Date().toISOString(), timeZone);
     else if (f.type === "bool") v[f.key] = "false";
-    else v[f.key] = "";
+    // Handing stock over in person is the usual case: both legs at once.
+    else v[f.key] = f.key === "transfer_type" ? "BOTH" : "";
   }
   return v;
 }

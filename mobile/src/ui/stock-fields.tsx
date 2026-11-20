@@ -29,8 +29,13 @@ const SERVICE_TYPE_LABELS: Record<string, string> = { scheduled_maintenance: "Sc
 // Forms offer active storage areas and items; lists and views name any.
 export function useStockOptions(activeOnly: boolean): Options {
   const where = activeOnly ? "WHERE active = 1" : "";
-  const { data: areas } = useQuery<{ id: string; name: string; code: string | null; technician_user_id: string | null }>(
-    `SELECT id, name, code, technician_user_id FROM storage_area ${where} ORDER BY name COLLATE NOCASE`,
+  // A technician's kit is named after the technician and listed first, so a
+  // transfer reads as "to Jonifas"; general storage areas follow.
+  const { data: areas } = useQuery<{ id: string; name: string; code: string | null; technician_user_id: string | null; technician: string | null }>(
+    `SELECT sa.id, sa.name, sa.code, sa.technician_user_id, nullif(trim(p.username), '') AS technician
+       FROM storage_area sa LEFT JOIN profiles p ON p.id = sa.technician_user_id
+       ${activeOnly ? "WHERE sa.active = 1" : ""}
+      ORDER BY sa.technician_user_id IS NULL, coalesce(nullif(trim(p.username), ''), sa.name) COLLATE NOCASE, sa.name COLLATE NOCASE`,
   );
   const { data: items } = useQuery<{ id: string; name: string; code: string | null }>(`SELECT id, name, code FROM item ${where} ORDER BY name COLLATE NOCASE`);
   const { data: sites } = useQuery<{ id: string; name: string }>(`SELECT id, name FROM location ${where} ORDER BY name COLLATE NOCASE`);
@@ -46,7 +51,11 @@ export function useStockOptions(activeOnly: boolean): Options {
       WHERE i.status != 'completed' ORDER BY i.incident_date DESC`,
   );
   return {
-    storageAreas: areas.map((a) => ({ value: a.id, label: a.code ? `${a.name} (${a.code})` : a.name, technicianUserId: a.technician_user_id })),
+    storageAreas: areas.map((a) => ({
+      value: a.id,
+      label: a.technician ? `${a.technician} (${a.name})` : a.code ? `${a.name} (${a.code})` : a.name,
+      technicianUserId: a.technician_user_id,
+    })),
     items: items.map((i) => ({ value: i.id, label: i.code ? `${i.name} — ${i.code}` : i.name })),
     transferTypes: Object.entries(TRANSFER_TYPE_LABELS).map(([value, label]) => ({ value, label })),
     sites: sites.map((l) => ({ value: l.id, label: l.name })),
