@@ -82,20 +82,19 @@ begin
       insert into public.purchase_order (id, supplier_id, order_date, order_alias, status)
       values (v_po, ('d7100000-0000-0000-0000-00000000000' || (2 + d % 3))::uuid, (v_at)::date, 'ODOO ' || (16000 + d), 'new');
       v_n := 1 + floor(random() * 4)::int;
-      for i in 1 .. v_n loop
-        v_item := ('d7800000-0000-0000-0000-' || lpad((1 + floor(random() * 40))::int::text, 12, '0'))::uuid;
+      for v_item in
+        select ('d7800000-0000-0000-0000-' || lpad(g::text, 12, '0'))::uuid from generate_series(1, 40) g order by random() limit v_n
+      loop
         v_price := round(((50 + (abs(hashtext(v_item::text)) % 900)) * (1 + d * 0.0004) * (0.95 + random() * 0.1))::numeric, 2);
         if random() < 0.05 then
           -- A Mendix-era line priced 0 (before the "cost > 0" rule existed).
           alter table public.purchase_order_item disable trigger purchase_order_item_before;
           insert into public.purchase_order_item (purchase_order_id, item_id, qty_ordered, unit_cost_exc_vat, eta, base_qty, qty_outstanding)
-          values (v_po, v_item, 20 + floor(random() * 80), 0, v_at::date + 5, 0, 0)
-          on conflict do nothing;
+          values (v_po, v_item, 20 + floor(random() * 80), 0, v_at::date + 5, 0, 0);
           alter table public.purchase_order_item enable trigger purchase_order_item_before;
         else
           insert into public.purchase_order_item (purchase_order_id, item_id, qty_ordered, unit_cost_exc_vat, eta)
-          values (v_po, v_item, 20 + floor(random() * 80), v_price, v_at::date + 5)
-          on conflict do nothing;
+          values (v_po, v_item, 20 + floor(random() * 80), v_price, v_at::date + 5);
         end if;
       end loop;
       insert into dry_po (id, created_day, store) values
