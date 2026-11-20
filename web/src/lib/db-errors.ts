@@ -33,7 +33,7 @@ const UNIQUE_MESSAGES: Record<string, string> = {
   uom_conversion_from_to_key: "A conversion between those two units already exists.",
   // Stock manager: one line per item on a document.
   transfer_item_once: "That item is already on this transfer. Edit its line instead.",
-  work_order_item_once: "That item is already on this work order. Edit its line instead.",
+  work_order_item_once: "That item is already on this stock usage record. Edit its line instead.",
   stock_take_item_once: "That item has already been counted on this stock take. Edit its line instead.",
   intake_item_po_line_once: "That purchase order line is already on this intake. Edit its line instead.",
 };
@@ -90,7 +90,7 @@ const REFERENCED_MESSAGES: Record<string, string> = {
   "item:item_transaction": "This Item has stock movements, so it can't be deleted.",
   "storage_area:item_transaction": "This Storage Area has stock movements, so it can't be deleted.",
   "storage_area:intake": "This Storage Area is used by an intake, so it can't be deleted.",
-  "storage_area:work_order": "This Storage Area is used by a work order, so it can't be deleted.",
+  "storage_area:work_order": "This Storage Area is used by a stock usage record, so it can't be deleted.",
   "storage_area:stock_take": "This Storage Area is used by a stock take, so it can't be deleted.",
   "storage_area:transfer_main": "This Storage Area is used by a transfer, so it can't be deleted.",
   "purchase_order:intake": "Stock has been received against this purchase order, so it can't be deleted.",

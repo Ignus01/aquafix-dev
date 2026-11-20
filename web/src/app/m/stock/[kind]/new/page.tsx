@@ -19,7 +19,7 @@ export default async function NewStockDocPage(props: PageProps<"/m/stock/[kind]/
   const titles = {
     loads: "Add New Load",
     transfers: "New Transfer Main",
-    "work-orders": "New Work Order",
+    "work-orders": "New Stock Usage",
     "stock-takes": "New Stock Take",
   } as const;
 

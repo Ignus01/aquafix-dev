@@ -94,10 +94,10 @@ export const STOCK_CONFIG: Record<StockKind, StockConfig> = {
     table: "work_order",
     dateKey: "order_date",
     dateHasTime: true,
-    label: "Work order",
-    plural: "Work orders",
-    title: "Work orders",
-    newTitle: "New Work Order",
+    label: "Stock usage",
+    plural: "Stock usage",
+    title: "Stock usage",
+    newTitle: "New Stock Usage",
     prefix: "WO-",
     header: [
       // MWTS spec R4: site first; a service or incident at that site is optional.

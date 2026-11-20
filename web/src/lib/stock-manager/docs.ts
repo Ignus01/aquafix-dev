@@ -291,8 +291,8 @@ export const DOC_CONFIG: Record<DocKind, DocConfig> = {
   "work-orders": {
     kind: "work-orders",
     table: "work_order",
-    label: "Work order",
-    plural: "Work orders",
+    label: "Stock usage",
+    plural: "Stock usage",
     prefix: "WO-",
     header: [
       { key: "location_id", label: "Site", type: "select", options: "sites", required: true },
@@ -393,6 +393,6 @@ export const TRANSACTION_TYPE_LABELS: Record<string, string> = {
   DISPATCH_SALES_ORDER: "Dispatch: sales order",
   STOCK_TRANSFER: "Transfer",
   STOCK_ADJUSTMENT: "Stock take adjustment",
-  WORK_ORDER_RETURN: "Work order return",
-  WORK_ORDER_USAGE: "Work order usage",
+  WORK_ORDER_RETURN: "Stock usage return",
+  WORK_ORDER_USAGE: "Stock usage",
 };

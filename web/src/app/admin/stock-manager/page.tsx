@@ -16,7 +16,7 @@ const TABS: { key: string; label: string; kind?: DocKind }[] = [
   { key: "loads", label: "Loads", kind: "loads" },
   { key: "intakes", label: "Intakes", kind: "intakes" },
   { key: "transfers", label: "Transfers", kind: "transfers" },
-  { key: "work-orders", label: "Work orders", kind: "work-orders" },
+  { key: "work-orders", label: "Stock usage", kind: "work-orders" },
   { key: "stock-takes", label: "Stock takes", kind: "stock-takes" },
   { key: "transactions", label: "Transactions" },
 ];

@@ -14,7 +14,7 @@ const TILES: { kind: DocKind; label: string; icon: React.ReactNode; href?: strin
   { kind: "work-orders", label: "On hand", icon: <ClipboardCheckIcon className="h-[64px] w-[64px]" />, href: "/m/stock/on-hand" },
   { kind: "loads", label: "Intakes", icon: <FilePlusIcon className="h-[64px] w-[64px]" /> },
   { kind: "transfers", label: "Transfers", icon: <TruckIcon className="h-[64px] w-[64px]" /> },
-  { kind: "work-orders", label: "Work Order", icon: <ClipboardListIcon className="h-[64px] w-[64px]" /> },
+  { kind: "work-orders", label: "Stock Usage", icon: <ClipboardListIcon className="h-[64px] w-[64px]" /> },
   { kind: "stock-takes", label: "Stock Take", icon: <CalculatorIcon className="h-[64px] w-[64px]" /> },
 ];
 

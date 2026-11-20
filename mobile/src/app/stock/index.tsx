@@ -11,7 +11,7 @@ import { colors } from "../../ui/theme";
 const TILES: { kind: StockKind; label: string; icon: ComponentProps<typeof Ionicons>["name"] }[] = [
   { kind: "loads", label: "Intakes", icon: "document-attach-outline" },
   { kind: "transfers", label: "Transfers", icon: "bus-outline" },
-  { kind: "work-orders", label: "Work Order", icon: "list-outline" },
+  { kind: "work-orders", label: "Stock Usage", icon: "list-outline" },
   { kind: "stock-takes", label: "Stock Take", icon: "calculator-outline" },
 ];
 
