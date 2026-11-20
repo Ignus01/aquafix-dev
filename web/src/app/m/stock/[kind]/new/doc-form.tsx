@@ -154,7 +154,10 @@ export function DocForm({
 }) {
   const router = useRouter();
   const cfg = DOC_CONFIG[kind];
-  const lineCfg = cfg.line && !cfg.line.noAdd ? cfg.line : null;
+  // Office-only fields (prices, batches on a count) stay off the phone form.
+  const lineCfg = cfg.line && !cfg.line.noAdd
+    ? { ...cfg.line, fields: cfg.line.fields.filter((f) => !f.officeOnly) }
+    : null;
 
   const [values, setValues] = useState<Values>(() => kitDefaults(kind, initial(cfg.header, timeZone), myKit));
   // Stock usage starts at the site the technician last opened (MWTS spec R4).

@@ -58,6 +58,8 @@ export type Field = {
   // Narrows a select's choices by the other values.
   optionFilter?: (option: Option, values: Values, options: Options) => boolean;
   hint?: string;
+  // Office-only: left off the phone (/m) forms.
+  officeOnly?: boolean;
 };
 
 export type Extra = { key: string; label: string; kind?: "number" | "money" | "status" };
@@ -361,6 +363,15 @@ export const DOC_CONFIG: Record<DocKind, DocConfig> = {
       fields: [
         { key: "item_id", label: "Item", type: "select", options: "items", required: true },
         { key: "counted_qty", label: "Counted qty", type: "number", required: true },
+        {
+          key: "unit_cost_exc_vat",
+          label: "Unit price exc. VAT",
+          type: "number",
+          officeOnly: true,
+          hint: "For opening stock: the price per unit, exact or estimated. Used only when more is counted than the system holds. Leave empty to use the latest purchase price.",
+        },
+        { key: "batch_number", label: "Batch", type: "text", officeOnly: true, hint: "Optional, for counted stock the system didn't have." },
+        { key: "expiry_date", label: "Expiry", type: "date", officeOnly: true, hint: "Optional. Stock that expires first is used first." },
       ],
       extras: [{ key: "adjustment_qty", label: "Adjustment", kind: "number" }],
     },
