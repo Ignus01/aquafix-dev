@@ -51,6 +51,8 @@ export type StorageArea = {
   active: boolean;
   location_id: string;
   location: { name: string } | null;
+  // A technician's kit: the technician it belongs to (one kit each).
+  technician_user_id: string | null;
 };
 
 export type Item = {

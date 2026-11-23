@@ -3,7 +3,7 @@ import { requireRole } from "@/lib/auth";
 import { isDocKind } from "@/lib/stock-manager/docs";
 import { STOCK_DOC_RIGHTS } from "@/lib/stock-manager/permissions";
 import { getAppTimeZone } from "../../../../admin/inspections/actions";
-import { getOptions } from "../../../../admin/stock-manager/actions";
+import { getCurrentUserId, getOptions, listOnHand } from "../../../../admin/stock-manager/actions";
 import { Header } from "../../../ui";
 import { DocForm } from "./doc-form";
 
@@ -14,18 +14,19 @@ export default async function NewStockDocPage(props: PageProps<"/m/stock/[kind]/
   if (!isDocKind(kind) || kind === "purchase-orders" || kind === "intakes") notFound();
   await requireRole(STOCK_DOC_RIGHTS[kind].create);
 
-  const [options, timeZone] = await Promise.all([getOptions(), getAppTimeZone()]);
+  const [options, timeZone, onHand, userId] = await Promise.all([getOptions(), getAppTimeZone(), listOnHand(), getCurrentUserId()]);
+  const myKit = options.storageAreas.find((a) => !a.inactive && a.technicianUserId && a.technicianUserId === userId)?.value ?? null;
   const titles = {
     loads: "Add New Load",
     transfers: "New Transfer Main",
-    "work-orders": "New Work Order",
+    "work-orders": "New Stock Usage",
     "stock-takes": "New Stock Take",
   } as const;
 
   return (
     <>
       <Header title={titles[kind as keyof typeof titles]} />
-      <DocForm kind={kind} options={options} timeZone={timeZone} />
+      <DocForm kind={kind} options={options} timeZone={timeZone} onHand={onHand} myKit={myKit} />
     </>
   );
 }

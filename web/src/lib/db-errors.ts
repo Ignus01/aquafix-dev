@@ -25,19 +25,25 @@ const UNIQUE_MESSAGES: Record<string, string> = {
   pack_type_name_key: "Must be unique — a pack type with that name already exists.",
   storage_area_code_key: "Must be unique — a storage area with that code already exists.",
   storage_area_name_key: "Must be unique — a storage area with that name already exists.",
+  storage_area_one_kit_per_technician:
+    "That technician is already linked to another storage area. Unlink them there first — a technician has one storage area.",
   item_product_pack_type_key: "That product already has an item in that pack type.",
   barcode_barcode_key: "That barcode already belongs to an item.",
   supplier_item_item_supplier_key: "Already added — that supplier already supplies this item.",
   uom_conversion_from_to_key: "A conversion between those two units already exists.",
   // Stock manager: one line per item on a document.
   transfer_item_once: "That item is already on this transfer. Edit its line instead.",
-  work_order_item_once: "That item is already on this work order. Edit its line instead.",
+  stock_min_level_once: "This item already has a minimum in that storage area. Edit that one instead.",
+  work_order_item_once: "That item is already on this stock usage record. Edit its line instead.",
   stock_take_item_once: "That item has already been counted on this stock take. Edit its line instead.",
   intake_item_po_line_once: "That purchase order line is already on this intake. Edit its line instead.",
 };
 
 // Check constraints with a message that says which value is wrong.
 const CHECK_MESSAGES: Record<string, string> = {
+  stock_take_item_unit_cost_check: "Unit price can't be negative.",
+  stock_min_level_min_check: "Minimum must be 0 or more.",
+  stock_min_level_reorder_check: "Reorder qty must be more than 0.",
   purchase_order_item_qty_positive: "Qty ordered must be greater than 0.",
   purchase_order_item_cost_positive: "Unit cost can't be negative.",
   intake_item_qty_positive: "Qty received must be greater than 0.",
@@ -88,7 +94,7 @@ const REFERENCED_MESSAGES: Record<string, string> = {
   "item:item_transaction": "This Item has stock movements, so it can't be deleted.",
   "storage_area:item_transaction": "This Storage Area has stock movements, so it can't be deleted.",
   "storage_area:intake": "This Storage Area is used by an intake, so it can't be deleted.",
-  "storage_area:work_order": "This Storage Area is used by a work order, so it can't be deleted.",
+  "storage_area:work_order": "This Storage Area is used by a stock usage record, so it can't be deleted.",
   "storage_area:stock_take": "This Storage Area is used by a stock take, so it can't be deleted.",
   "storage_area:transfer_main": "This Storage Area is used by a transfer, so it can't be deleted.",
   "purchase_order:intake": "Stock has been received against this purchase order, so it can't be deleted.",

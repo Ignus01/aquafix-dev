@@ -44,6 +44,10 @@ export function db(): CommonPowerSyncDatabase {
 }
 
 // ---- app_setting ----------------------------------------------------------------
+// The site (location) the technician last opened (MWTS spec R4): a new stock
+// usage starts there.
+export const LAST_SITE_KEY = "last_site_id";
+
 export async function getSetting(key: string): Promise<string | null> {
   const row = await db().getOptional<{ value: string }>("SELECT value FROM app_setting WHERE key = ?", [key]);
   return row?.value ?? null;

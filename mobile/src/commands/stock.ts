@@ -4,11 +4,12 @@
 import type { CommonPowerSyncDatabase } from "@powersync/react-native";
 import type { StockKind } from "../domain/permissions";
 import { nowIso } from "../domain/dates";
+import { addLocalStock, setLocalStock } from "./local-stock";
 import { newId, queueCommand, resolveAttention } from "./outbox";
 import type { StockPayload } from "./types";
 
 export type FieldType = "text" | "textarea" | "number" | "date" | "datetime" | "select" | "bool";
-export type OptionsKey = "storageAreas" | "items" | "transferTypes";
+export type OptionsKey = "storageAreas" | "items" | "transferTypes" | "sites" | "services" | "incidents";
 
 export type Field = {
   key: string;
@@ -93,13 +94,17 @@ export const STOCK_CONFIG: Record<StockKind, StockConfig> = {
     table: "work_order",
     dateKey: "order_date",
     dateHasTime: true,
-    label: "Work order",
-    plural: "Work orders",
-    title: "Work orders",
-    newTitle: "New Work Order",
+    label: "Stock usage",
+    plural: "Stock usage",
+    title: "Stock usage",
+    newTitle: "New Stock Usage",
     prefix: "WO-",
     header: [
+      // MWTS spec R4: site first; a service or incident at that site is optional.
+      { key: "location_id", label: "Site", type: "select", options: "sites", required: true },
       { key: "storage_area_id", label: "Storage area", type: "select", options: "storageAreas", required: true },
+      { key: "service_id", label: "Service", type: "select", options: "services", hint: "Optional: the service at this site." },
+      { key: "incident_id", label: "Incident", type: "select", options: "incidents", hint: "Optional: the incident at this site." },
       { key: "order_date", label: "Date", type: "datetime", required: true },
       { key: "comment", label: "Comment", type: "textarea" },
     ],
@@ -220,6 +225,19 @@ export async function saveStockDocument(
           `INSERT INTO ${cfg.line.table} (${lineCols.join(", ")}) VALUES (${lineCols.map(() => "?").join(", ")})`,
           lineVals.map(sqlValue),
         );
+      }
+    }
+    // Stock on hand moves at once (see local-stock.ts).
+    for (const l of wireLines) {
+      const item = String(l.item_id ?? "");
+      if (kind === "transfers") {
+        const type = String(header.transfer_type ?? "");
+        if (type !== "RECEIVE") await addLocalStock(tx, item, header.from_storage_area_id as string | null, -Number(l.qty));
+        if (type !== "SEND") await addLocalStock(tx, item, header.to_storage_area_id as string | null, Number(l.qty));
+      } else if (kind === "work-orders") {
+        await addLocalStock(tx, item, header.storage_area_id as string | null, l.is_return ? Number(l.qty) : -Number(l.qty));
+      } else if (kind === "stock-takes") {
+        await setLocalStock(tx, item, header.storage_area_id as string | null, Number(l.counted_qty));
       }
     }
     await resolveAttention(tx, opts.attentionId);

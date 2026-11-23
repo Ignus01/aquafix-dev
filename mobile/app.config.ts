@@ -15,7 +15,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   scheme: "aquafix-capture",
   // Semantic version: shown on the home screen and compared with
   // mobile_app_config.min_app_version.
-  version: "1.0.0",
+  version: "1.1.0",
   orientation: "portrait",
   icon: "./assets/icon.png",
   userInterfaceStyle: "light",
@@ -29,6 +29,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     },
   },
   android: {
+    // Must go up with every release (Google Play refuses a repeat).
+    versionCode: 2,
     package: `co.aquafix.capture${suffix.replace(/-/g, "_")}`,
     adaptiveIcon: {
       backgroundColor: "#E6F4FE",

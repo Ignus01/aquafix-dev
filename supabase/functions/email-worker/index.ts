@@ -1,4 +1,5 @@
-// email-worker — sends queued incident notifications (EML-R04).
+// email-worker — sends queued incident notifications (EML-R04) and the
+// daily low-stock email (MWTS R6).
 //
 // Called by the database (pg_net) right after an incident's outbox rows are
 // committed, and every minute by pg_cron while anything is due. Authenticated
@@ -10,6 +11,7 @@ import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { json, serviceClient } from "../_shared/clients.ts";
 import { type EmailConfig, sendBrevoEmail, type SendResult } from "../_shared/brevo.ts";
 import { formatLoggedAt, incidentUrl, renderIncidentEmail } from "../_shared/incident-template.ts";
+import { type LowStockPayload, renderLowStockEmail } from "../_shared/low-stock-template.ts";
 
 // Stay well inside the Edge Function wall-clock limit.
 const TIME_BUDGET_MS = 45_000;
@@ -18,10 +20,11 @@ const BATCH_SIZE = 10;
 type OutboxRow = {
   id: number;
   template: string;
-  incident_id: string;
+  incident_id: string | null;
   recipient_email: string;
   recipient_name: string | null;
   attempts: number;
+  payload: unknown;
 };
 
 type IncidentContext = {
@@ -45,6 +48,32 @@ async function processRow(
     responseBody: null,
     errorReason,
   });
+
+  const toName = row.recipient_name || row.recipient_email.split("@")[0];
+  const checkConfig = (): SendResult | null => {
+    // Settings may have changed since the row was queued (EML-R03).
+    if (!config.email_enabled) return fail("email disabled");
+    if (!config.api_key) return fail("no api key");
+    if (!config.sender_email) return fail("no sender email");
+    return null;
+  };
+
+  if (row.template === "low-stock") {
+    const payload = row.payload as LowStockPayload | null;
+    if (!payload || !Array.isArray(payload.lines)) return { subject: null, result: fail("no low-stock data") };
+    const email = renderLowStockEmail(toName, payload);
+    const blocked = checkConfig();
+    if (blocked) return { subject: email.subject, result: blocked };
+    const result = await sendBrevoEmail(config, {
+      to: { email: row.recipient_email, name: toName },
+      subject: email.subject,
+      html: email.html,
+      text: email.text,
+      tags: ["low-stock", `low-stock-${payload.day}`],
+    });
+    return { subject: email.subject, result };
+  }
+  if (!row.incident_id) return { subject: null, result: fail(`unknown template ${row.template}`) };
 
   const { data: ctx, error } = await db.rpc("incident_email_context", {
     p_incident_id: row.incident_id,

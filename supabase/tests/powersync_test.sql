@@ -496,6 +496,7 @@ select set_eq(
     'service', 'organisation', 'storage_area', 'item',
     'transfer_main', 'transfer_item', 'work_order', 'work_order_item',
     'stock_take', 'stock_take_item', 'load',
+    'purchase_order', 'purchase_order_item', 'storage_area_stock',
     'mobile_app_config'
   ],
   'The publication holds exactly the tables sync-config.yaml reads');

@@ -8,7 +8,7 @@ import { File } from "expo-file-system";
 import { useState } from "react";
 import { ScrollView, Text, View } from "react-native";
 import { advanceStatus } from "../../commands/incident";
-import { type AttentionMessages, type Command, COMMAND_LABELS, type CommandName, payloadImages } from "../../commands/types";
+import { type AttentionMessages, type Command, COMMAND_LABELS, type CommandName, commandBucket, payloadImages } from "../../commands/types";
 import { shortDateTime } from "../../domain/dates";
 import { photoIdFromPath } from "../../photos/photos";
 import { supabase } from "../../lib/supabase";
@@ -56,6 +56,9 @@ export default function AttentionItem() {
       case "save_stock_document":
         router.push({ pathname: "/stock/[kind]/new", params: { kind: cmd.payload.kind, attention: row.id } });
         break;
+      case "receive_purchase_order":
+        router.push({ pathname: "/stock/collect/[id]", params: { id: cmd.payload.purchase_order_id, attention: row.id } });
+        break;
       case "advance_incident_status":
         break;
     }
@@ -81,7 +84,7 @@ export default function AttentionItem() {
   async function discard() {
     setConfirmDiscard(false);
     const photos = payloadImages(cmd).flatMap((i) => ("id" in i ? [] : [i]));
-    const bucket = cmd.command === "save_inspection_activity" ? "inspection-images" : "incident-images";
+    const bucket = commandBucket(cmd) ?? "incident-images";
     const removable: string[] = [];
     await db.writeTransaction(async (tx) => {
       for (const p of photos) {

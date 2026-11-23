@@ -6,9 +6,10 @@ import { STOCK_DOC_RIGHTS, canDoc } from "@/lib/stock-manager/permissions";
 import { ChevronLeftIcon } from "../../../icons";
 import { PageHeader } from "../../../page-header";
 import { getAppTimeZone } from "../../../services/actions";
-import { getDocument, getOptions } from "../../actions";
+import { getCurrentUserDisplayName, getDocument, getOptions, listPurchaseOrderTrace, listReceipts } from "../../actions";
 import { DocEditor } from "../../doc-editor";
 import { DocumentsPanel, IntakePoLinesPanel, LoadIntakesPanel } from "../../panels";
+import { ReceivePanel, ReceiptsPanel, WhereItWentPanel } from "../../receive-panels";
 
 // One stock document: header, panels specific to the type and its lines.
 // `/new` starts a document (an intake also needs `?load=<load number>`).
@@ -39,6 +40,14 @@ export default async function StockDocumentPage(props: PageProps<"/admin/stock-m
     lineDelete: canDoc(roles, kind, "lineDelete"),
   };
 
+  // Purchase order: receive it here (MWTS spec R1) and list what was received.
+  const isPo = kind === "purchase-orders" && !!doc;
+  const [receipts, driver, trace] = await Promise.all([
+    isPo && canDoc(roles, "intakes", "read") ? listReceipts(doc.header.id) : Promise.resolve(null),
+    isPo && canDoc(roles, "intakes", "create") ? getCurrentUserDisplayName() : Promise.resolve(null),
+    isPo ? listPurchaseOrderTrace(doc.header.id) : Promise.resolve(null),
+  ]);
+
   const title = doc ? `${cfg.label} ${docNumber(kind, doc.header.reference)}` : `New ${cfg.label.toLowerCase()}`;
   const back =
     kind === "intakes" && loadReference !== undefined
@@ -62,6 +71,13 @@ export default async function StockDocumentPage(props: PageProps<"/admin/stock-m
           rights={rights}
           loadReference={loadReference}
         >
+          {doc && isPo && driver !== null && (
+            <ReceivePanel
+              key={doc.lines.map((l) => `${l.id}:${l.qty_outstanding}:${l.status}`).join(",")}
+              purchaseOrder={doc.header} lines={doc.lines} options={options} defaultDriver={driver} />
+          )}
+          {doc && isPo && receipts && <ReceiptsPanel receipts={receipts} options={options} timeZone={timeZone} />}
+          {doc && isPo && trace && <WhereItWentPanel rows={trace} options={options} timeZone={timeZone} />}
           {doc && kind === "loads" && (
             <>
               <LoadIntakesPanel
@@ -70,7 +86,7 @@ export default async function StockDocumentPage(props: PageProps<"/admin/stock-m
                 options={options}
                 canCreate={canDoc(roles, "intakes", "create")}
               />
-              <DocumentsPanel parent={{ kind: "loads", id: doc.header.id }} files={doc.files ?? []} timeZone={timeZone} canEdit={rights.update} />
+              <DocumentsPanel parent={{ kind: "loads", id: doc.header.id }} files={doc.files ?? []} timeZone={timeZone} canEdit={rights.update} canDelete={rights.delete} />
             </>
           )}
           {doc && kind === "intakes" && (
@@ -83,7 +99,7 @@ export default async function StockDocumentPage(props: PageProps<"/admin/stock-m
                 options={options}
                 canAdd={rights.lineCreate}
               />
-              <DocumentsPanel parent={{ kind: "intakes", id: doc.header.id }} files={doc.files ?? []} timeZone={timeZone} canEdit={rights.update} />
+              <DocumentsPanel parent={{ kind: "intakes", id: doc.header.id }} files={doc.files ?? []} timeZone={timeZone} canEdit={rights.update} canDelete={rights.delete} />
             </>
           )}
         </DocEditor>

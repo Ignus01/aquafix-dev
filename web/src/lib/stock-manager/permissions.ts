@@ -7,16 +7,18 @@ import type { DocKind } from "./docs";
 const ALL: MasterdataRole[] = ["system_admin", "admin", "user", "viewer"];
 const ADMINS: MasterdataRole[] = ["system_admin", "admin"];
 const WRITERS: MasterdataRole[] = ["system_admin", "admin", "user"];
-const RECEIVERS: MasterdataRole[] = ["system_admin"];
+// Receiving was system_admin-only; opened to admins and technicians for the
+// MWTS rollout (20261119120000). Deleting what was received stays with admins.
+const RECEIVERS: MasterdataRole[] = WRITERS;
 
 type Rights = { read: MasterdataRole[]; create: MasterdataRole[]; update: MasterdataRole[]; delete: MasterdataRole[] };
 
 export const STOCK_DOC_RIGHTS: Record<DocKind, Rights & { lineCreate: MasterdataRole[]; lineDelete: MasterdataRole[] }> = {
   // user edits orders and lines but can't create or delete them.
   "purchase-orders": { read: ALL, create: ADMINS, update: WRITERS, delete: ADMINS, lineCreate: ADMINS, lineDelete: ADMINS },
-  // Receiving is system_admin-only.
-  loads: { read: RECEIVERS, create: RECEIVERS, update: RECEIVERS, delete: RECEIVERS, lineCreate: RECEIVERS, lineDelete: RECEIVERS },
-  intakes: { read: RECEIVERS, create: RECEIVERS, update: RECEIVERS, delete: RECEIVERS, lineCreate: RECEIVERS, lineDelete: RECEIVERS },
+  // Receiving: admins and technicians receive; only admins delete.
+  loads: { read: RECEIVERS, create: RECEIVERS, update: RECEIVERS, delete: ADMINS, lineCreate: RECEIVERS, lineDelete: ADMINS },
+  intakes: { read: RECEIVERS, create: RECEIVERS, update: RECEIVERS, delete: ADMINS, lineCreate: RECEIVERS, lineDelete: ADMINS },
   // viewer can't see transfers.
   transfers: { read: WRITERS, create: WRITERS, update: WRITERS, delete: ADMINS, lineCreate: WRITERS, lineDelete: ADMINS },
   "work-orders": { read: ALL, create: WRITERS, update: WRITERS, delete: ADMINS, lineCreate: WRITERS, lineDelete: ADMINS },

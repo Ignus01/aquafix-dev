@@ -55,12 +55,29 @@ export type StockPayload = {
   lines: Record<string, string | number | boolean | null>[];
 };
 
+// receive_purchase_order (MWTS spec R3, "Collected"): exactly what the RPC
+// receives as `p`. documents carry thumbnail_path too, for the photo upload
+// queue; the RPC ignores it.
+export type CollectDocument = { name: string; storage_path: string; thumbnail_path: string; mime_type: string; size_bytes: number };
+export type CollectPayload = {
+  command_id: string;
+  captured_at: string;
+  purchase_order_id: string;
+  storage_area_id: string;
+  load_id: string;
+  intake_id: string;
+  delivery_note: string | null;
+  lines: { id: string; purchase_order_item_id: string; qty: number; batch_number: string | null; expiry_date: string | null }[];
+  documents: CollectDocument[];
+};
+
 export type Command =
   | { command: "save_inspection_activity"; payload: InspectionPayload }
   | { command: "save_incident"; payload: IncidentPayload }
   | { command: "add_incident_note"; payload: NotePayload }
   | { command: "advance_incident_status"; payload: AdvancePayload }
-  | { command: "save_stock_document"; payload: StockPayload };
+  | { command: "save_stock_document"; payload: StockPayload }
+  | { command: "receive_purchase_order"; payload: CollectPayload };
 
 export type CommandName = Command["command"];
 
@@ -70,6 +87,7 @@ export const COMMAND_LABELS: Record<CommandName, string> = {
   add_incident_note: "Incident note",
   advance_incident_status: "Incident status",
   save_stock_document: "Stock document",
+  receive_purchase_order: "Collected order",
 };
 
 // What a Needs attention row keeps from the server.
@@ -90,6 +108,13 @@ export function payloadImages(c: Command): PayloadImage[] {
       return c.payload.images;
     case "add_incident_note":
       return c.payload.p_images;
+    case "receive_purchase_order":
+      return c.payload.documents.map((d) => ({
+        storage_path: d.storage_path,
+        thumbnail_path: d.thumbnail_path,
+        mime_type: d.mime_type,
+        size_bytes: d.size_bytes,
+      }));
     default:
       return [];
   }
@@ -98,6 +123,7 @@ export function payloadImages(c: Command): PayloadImage[] {
 export function commandBucket(c: Command): string | null {
   if (c.command === "save_inspection_activity") return "inspection-images";
   if (c.command === "save_incident" || c.command === "add_incident_note") return "incident-images";
+  if (c.command === "receive_purchase_order") return "stock-documents";
   return null;
 }
 

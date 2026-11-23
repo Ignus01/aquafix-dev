@@ -24,6 +24,7 @@ const TABS = [
   { key: "product_type", label: "Product Types" },
   { key: "storage_area", label: "Storage Areas" },
   { key: "unit_of_measure", label: "Units Of Measure" },
+  { key: "min_level", label: "Minimum Levels" },
 ] as const;
 
 type TabKey = (typeof TABS)[number]["key"];
@@ -82,6 +83,9 @@ export function StockTabs({
   unitsOfMeasure,
   locations,
   organisations,
+  technicians,
+  minLevels,
+  itemOptions,
   timeZone,
   initialTab,
 }: {
@@ -93,6 +97,9 @@ export function StockTabs({
   unitsOfMeasure: UnitOfMeasure[];
   locations: Location[];
   organisations: Organisation[];
+  technicians: { id: string; name: string }[];
+  minLevels: Record<string, unknown>[];
+  itemOptions: { value: string; label: string }[];
   timeZone: string;
   // From ?tab= (the tab survives a refresh).
   initialTab?: string;
@@ -105,6 +112,7 @@ export function StockTabs({
     product_type: productTypes.length,
     storage_area: storageAreas.length,
     unit_of_measure: unitsOfMeasure.length,
+    min_level: minLevels.length,
   };
 
   const uomOptions = unitsOfMeasure
@@ -303,6 +311,13 @@ export function StockTabs({
                     options: locationOptions,
                     render: (_v, row) => (row.location as { name: string } | null)?.name ?? "—",
                   },
+                  {
+                    key: "technician_user_id",
+                    label: "Technician (kit)",
+                    type: "select",
+                    options: technicians.map((t) => ({ value: t.id, label: t.name })),
+                    render: (v) => technicians.find((t) => t.id === v)?.name ?? "—",
+                  },
                   activeField,
                 ] satisfies FieldConfig[]
               }
@@ -346,6 +361,48 @@ export function StockTabs({
                     options: UOM_TYPES.map((t) => ({ value: t, label: t })),
                   },
                   activeField,
+                ] satisfies FieldConfig[]
+              }
+            />
+          )}
+        </Permissioned>
+      )}
+
+      {tab === "min_level" && (
+        <Permissioned roles={roles} entity="stock_min_level">
+          {(perms) => (
+            <EntityCrudTable
+              rows={minLevels}
+              gridId="stock-min-levels"
+              timeZone={timeZone}
+              getId={(r) => r.id as string}
+              {...perms}
+              itemLabel="Minimum Level"
+              title="Minimum levels"
+              emptyLabel="No minimum levels yet. Add one to get Low badges and the daily low-stock email."
+              onCreate={actions.createMinLevel}
+              onUpdate={actions.updateMinLevel}
+              onDelete={actions.deleteMinLevel}
+              fields={
+                [
+                  {
+                    key: "item_id",
+                    label: "Item",
+                    type: "select",
+                    required: true,
+                    options: itemOptions,
+                    render: (v) => itemOptions.find((o) => o.value === v)?.label ?? "—",
+                  },
+                  {
+                    key: "storage_area_id",
+                    label: "Storage area",
+                    type: "select",
+                    required: true,
+                    options: storageAreas.filter((a) => a.active).map((a) => ({ value: a.id, label: a.name })),
+                    render: (v) => storageAreas.find((a) => a.id === v)?.name ?? "—",
+                  },
+                  { key: "min_qty", label: "Minimum (packs)", columnLabel: "Minimum", type: "number", required: true, step: "any" },
+                  { key: "reorder_qty", label: "Reorder qty (packs, optional)", columnLabel: "Reorder qty", type: "number", step: "any" },
                 ] satisfies FieldConfig[]
               }
             />
